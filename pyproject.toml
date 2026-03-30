@@ -1,0 +1,39 @@
+[project]
+name = "deepvista-cli"
+version = "0.1.0"
+description = "CLI for DeepVista — manage your knowledge base, VistaBooks, notes, and chat from the terminal."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1",
+    "httpx>=0.27",
+    "rich>=13.0",
+]
+
+[project.scripts]
+deepvista = "deepvista_cli.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["deepvista_cli"]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=3.7",
+    "pyright>=1.1",
+    "ruff>=0.4",
+    "skills-ref>=0.1.1",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
