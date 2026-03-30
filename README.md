@@ -4,17 +4,41 @@ CLI for DeepVista — manage your knowledge base, VistaBooks, notes, and chat fr
 
 ## Install
 
+### From PyPI (once published)
+
+```bash
+pip install deepvista-cli
+```
+
 ```bash
 uv tool install deepvista-cli
 ```
-
-Or with pipx:
 
 ```bash
 pipx install deepvista-cli
 ```
 
-For development (from this repo):
+### Directly from GitHub (available now)
+
+```bash
+pip install git+https://github.com/DeepVista-AI/deepvista-cli.git
+```
+
+Pin to a specific tag or branch:
+
+```bash
+pip install git+https://github.com/DeepVista-AI/deepvista-cli.git@v0.1.0
+pip install git+https://github.com/DeepVista-AI/deepvista-cli.git@main
+```
+
+Or with uv / pipx:
+
+```bash
+uv tool install git+https://github.com/DeepVista-AI/deepvista-cli.git
+pipx install git+https://github.com/DeepVista-AI/deepvista-cli.git
+```
+
+### For development (from this repo)
 
 ```bash
 uv sync
