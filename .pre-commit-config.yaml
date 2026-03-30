@@ -1,0 +1,23 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.8
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright
+        language: system
+        entry: uv run pyright deepvista_cli/
+        pass_filenames: false
+        types: [python]
+
+      - id: skills-ref-validate
+        name: Validate Agent Skills
+        language: system
+        entry: bash -c 'for dir in skills/*/; do uv run agentskills validate "$dir" || exit 1; done'
+        files: skills/.*/SKILL\.md$
+        pass_filenames: false
