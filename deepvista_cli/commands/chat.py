@@ -75,20 +75,33 @@ def chat_delete(ctx: click.Context, chat_id: str) -> None:
 @click.argument("message")
 @click.option("--chat-id", default=None, help="Send to existing chat session.")
 @click.option("--new", "new_chat", is_flag=True, default=False, help="Force start a new conversation.")
+@click.option(
+    "--no-stream",
+    "no_stream",
+    is_flag=True,
+    default=False,
+    help="Wait for completion and return a single JSON result instead of streaming.",
+)
 @click.pass_context
-def chat_send(ctx: click.Context, message: str, chat_id: str | None, new_chat: bool) -> None:
+def chat_send(ctx: click.Context, message: str, chat_id: str | None, new_chat: bool, no_stream: bool) -> None:
     """Send a message to the DeepVista AI agent and stream the response.
 
-    Output is NDJSON (one JSON object per line) — each line is an SSE event
-    from the agent's streaming response.
+    By default, output is NDJSON (one JSON object per line) with simplified
+    agent-friendly events: chat_session, tool start/done, text, and done.
+
+    With --no-stream, waits for the full response and prints a single JSON
+    object: {"result": "...", "chat_id": "...", "created_card_id": "..."}.
 
     > [!CAUTION] This is a write command — it creates/updates a chat session
     > and may trigger agent actions (creating cards, searching, etc.).
     """
-    body: dict = {"user_instruction": message}
+    body: dict = {"instruction": message, "stream": not no_stream}
     if chat_id and not new_chat:
         body["chat_id"] = chat_id
-    # If --new is set, we omit chat_id to create a new session
 
-    for event in _client(ctx).stream_sse("/imagine", body):
-        click.echo(json.dumps(event, default=str))
+    if no_stream:
+        data = _client(ctx).post_long("/run", body)
+        click.echo(json.dumps(data, default=str))
+    else:
+        for event in _client(ctx).stream_sse("/run", body):
+            click.echo(json.dumps(event, default=str))

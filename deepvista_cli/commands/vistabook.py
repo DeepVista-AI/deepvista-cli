@@ -73,28 +73,40 @@ def vistabook_get(ctx: click.Context, vistabook_id: str) -> None:
 @vistabook_group.command("+run")
 @click.argument("vistabook_id")
 @click.option("--input", "user_input", default=None, help="Context or instructions for the run.")
+@click.option(
+    "--no-stream",
+    "no_stream",
+    is_flag=True,
+    default=False,
+    help="Wait for completion and return a single JSON result instead of streaming.",
+)
 @click.pass_context
-def vistabook_run(ctx: click.Context, vistabook_id: str, user_input: str | None) -> None:
+def vistabook_run(ctx: click.Context, vistabook_id: str, user_input: str | None, no_stream: bool) -> None:
     """Start a VistaBook run — executes the workflow via the chat agent.
 
     > [!CAUTION] This is a write command — it creates a new VistaBook run and sends
     > messages to the chat agent. Confirm with the user before executing.
 
-    Output is NDJSON (one JSON object per line) as the agent streams its response.
+    By default, output is NDJSON (one JSON object per line) with simplified
+    agent-friendly events: chat_session, tool start/done, text, and done.
+
+    With --no-stream, waits for the full response and prints a single JSON
+    object: {"result": "...", "chat_id": "...", "created_card_id": "..."}.
     """
     _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
     if not _UUID_RE.match(vistabook_id):
         output_error(3, "Invalid vistabook ID", f"Expected UUID format, got: {vistabook_id!r}")
 
-    # Note: context_card_id triggers watch mode on /imagine, NOT chat processing.
-    # Pass the vistabook reference in user_instruction instead.
-    instruction = user_input or "Run this vistabook"
-    body: dict = {
-        "user_instruction": f"[vistabook:{vistabook_id}] {instruction}",
-    }
+    # Pass the vistabook reference in the instruction so the agent loads the card.
+    instruction = f"[vistabook:{vistabook_id}] {user_input or 'Run this vistabook'}"
+    body: dict = {"instruction": instruction, "stream": not no_stream}
 
-    for event in _client(ctx).stream_sse("/imagine", body):
-        click.echo(json.dumps(event, default=str))
+    if no_stream:
+        data = _client(ctx).post_long("/run", body)
+        click.echo(json.dumps(data, default=str))
+    else:
+        for event in _client(ctx).stream_sse("/run", body):
+            click.echo(json.dumps(event, default=str))
 
 
 @vistabook_group.command("+status")

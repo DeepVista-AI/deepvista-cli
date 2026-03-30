@@ -170,6 +170,28 @@ class DeepVistaClient:
         """HTTP DELETE, returns parsed JSON."""
         return self._request("DELETE", path, params=params)
 
+    def post_long(self, path: str, body: dict | None = None, timeout: int = 300) -> Any:
+        """HTTP POST with a longer timeout for slow agent operations (non-streaming)."""
+        self._log_request("POST (long)", path, body)
+        if self.config.dry_run:
+            click.echo(
+                json.dumps({"dry_run": True, "method": "POST_LONG", "path": path, "body": body}, default=str),
+                err=True,
+            )
+            sys.exit(0)
+
+        try:
+            client = httpx.Client(base_url=self.config.base_url, timeout=timeout)
+            headers = self._auth_headers()
+            resp = client.post(path, headers=headers, json=body or {})
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            self._handle_network_error(exc)
+
+        self._log_response(resp)
+        if resp.status_code >= 400:
+            self._handle_error(resp)
+        return resp.json()
+
     def stream_sse(self, path: str, body: dict | None = None) -> Iterator[dict]:
         """POST with SSE streaming. Yields parsed JSON events as NDJSON."""
         self._log_request("POST (SSE)", path, body)
