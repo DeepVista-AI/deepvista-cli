@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import time
 from dataclasses import dataclass
 
 import httpx
+from filelock import FileLock
 
 from deepvista_cli.config import CONFIG_DIR, CREDENTIALS_PATH, SUPABASE_ANON_KEY, SUPABASE_URL
 
@@ -59,10 +62,21 @@ class TokenSet:
 
 
 def save_tokens(tokens: TokenSet) -> None:
-    """Persist tokens to ~/.config/deepvista/credentials.json (mode 0600)."""
+    """Persist tokens to ~/.config/deepvista/credentials.json (mode 0600).
+
+    Writes atomically via a temp file so the credentials file is never
+    world-readable, even briefly (avoids TOCTOU between write and chmod).
+    """
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CREDENTIALS_PATH.write_text(json.dumps(tokens.to_dict(), indent=2))
-    CREDENTIALS_PATH.chmod(0o600)
+    fd, tmp_path = tempfile.mkstemp(dir=CONFIG_DIR, prefix=".credentials.", suffix=".tmp")
+    try:
+        os.chmod(tmp_path, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(tokens.to_dict(), indent=2))
+        os.replace(tmp_path, CREDENTIALS_PATH)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
     logger.debug("Tokens saved to %s", CREDENTIALS_PATH)
 
 
@@ -117,14 +131,19 @@ def get_valid_token() -> TokenSet | None:
         return None
 
     if tokens.is_expired and tokens.refresh_token:
-        try:
-            tokens = refresh_access_token(tokens.refresh_token)
-            save_tokens(tokens)
-        except httpx.HTTPStatusError as e:
-            logger.error("Token refresh failed: HTTP %s", e.response.status_code)
-            return None
-        except httpx.ConnectError:
-            logger.error("Cannot reach Supabase for token refresh")
-            return None
+        lock_path = CREDENTIALS_PATH.with_suffix(".lock")
+        with FileLock(str(lock_path), timeout=10):
+            # Re-read inside the lock in case a parallel invocation already refreshed.
+            tokens = load_tokens() or tokens
+            if tokens.is_expired:
+                try:
+                    tokens = refresh_access_token(tokens.refresh_token)
+                    save_tokens(tokens)
+                except httpx.HTTPStatusError as e:
+                    logger.error("Token refresh failed: HTTP %s", e.response.status_code)
+                    return None
+                except httpx.ConnectError:
+                    logger.error("Cannot reach Supabase for token refresh")
+                    return None
 
     return tokens if tokens.access_token else None
