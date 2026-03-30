@@ -32,3 +32,9 @@ jobs:
           for dir in skills/*/; do
             uv run agentskills validate "$dir"
           done
+
+      - name: Security scan (bandit)
+        run: uv run --with bandit bandit -r deepvista_cli/ -ll -q
+
+      - name: Dependency vulnerability check
+        run: uv run --with pip-audit pip-audit

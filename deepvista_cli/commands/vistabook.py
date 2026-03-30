@@ -7,11 +7,12 @@ VistaBook Runs are execution instances (type=vistabook_run) linked via a master 
 from __future__ import annotations
 
 import json
+import re
 
 import click
 
 from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.output.formatter import format_output
+from deepvista_cli.output.formatter import format_output, output_error
 
 VISTABOOK_COLUMNS = ["id", "title", "display_status", "updated_at"]
 
@@ -81,6 +82,10 @@ def vistabook_run(ctx: click.Context, vistabook_id: str, user_input: str | None)
 
     Output is NDJSON (one JSON object per line) as the agent streams its response.
     """
+    _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+    if not _UUID_RE.match(vistabook_id):
+        output_error(3, "Invalid vistabook ID", f"Expected UUID format, got: {vistabook_id!r}")
+
     # Note: context_card_id triggers watch mode on /imagine, NOT chat processing.
     # Pass the vistabook reference in user_instruction instead.
     instruction = user_input or "Run this vistabook"

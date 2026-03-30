@@ -128,7 +128,8 @@ class DeepVistaClient:
             click.echo(
                 json.dumps(
                     {"dry_run": True, "method": method, "path": path, "body": body, "params": params}, default=str
-                )
+                ),
+                err=True,
             )
             sys.exit(0)
 
@@ -173,7 +174,10 @@ class DeepVistaClient:
         """POST with SSE streaming. Yields parsed JSON events as NDJSON."""
         self._log_request("POST (SSE)", path, body)
         if self.config.dry_run:
-            click.echo(json.dumps({"dry_run": True, "method": "POST_SSE", "path": path, "body": body}, default=str))
+            click.echo(
+                json.dumps({"dry_run": True, "method": "POST_SSE", "path": path, "body": body}, default=str),
+                err=True,
+            )
             sys.exit(0)
 
         client = self._get_client()

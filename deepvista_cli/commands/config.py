@@ -30,7 +30,7 @@ def config_set(ctx: click.Context, profile_name: str, base_url: str, api_key: st
     if site_url:
         settings["site_url"] = site_url
     set_profile(profile_name, settings)
-    output = {"profile": profile_name, "base_url": base_url, "api_key": f"{api_key[:8]}..."}
+    output = {"profile": profile_name, "base_url": base_url, "api_key": f"{api_key[:4]}****"}
     if site_url:
         output["site_url"] = site_url
     format_output(output, ctx.obj.output_format)
@@ -53,7 +53,7 @@ def config_list(ctx: click.Context) -> None:
     for name, settings in profiles.items():
         masked[name] = {**settings}
         if "api_key" in masked[name]:
-            masked[name]["api_key"] = masked[name]["api_key"][:8] + "..."
+            masked[name]["api_key"] = masked[name]["api_key"][:4] + "****"
     format_output(masked, ctx.obj.output_format, title="Profiles")
 
 
@@ -68,7 +68,7 @@ def config_show(ctx: click.Context, profile_name: str) -> None:
         return
     masked = {**profile}
     if "api_key" in masked:
-        masked["api_key"] = masked["api_key"][:8] + "..."
+        masked["api_key"] = masked["api_key"][:4] + "****"
     format_output(masked, ctx.obj.output_format, title=f"Profile: {profile_name}")
 
 
