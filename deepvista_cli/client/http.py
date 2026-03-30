@@ -1,7 +1,6 @@
 """HTTP client that handles auth headers and auto-refresh.
 
 Every request includes:
-  - X-API-Key: <api_key>
   - Authorization: Bearer <jwt>
   - Content-Type: application/json
 
@@ -44,26 +43,9 @@ class DeepVistaClient:
     def _auth_headers(self) -> dict[str, str]:
         """Build auth headers, auto-refreshing token if needed.
 
-        Auth: X-API-Key + Authorization: Bearer <jwt> (from login).
+        Auth: Authorization: Bearer <jwt> (from login).
         """
         headers: dict[str, str] = {"Content-Type": "application/json"}
-
-        # API key is required for all requests
-        if self.config.api_key:
-            headers["X-API-Key"] = self.config.api_key
-        else:
-            click.echo(
-                json.dumps(
-                    {
-                        "error": {
-                            "code": 2,
-                            "message": "No API key. Run: deepvista config set <name> --base-url <url> --api-key <key>",
-                        }
-                    }
-                ),
-                err=True,
-            )
-            sys.exit(EXIT_AUTH_ERROR)
 
         # JWT auth (from credentials file)
         tokens = get_valid_token()

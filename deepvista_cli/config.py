@@ -34,9 +34,6 @@ SUPABASE_ANON_KEY = os.environ.get(
     ".Ae6jkDZ4vHBAjFsRxCoiy_QdRTMnTQ6Se6b5iQfFdDU",
 )
 
-# Default API key — loaded from env var or profile. No hardcoded fallback.
-DEFAULT_API_KEY = ""
-
 # ---------------------------------------------------------------------------
 # Exit codes (following GWS pattern)
 # ---------------------------------------------------------------------------
@@ -65,7 +62,7 @@ def _load_profiles() -> dict:
 
 
 def _save_profiles(profiles: dict) -> None:
-    """Save profiles to ~/.config/deepvista/config.json (mode 0600 — contains API keys)."""
+    """Save profiles to ~/.config/deepvista/config.json (mode 0600)."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     PROFILES_PATH.write_text(json.dumps(profiles, indent=2))
     PROFILES_PATH.chmod(0o600)
@@ -108,7 +105,6 @@ class CLIConfig:
     """Resolved configuration for a single CLI invocation."""
 
     base_url: str = field(default_factory=lambda: os.environ.get("DEEPVISTA_BASE_URL", DEFAULT_BASE_URL))
-    api_key: str = field(default_factory=lambda: os.environ.get("DEEPVISTA_API_KEY", DEFAULT_API_KEY))
     site_url: str = field(default_factory=lambda: os.environ.get("DEEPVISTA_SITE_URL", "https://app.deepvista.ai"))
     output_format: str = DEFAULT_FORMAT
     verbose: bool = False
@@ -124,8 +120,6 @@ class CLIConfig:
         # Profile values are overridden by env vars
         if not os.environ.get("DEEPVISTA_BASE_URL") and "base_url" in profile:
             self.base_url = profile["base_url"]
-        if not os.environ.get("DEEPVISTA_API_KEY") and "api_key" in profile:
-            self.api_key = profile["api_key"]
         if not os.environ.get("DEEPVISTA_SITE_URL") and "site_url" in profile:
             self.site_url = profile["site_url"]
 

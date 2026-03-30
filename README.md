@@ -77,20 +77,18 @@ deepvista auth logout
 
 ## Profiles
 
-Profiles store `base_url` and `api_key` so you don't need env vars for each environment.
+Profiles store `base_url` so you don't need env vars for each environment.
 
 ### Create a profile
 
 ```bash
 # Local development
 deepvista config set local \
-  --base-url http://localhost:8080 \
-  --api-key <your-local-api-key>
+  --base-url http://localhost:8080
 
 # Staging (Cloud Run)
 deepvista config set staging \
-  --base-url https://deepvista-ai-service-160619978676.us-west1.run.app \
-  --api-key <your-staging-api-key>
+  --base-url https://deepvista-ai-service-160619978676.us-west1.run.app
 ```
 
 ### Use a profile
@@ -113,7 +111,7 @@ deepvista config delete old # delete a profile
 Settings are resolved in this order (first wins):
 
 1. CLI flags (`--base-url`, `--format`, etc.)
-2. Environment variables (`DEEPVISTA_BASE_URL`, `DEEPVISTA_API_KEY`, etc.)
+2. Environment variables (`DEEPVISTA_BASE_URL`, etc.)
 3. Named profile (`--profile local`)
 4. Built-in defaults (staging Cloud Run)
 
@@ -225,7 +223,6 @@ deepvista vistabase list --profile local
 | Variable | Description |
 |----------|-------------|
 | `DEEPVISTA_BASE_URL` | Backend API URL |
-| `DEEPVISTA_API_KEY` | API key for the backend |
 | `DEEPVISTA_SITE_URL` | Web app URL for login (default: `https://app.deepvista.ai`) |
 | `DEEPVISTA_SUPABASE_URL` | Supabase project URL |
 | `DEEPVISTA_CONFIG_DIR` | Config directory (default: `~/.config/deepvista`) |
