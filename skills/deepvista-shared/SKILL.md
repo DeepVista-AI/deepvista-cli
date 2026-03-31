@@ -6,13 +6,38 @@ metadata:
     category: "shared"
     requires:
       bins:
-        - uv
+        - deepvista
     cliHelp: "deepvista --help"
 ---
 
 # DeepVista CLI — Shared Reference
 
 This skill documents authentication, global flags, and security conventions for all DeepVista CLI commands.
+
+## Installation
+
+If `deepvista` is not already installed, install it with any of:
+
+```bash
+# From PyPI
+pip install deepvista-cli
+
+# From GitHub (latest)
+pip install git+https://github.com/DeepVista-AI/deepvista-cli.git
+```
+
+With uv or pipx:
+
+```bash
+uv tool install deepvista-cli
+pipx install deepvista-cli
+```
+
+Verify:
+
+```bash
+deepvista --version
+```
 
 ## Running Commands
 
