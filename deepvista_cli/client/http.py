@@ -1,7 +1,6 @@
 """HTTP client that handles auth headers and auto-refresh.
 
 Every request includes:
-  - X-API-Key: <api_key>
   - Authorization: Bearer <jwt>
   - Content-Type: application/json
 
@@ -21,7 +20,7 @@ import click
 import httpx
 
 from deepvista_cli.auth.tokens import get_valid_token
-from deepvista_cli.config import EXIT_API_ERROR, EXIT_AUTH_ERROR, EXIT_NETWORK_ERROR, CLIConfig
+from deepvista_cli.config import EXIT_API_ERROR, EXIT_AUTH_ERROR, EXIT_NETWORK_ERROR, CLIConfig, credentials_path
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ class DeepVistaClient:
     def _get_client(self) -> httpx.Client:
         if self._client is None:
             self._client = httpx.Client(
-                base_url=self.config.base_url,
+                base_url=self.config.api_url,
                 timeout=30,
             )
         return self._client
@@ -44,29 +43,12 @@ class DeepVistaClient:
     def _auth_headers(self) -> dict[str, str]:
         """Build auth headers, auto-refreshing token if needed.
 
-        Auth: X-API-Key + Authorization: Bearer <jwt> (from login).
+        Auth: Authorization: Bearer <jwt> (from login).
         """
         headers: dict[str, str] = {"Content-Type": "application/json"}
 
-        # API key is required for all requests
-        if self.config.api_key:
-            headers["X-API-Key"] = self.config.api_key
-        else:
-            click.echo(
-                json.dumps(
-                    {
-                        "error": {
-                            "code": 2,
-                            "message": "No API key. Run: deepvista config set <name> --base-url <url> --api-key <key>",
-                        }
-                    }
-                ),
-                err=True,
-            )
-            sys.exit(EXIT_AUTH_ERROR)
-
-        # JWT auth (from credentials file)
-        tokens = get_valid_token()
+        # JWT auth (from per-profile credentials file)
+        tokens = get_valid_token(credentials_path(self.config.profile))
         if tokens is not None and tokens.access_token:
             headers["Authorization"] = f"Bearer {tokens.access_token}"
             return headers
@@ -87,7 +69,7 @@ class DeepVistaClient:
 
     def _log_request(self, method: str, path: str, body: Any = None) -> None:
         if self.config.verbose:
-            click.echo(f">>> {method} {self.config.base_url}{path}", err=True)
+            click.echo(f">>> {method} {self.config.api_url}{path}", err=True)
             if body:
                 click.echo(f">>> Body: {json.dumps(body, default=str)}", err=True)
 
@@ -98,10 +80,10 @@ class DeepVistaClient:
     def _handle_network_error(self, exc: httpx.ConnectError | httpx.TimeoutException) -> NoReturn:
         """Handle network-level errors with structured output."""
         if isinstance(exc, httpx.ConnectError):
-            msg = f"Cannot connect to {self.config.base_url}"
+            msg = f"Cannot connect to {self.config.api_url}"
             detail = str(exc)
         else:
-            msg = f"Request timed out to {self.config.base_url}"
+            msg = f"Request timed out to {self.config.api_url}"
             detail = str(exc)
         err = {"error": {"code": EXIT_NETWORK_ERROR, "message": msg, "detail": detail}}
         click.echo(json.dumps(err, indent=2), err=True)

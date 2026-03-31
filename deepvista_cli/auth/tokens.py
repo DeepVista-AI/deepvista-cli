@@ -13,11 +13,13 @@ import os
 import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 from filelock import FileLock
 
-from deepvista_cli.config import CONFIG_DIR, CREDENTIALS_PATH, SUPABASE_ANON_KEY, SUPABASE_URL
+from deepvista_cli.config import CONFIG_DIR, SUPABASE_ANON_KEY, SUPABASE_URL
+from deepvista_cli.config import credentials_path as _default_creds_path
 
 logger = logging.getLogger(__name__)
 
@@ -61,40 +63,43 @@ class TokenSet:
 # ---------------------------------------------------------------------------
 
 
-def save_tokens(tokens: TokenSet) -> None:
-    """Persist tokens to ~/.config/deepvista/credentials.json (mode 0600).
+def save_tokens(tokens: TokenSet, path: Path | None = None) -> None:
+    """Persist tokens to a per-profile credentials file (mode 0600).
 
     Writes atomically via a temp file so the credentials file is never
     world-readable, even briefly (avoids TOCTOU between write and chmod).
     """
+    creds = path or _default_creds_path()
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=CONFIG_DIR, prefix=".credentials.", suffix=".tmp")
     try:
         os.chmod(tmp_path, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(json.dumps(tokens.to_dict(), indent=2))
-        os.replace(tmp_path, CREDENTIALS_PATH)
+        os.replace(tmp_path, creds)
     except Exception:
         os.unlink(tmp_path)
         raise
-    logger.debug("Tokens saved to %s", CREDENTIALS_PATH)
+    logger.debug("Tokens saved to %s", creds)
 
 
-def load_tokens() -> TokenSet | None:
-    """Load tokens from credentials file."""
-    if CREDENTIALS_PATH.exists():
+def load_tokens(path: Path | None = None) -> TokenSet | None:
+    """Load tokens from a per-profile credentials file."""
+    creds = path or _default_creds_path()
+    if creds.exists():
         try:
-            data = json.loads(CREDENTIALS_PATH.read_text())
+            data = json.loads(creds.read_text())
             return TokenSet.from_dict(data)
         except (json.JSONDecodeError, KeyError):
-            logger.warning("Corrupt credentials file at %s", CREDENTIALS_PATH)
+            logger.warning("Corrupt credentials file at %s", creds)
     return None
 
 
-def delete_tokens() -> None:
-    """Remove stored tokens."""
-    if CREDENTIALS_PATH.exists():
-        CREDENTIALS_PATH.unlink()
+def delete_tokens(path: Path | None = None) -> None:
+    """Remove stored tokens for a profile."""
+    creds = path or _default_creds_path()
+    if creds.exists():
+        creds.unlink()
 
 
 def refresh_access_token(refresh_token: str) -> TokenSet:
@@ -124,21 +129,22 @@ def refresh_access_token(refresh_token: str) -> TokenSet:
     )
 
 
-def get_valid_token() -> TokenSet | None:
+def get_valid_token(path: Path | None = None) -> TokenSet | None:
     """Load tokens and auto-refresh if expired. Returns None if not authenticated."""
-    tokens = load_tokens()
+    creds = path or _default_creds_path()
+    tokens = load_tokens(creds)
     if tokens is None:
         return None
 
     if tokens.is_expired and tokens.refresh_token:
-        lock_path = CREDENTIALS_PATH.with_suffix(".lock")
+        lock_path = creds.with_suffix(".lock")
         with FileLock(str(lock_path), timeout=10):
             # Re-read inside the lock in case a parallel invocation already refreshed.
-            tokens = load_tokens() or tokens
+            tokens = load_tokens(creds) or tokens
             if tokens.is_expired:
                 try:
                     tokens = refresh_access_token(tokens.refresh_token)
-                    save_tokens(tokens)
+                    save_tokens(tokens, creds)
                 except httpx.HTTPStatusError as e:
                     logger.error("Token refresh failed: HTTP %s", e.response.status_code)
                     return None

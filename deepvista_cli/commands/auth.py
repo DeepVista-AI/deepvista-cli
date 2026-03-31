@@ -8,6 +8,7 @@ import click
 
 from deepvista_cli.auth.login import login_interactive, login_with_code
 from deepvista_cli.auth.tokens import delete_tokens, load_tokens
+from deepvista_cli.config import credentials_path
 from deepvista_cli.output.formatter import format_output, output_error
 
 
@@ -31,7 +32,7 @@ def auth_login(ctx: click.Context, code: str | None) -> None:
       deepvista auth login --code <base64_code>
     """
     if code:
-        tokens = login_with_code(code)
+        tokens = login_with_code(code, credentials_path(ctx.obj.profile))
         result = {
             "status": "authenticated",
             "email": tokens.email,
@@ -40,14 +41,14 @@ def auth_login(ctx: click.Context, code: str | None) -> None:
         format_output(result, ctx.obj.output_format)
         click.echo(f"  Logged in as {tokens.email or tokens.user_id}", err=True)
     else:
-        login_interactive(site_url=ctx.obj.site_url)
+        login_interactive(auth_url=ctx.obj.auth_url)
 
 
 @auth_group.command("status")
 @click.pass_context
 def auth_status(ctx: click.Context) -> None:
     """Show current authentication state."""
-    tokens = load_tokens()
+    tokens = load_tokens(credentials_path(ctx.obj.profile))
     if tokens is None:
         output_error(2, "Not authenticated. Run: deepvista auth login")
         return
@@ -67,7 +68,7 @@ def auth_status(ctx: click.Context) -> None:
 @click.pass_context
 def auth_logout(ctx: click.Context) -> None:
     """Clear stored credentials."""
-    delete_tokens()
+    delete_tokens(credentials_path(ctx.obj.profile))
     result = {"status": "logged_out"}
     format_output(result, ctx.obj.output_format)
     click.echo("  Logged out.", err=True)
