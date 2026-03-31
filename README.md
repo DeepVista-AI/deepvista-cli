@@ -64,7 +64,7 @@ deepvista auth login --code <base64_auth_code>
 ### Self-hosted / staging
 
 ```bash
-export DEEPVISTA_SITE_URL=https://staging.deepvista.ai
+export DEEPVISTA_AUTH_URL=https://staging.deepvista.ai
 deepvista auth login
 ```
 
@@ -77,20 +77,16 @@ deepvista auth logout
 
 ## Profiles
 
-Profiles store `base_url` and `api_key` so you don't need env vars for each environment.
+Profiles store `api_url` so you don't need env vars for each environment.
 
 ### Create a profile
 
 ```bash
 # Local development
-deepvista config set local \
-  --base-url http://localhost:8080 \
-  --api-key <your-local-api-key>
+deepvista config set local --api-url http://localhost:8080
 
-# Staging (Cloud Run)
-deepvista config set staging \
-  --base-url https://deepvista-ai-service-160619978676.us-west1.run.app \
-  --api-key <your-staging-api-key>
+# Staging
+deepvista config set staging --api-url https://api-staging.deepvista.ai
 ```
 
 ### Use a profile
@@ -112,10 +108,10 @@ deepvista config delete old # delete a profile
 
 Settings are resolved in this order (first wins):
 
-1. CLI flags (`--base-url`, `--format`, etc.)
-2. Environment variables (`DEEPVISTA_BASE_URL`, `DEEPVISTA_API_KEY`, etc.)
+1. CLI flags (`--api-url`, `--format`, etc.)
+2. Environment variables (`DEEPVISTA_API_URL`, etc.)
 3. Named profile (`--profile local`)
-4. Built-in defaults (staging Cloud Run)
+4. Built-in default (`https://api.deepvista.ai`)
 
 ## Commands
 
@@ -189,7 +185,7 @@ Chat output is NDJSON (one JSON object per line) streamed from the agent.
 | `--format json\|table` | `json` | Output format |
 | `--verbose` | off | Show HTTP request/response details |
 | `--dry-run` | off | Show what would be sent, don't execute |
-| `--base-url URL` | staging | Override backend URL |
+| `--api-url URL` | staging | Override backend URL |
 | `--profile NAME` | `default` | Use a named config profile |
 
 **Global flags must come before the service name:**
@@ -224,9 +220,8 @@ deepvista vistabase list --profile local
 
 | Variable | Description |
 |----------|-------------|
-| `DEEPVISTA_BASE_URL` | Backend API URL |
-| `DEEPVISTA_API_KEY` | API key for the backend |
-| `DEEPVISTA_SITE_URL` | Web app URL for login (default: `https://app.deepvista.ai`) |
+| `DEEPVISTA_API_URL` | Backend API URL (default: `https://api.deepvista.ai`) |
+| `DEEPVISTA_AUTH_URL` | Auth app URL for login (default: `https://app.deepvista.ai`) |
 | `DEEPVISTA_SUPABASE_URL` | Supabase project URL |
 | `DEEPVISTA_CONFIG_DIR` | Config directory (default: `~/.config/deepvista`) |
 

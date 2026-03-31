@@ -14,19 +14,20 @@ import base64
 import json
 import time
 import webbrowser
+from pathlib import Path
 
 import click
 
 from deepvista_cli.auth.tokens import TokenSet, save_tokens
 
 
-def login_interactive(site_url: str = "https://app.deepvista.ai") -> None:
+def login_interactive(auth_url: str = "https://app.deepvista.ai") -> None:
     """Open browser to the login page and exit.
 
     The browser page will show the full `deepvista auth login --code <b64>`
     command for the user to copy and paste back into the terminal.
     """
-    login_url = f"{site_url}/auth/cli"
+    login_url = f"{auth_url}/auth/cli"
 
     click.echo("", err=True)
     click.echo("  Opening browser to: " + login_url, err=True)
@@ -38,7 +39,7 @@ def login_interactive(site_url: str = "https://app.deepvista.ai") -> None:
     webbrowser.open(login_url)
 
 
-def login_with_code(code: str) -> TokenSet:
+def login_with_code(code: str, credentials_path: Path | None = None) -> TokenSet:
     """Decode and store a base64-encoded auth code from the /auth/cli page.
 
     The code is base64(JSON) containing:
@@ -64,5 +65,5 @@ def login_with_code(code: str) -> TokenSet:
         user_id=user.get("id", ""),
         email=user.get("email", ""),
     )
-    save_tokens(tokens)
+    save_tokens(tokens, credentials_path)
     return tokens

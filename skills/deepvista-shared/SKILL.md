@@ -106,7 +106,7 @@ Global flags go BEFORE the service name.
 | `--format json\|table` | `json` | Output format. JSON is default (agent-friendly). |
 | `--verbose` | off | Show HTTP request/response details on stderr. |
 | `--dry-run` | off | Show what would be sent without executing. |
-| `--base-url URL` | — | Override backend URL. |
+| `--api-url URL` | — | Override backend URL. |
 | `--version` | — | Show version and exit. |
 | `--help` | — | Show help for any command. |
 

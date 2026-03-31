@@ -8,7 +8,7 @@ Global flags:
   --format json|table   Output format (default: json)
   --verbose             Show HTTP request/response details
   --dry-run             Show what would be sent without executing
-  --base-url URL        Override backend URL
+  --api-url URL        Override backend URL
   --profile NAME        Use a named config profile (local, staging, etc.)
   --version             Show version and exit
 """
@@ -25,7 +25,7 @@ from deepvista_cli.commands.config import config_group
 from deepvista_cli.commands.notes import notes_group
 from deepvista_cli.commands.vistabase import vistabase_group
 from deepvista_cli.commands.vistabook import vistabook_group
-from deepvista_cli.config import DEFAULT_BASE_URL, CLIConfig
+from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 
 
 @click.group()
@@ -33,11 +33,11 @@ from deepvista_cli.config import DEFAULT_BASE_URL, CLIConfig
 @click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json", help="Output format.")
 @click.option("--verbose", is_flag=True, default=False, help="Show HTTP request/response details.")
 @click.option("--dry-run", is_flag=True, default=False, help="Show what would be sent without executing.")
-@click.option("--base-url", default=None, help=f"Override backend URL (default: {DEFAULT_BASE_URL}).")
+@click.option("--api-url", default=None, help=f"Override backend URL (default: {DEFAULT_API_URL}).")
 @click.option("--profile", default="default", help="Use a named config profile (e.g. local, staging).")
 @click.pass_context
 def cli(
-    ctx: click.Context, output_format: str, verbose: bool, dry_run: bool, base_url: str | None, profile: str
+    ctx: click.Context, output_format: str, verbose: bool, dry_run: bool, api_url: str | None, profile: str
 ) -> None:
     """DeepVista CLI — manage your knowledge base, VistaBooks, notes, and chat."""
     config = CLIConfig(
@@ -51,8 +51,8 @@ def cli(
     config.apply_profile(profile)
 
     # CLI flag overrides everything
-    if base_url:
-        config.base_url = base_url
+    if api_url:
+        config.api_url = api_url
 
     # Attach config + lazy client to context
     ctx.ensure_object(CLIConfig)

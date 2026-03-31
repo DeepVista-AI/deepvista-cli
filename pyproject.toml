@@ -1,6 +1,6 @@
 [project]
 name = "deepvista-cli"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "CLI for DeepVista — manage your knowledge base, VistaBooks, notes, and chat from the terminal."
 readme = "README.md"
 license = { text = "Apache-2.0" }
