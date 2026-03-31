@@ -1,394 +1,310 @@
-# DeepVista CLI — Agent & Human Guide
+# DeepVista — Agent Usage Guide
 
-DeepVista is a knowledge base for people who think for a living. The CLI lets you capture, search, and synthesize knowledge from the terminal — and ships with agent skills so AI assistants (Claude Code, OpenCode, and others) can use your knowledge base on your behalf.
+DeepVista is a knowledge base for people who think for a living. This guide shows you how to use DeepVista through AI agents — Claude Code, OpenCode, and any other agent that supports skills.
+
+The key idea: **install the skills once, then talk to your agent**. The agent handles CLI installation, authentication, and all commands on your behalf.
 
 ---
 
 ## Table of Contents
 
-- [Install the CLI](#install-the-cli)
-- [Install Skills for AI Agents](#install-skills-for-ai-agents)
-- [Load Skills in Your Agent](#load-skills-in-your-agent)
-- [Authenticate](#authenticate)
-- [Core Concepts](#core-concepts)
+- [Step 1 — Install Skills](#step-1--install-skills)
+- [Step 2 — Open Your Agent and Get Started](#step-2--open-your-agent-and-get-started)
 - [Use Case 1 — Capture Insights from Podcasts](#use-case-1--capture-insights-from-podcasts)
-- [Use Case 2 — Research to VistaBook Workflow](#use-case-2--research-to-vistabook-workflow)
-- [Use Case 3 — Build a Founder Playbook with AI](#use-case-3--build-a-founder-playbook-with-ai)
+- [Use Case 2 — Research and Synthesize with a VistaBook](#use-case-2--research-and-synthesize-with-a-vistabook)
+- [Use Case 3 — Build a Founder Playbook](#use-case-3--build-a-founder-playbook)
 - [VistaBook Patterns](#vistabook-patterns)
-- [Tips for AI Agents](#tips-for-ai-agents)
+- [CLI Reference](#cli-reference)
 
 ---
 
-## Install the CLI
+## Step 1 — Install Skills
+
+Install the DeepVista skills globally so they're available in every agent session:
 
 ```bash
-# Recommended: uv tool (isolated, system-wide)
-uv tool install --prerelease=allow deepvista-cli
-
-# pip
-pip install --pre deepvista-cli
-
-# pipx
-pipx install deepvista-cli --pip-args="--pre"
+cd ~ && npx skills add DeepVista-AI/deepvista-cli --yes
 ```
 
-Verify:
+This installs 8 skills into `~/.claude/skills/` (Claude Code) or `~/.agents/skills/` (OpenCode and others). That's it — no CLI to install manually, no config to write.
 
-```bash
-deepvista --version
-```
+**Skills installed:**
 
----
-
-## Install Skills for AI Agents
-
-Skills are SKILL.md files that teach your AI agent the DeepVista CLI — commands, auth conventions, security rules, and recipes.
-
-```bash
-npx skills add DeepVista-AI/deepvista-cli --yes
-```
-
-This installs 8 skills into `~/.claude/skills/` (or your agent's skills directory):
-
-| Skill | Purpose |
-|-------|---------|
-| `deepvista-shared` | Auth, global flags, security rules |
-| `deepvista-vistabase` | Knowledge base cards — CRUD + search |
+| Skill | What it teaches your agent |
+|-------|---------------------------|
+| `deepvista-shared` | Auth, profiles, global flags, security rules |
+| `deepvista-vistabase` | Knowledge base — search, read, create, update cards |
 | `deepvista-notes` | Quick note capture |
-| `deepvista-vistabook` | Structured workflow templates + AI-run execution |
+| `deepvista-vistabook` | Run structured AI workflows |
 | `deepvista-chat` | Conversational AI agent |
-| `deepvista-persona-knowledge-worker` | Daily knowledge workflow persona |
+| `deepvista-persona-knowledge-worker` | Daily knowledge workflow patterns |
 | `deepvista-recipe-research-to-vistabook` | Search → synthesize → run workflow |
-| `deepvista-recipe-export-knowledge-as-skills` | Export knowledge as installable skills |
+| `deepvista-recipe-export-knowledge-as-skills` | Turn your knowledge into installable skills |
 
 ---
 
-## Load Skills in Your Agent
+## Step 2 — Open Your Agent and Get Started
 
-### Claude Code
-
-```
-/skills deepvista-shared deepvista-vistabase deepvista-notes deepvista-vistabook
-```
-
-Or load all DeepVista skills at once:
+Open Claude Code (or your agent) and load the skills, then ask it to set everything up:
 
 ```
-/skills deepvista-shared deepvista-notes deepvista-vistabase deepvista-vistabook deepvista-chat deepvista-persona-knowledge-worker
+Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-vistabook
+
+Help me get started with DeepVista. Install the CLI if needed, then walk me through logging in.
 ```
 
-### OpenCode
+Your agent will:
+1. Check if `deepvista` is installed; install it via `pip` or `uv` if not
+2. Open the browser login page
+3. Guide you through pasting the auth code
+4. Confirm you're logged in with `deepvista auth status`
 
-OpenCode picks up skills from `~/.agents/skills/` automatically. Run `npx skills add` from your home directory and they'll be available in all sessions.
-
-### Allow skill reads (Claude Code)
-
-If Claude Code prompts you to confirm skill file reads, add the skills path to allowed paths once:
-
-```bash
-claude config set allowedPaths "~/.claude/skills" --global
-```
-
----
-
-## Authenticate
-
-```bash
-# Step 1: open browser login page
-deepvista auth login
-
-# Step 2: after logging in, paste the command shown in the browser
-deepvista auth login --code <base64_code>
-
-# Check auth state
-deepvista auth status
-```
-
-### Profiles for different environments
-
-```bash
-# Register a staging profile
-deepvista config set staging --api-url https://api-staging.deepvista.ai
-
-# Use it with any command
-deepvista --profile staging auth login
-deepvista --profile staging notes list
-```
-
-Credentials are stored per profile at `~/.config/deepvista/credentials.{profile}.json` — staging and production sessions never interfere.
-
----
-
-## Core Concepts
-
-**Cards** are the unit of knowledge. Every note, contact, topic, or insight is a card stored in your VistaBase.
-
-**Notes** are cards with free-form markdown content — the fastest way to capture an idea.
-
-**VistaBooks** are structured workflow templates. When you run a VistaBook, the AI agent works through its checklist step by step, reading your knowledge base and producing output.
-
-**Profiles** map a name to an API URL, so `--profile staging` always hits your staging backend.
+> **Claude Code tip:** If you're prompted to confirm skill file reads, run once:
+> ```bash
+> claude config set allowedPaths "~/.claude/skills" --global
+> ```
 
 ---
 
 ## Use Case 1 — Capture Insights from Podcasts
 
-> **Scenario:** You've been listening to [Lenny's Podcast](https://github.com/ChatPRD/lennys-podcast-transcripts) and want to build a searchable knowledge base from founder interviews.
+> Build a searchable knowledge base from founder interviews — [Lenny's Podcast](https://www.lennysnewsletter.com/podcast) is a great starting point.
 
-### Capture a note from an episode
+### Capture an episode
 
-After listening to Brian Chesky's episode on founder mode:
+After listening to an episode, ask your agent:
 
-```bash
-deepvista notes create \
-  --title "Brian Chesky — Founder Mode" \
-  --content "# Key Insights
+```
+Load skills: deepvista-shared deepvista-notes
 
-- CEOs who operate in 'manager mode' lose touch with what's actually happening
-- Founder mode means staying deeply involved in details — not micromanaging, but knowing
-- 'Skip-level' meetings: Chesky talks directly to individual contributors, bypasses middle layers
-- Airbnb's turnaround (2020 COVID): cut to essentials, rediscovered product obsession
-- Best managers he's had were people deeply passionate about the work, not professional managers
+I just listened to the Lenny's Podcast episode with Brian Chesky about founder mode.
+Here are my notes:
 
-## Memorable quote
-'I learned that great founders don't just set vision and delegate. They stay in the arena.'
+- CEOs in "manager mode" lose touch with what's actually happening in the product
+- Founder mode means staying in the details — not micromanaging, but knowing
+- Skip-level meetings: he talks directly to ICs, bypasses middle layers
+- Airbnb COVID turnaround: cut to essentials, rediscovered product obsession
+- "Great founders don't just set vision and delegate. They stay in the arena."
 
-Source: Lenny's Podcast"
+Save this to my knowledge base as a note titled "Brian Chesky — Founder Mode".
 ```
 
-Capture another from Drew Houston on focus:
+Try another:
 
-```bash
-deepvista notes create \
-  --title "Drew Houston — The Tennis Ball Theory" \
-  --content "# Key Insights
+```
+Load skills: deepvista-shared deepvista-notes
 
-- Successful founders are obsessed like a dog chasing a tennis ball — not motivated by money or status
-- Dropbox survived because Drew was solving his own problem; deep personal understanding of the user
-- Focus: pick one thing per quarter that matters. Everything else is distraction.
-- 'Don't worry about failure. Worry about the things you don't try.'
+Save a note called "Drew Houston — The Tennis Ball Theory" with these insights from his Lenny's interview:
 
-Source: Lenny's Podcast"
+- Obsessed founders chase the problem like a dog chasing a tennis ball — not for money or status
+- Dropbox survived because he was solving his own problem; that gave him user insight nobody else had
+- Focus: pick one thing per quarter that actually matters
+- "Don't worry about failure. Worry about the things you don't try."
 ```
 
-### Search your knowledge base
+### Search and retrieve
 
-```bash
-# Find all notes on founder mindset
-deepvista vistabase +search "founder obsession focus"
+```
+Load skills: deepvista-shared deepvista-vistabase
 
-# Find insights on product thinking
-deepvista vistabase +search "product iteration user feedback"
-
-# Find similar cards to one you're reading
-deepvista vistabase +similar <card_id>
+Search my knowledge base for everything I've captured about founder mindset and obsession.
+Show me the top 5 results.
 ```
 
-### Quick capture during a session
+```
+Search my knowledge base for insights on product iteration and user feedback loops.
+Find any cards similar to the most relevant result.
+```
 
-```bash
-# One-liner note while ideas are fresh
-deepvista notes +quick "Tobi Lütke: 'The company is a tool to amplify your ability to do what you love' — not the destination, the instrument"
+### Quick capture mid-session
+
+```
+Quick note: "Tobi Lütke on Lenny's — the company is a tool to amplify your ability to do what you love. Not the destination, the instrument."
 ```
 
 ---
 
-## Use Case 2 — Research to VistaBook Workflow
+## Use Case 2 — Research and Synthesize with a VistaBook
 
-> **Scenario:** You've captured 20 founder interviews. Now you want the AI agent to synthesize patterns across them and produce a structured insight report.
+> You've captured 10–20 founder interviews. Now ask your agent to synthesize patterns across them.
 
-This follows the `deepvista-recipe-research-to-vistabook` pattern.
+### Single prompt — full workflow
 
-### Step 1 — Search for relevant cards
+```
+Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook deepvista-recipe-research-to-vistabook
 
-```bash
-# Find everything about growth and momentum
-deepvista vistabase +search "growth momentum startup" --limit 10
+I want to synthesize patterns from the founder interviews I've captured in my knowledge base.
 
-# Find hiring and team patterns
-deepvista vistabase +search "hiring team culture" --limit 10
+1. Search for cards about growth, momentum, and early-stage execution
+2. Search for cards about hiring and team building
+3. Find my "Research Synthesis" VistaBook (or the most relevant one)
+4. Run it with context focused on: what separates high-growth founders, common 0→1 mistakes, and how great founders think about product
+
+Show me what you find before running the VistaBook so I can confirm.
 ```
 
-### Step 2 — Find the right VistaBook
+The agent searches, reads your notes, finds the VistaBook, confirms with you, then streams the run live.
 
-```bash
-deepvista vistabook list
+### Follow up after the run
+
+```
+The VistaBook run just completed. Continue the conversation and ask the agent:
+expand on the product section — give me 3 concrete frameworks I can apply this week.
 ```
 
-Look for a workflow like "Synthesize Research" or "Founder Patterns Report".
-
-### Step 3 — Run the VistaBook with context
-
-```bash
-deepvista vistabook +run <vistabook_id> \
-  --input "Synthesize patterns from my Lenny's Podcast notes. Focus on:
-  1. What separates high-growth founders from average ones
-  2. Common mistakes in the 0→1 phase
-  3. Patterns in how great founders think about product"
 ```
-
-Output streams as NDJSON — the agent works through the checklist live.
-
-### Step 4 — Check run status
-
-```bash
-deepvista vistabook +status <run_chat_id>
-```
-
-### Step 5 — Continue the conversation
-
-```bash
-deepvista chat +send "Expand on the product section — give me 3 concrete frameworks I can apply" \
-  --chat-id <run_chat_id>
+That synthesis was great. Save the key conclusions as a new note called
+"Founder Pattern Synthesis — [today's date]" so I can reference it later.
 ```
 
 ---
 
-## Use Case 3 — Build a Founder Playbook with AI
+## Use Case 3 — Build a Founder Playbook
 
-> **Scenario:** Inspired by [Sam Altman's Startup Playbook](https://playbook.samaltman.com/), you want to build your own personalised version grounded in the podcasts you've consumed and your own experience.
+> Inspired by [Sam Altman's Startup Playbook](https://playbook.samaltman.com/), build your own living version — grounded in the podcasts you've consumed and your own experience.
 
-Sam Altman's playbook covers four areas: **Idea → Team → Product → Execution**. You can use DeepVista to build a living version of this for yourself.
+Sam Altman's playbook covers four areas: **Idea → Team → Product → Execution**. DeepVista helps you build a personalised version of each.
 
-### Capture the framework as knowledge cards
+### Capture the frameworks
 
-```bash
-# Capture the idea validation framework
-deepvista notes create \
-  --title "Startup Playbook — Idea Validation" \
-  --content "# What makes a fundable idea (Sam Altman)
+```
+Load skills: deepvista-shared deepvista-notes
 
-- Can you explain it simply? Complexity is a red flag
+I want to build a personal founder playbook. Start by saving two notes:
+
+Note 1 — "Startup Playbook: Idea Validation":
+Key questions from Sam Altman's playbook:
+- Can you explain the idea simply? Complexity is a red flag
 - Are you the target user, or do you know them intimately?
 - Is there an emerging technology shift this rides?
-- Small market that will become large > large market that's mature
+- Small market becoming large > mature large market
 - Novel insight > derivative solution
 
-## From Lenny interviews — patterns I've seen
-- Brian Chesky: deeply personal problem (he was the customer)
-- Drew Houston: scratching his own itch (lost USB drive → Dropbox)
-- Tobi Lütke: built Shopify because no good e-commerce existed for his snowboard shop"
+From Lenny's podcast patterns:
+- Brian Chesky: deep personal problem — he was the customer
+- Drew Houston: scratching his own itch (lost USB → Dropbox)
+- Tobi Lütke: built Shopify because no good e-commerce existed for his snowboard shop
 
-# Capture the execution framework
-deepvista notes create \
-  --title "Startup Playbook — Execution Principles" \
-  --content "# Execution (Sam Altman + Lenny founder patterns)
+Note 2 — "Startup Playbook: Execution Principles":
+From Sam Altman + Lenny founder patterns:
+- Momentum: pick ONE growth metric, run the whole company toward it
+- Focus: say no constantly; speed beats perfect analysis
+- Hiring: delay it — each person adds complexity; great people are infectious
+- Fire toxic people regardless of performance; culture is defined by who stays
+- "Do things that don't scale" early, optimize later
 
-## Momentum
-- Never let it die — momentum is oxygen for an org
-- Pick ONE growth metric; run the whole company toward it
-- Share metrics internally; transparency aligns people
-
-## Focus
-- Say no constantly
-- Speed beats perfect analysis
-- Avoid early-success traps: press, conferences, personal brand
-
-## Hiring
-- Delay hiring — complexity compounds
-- Great people are infectious; mediocre hires rarely improve
-- Fire toxic people regardless of performance
-
-## From Lenny interviews
-- Molly Graham: 'Give away your legos' — let people own pieces as you scale
+From Lenny's — specific:
+- Molly Graham: "Give away your legos" — let people own pieces as you scale
 - Julie Zhuo: first-time managers underestimate how much communication is needed
-- Claire Hughes Johnson: write down how you work — explicit operating principles scale"
+- Claire Hughes Johnson: write down how you work — explicit operating principles scale
 ```
 
-### Design a VistaBook workflow
-
-A VistaBook for "New Idea Evaluation" might have phases like:
+### Run an idea evaluation workflow
 
 ```
-Phase 1 — Problem clarity
-  □ Can you explain the problem in one sentence?
-  □ Who has this problem? How often? How painfully?
-  □ What do they do today to solve it?
+Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook
 
-Phase 2 — Founder-market fit
-  □ Why are you the right person to solve this?
-  □ Do you have deep insight others don't?
+I have a new startup idea I want to evaluate against my founder playbook.
 
-Phase 3 — Market
-  □ What's the minimum believable market size?
-  □ What technology shift enables this now?
+Idea: a CLI tool that lets developers query their observability stack in natural language.
+Context: I work in DevOps, I've felt this pain daily for 3 years. Market: all companies
+running microservices (~50k+ teams globally).
 
-Phase 4 — Validation signal
-  □ What's the smallest thing you can build to learn the most?
-  □ Who are your first 10 users and how will you get them?
+1. Search my knowledge base for any idea validation frameworks I've captured
+2. Find my idea evaluation VistaBook
+3. Run it with the above context — but show me the VistaBook first so I can review it
 ```
 
-Build this in the DeepVista web app, then run it for any new idea:
+### Export your playbook as a reusable skill
 
-```bash
-# Find your idea evaluation VistaBook
-deepvista vistabook list
+Once your knowledge is rich enough, export it so any agent can use it:
 
-# Run it with a specific idea as context
-deepvista vistabook +run <vistabook_id> \
-  --input "Idea: a CLI tool that lets developers query their observability stack in natural language.
-  I work in DevOps, I've felt this pain daily for 3 years.
-  Market: all companies running microservices on Kubernetes (~50k+ teams)."
 ```
+Load skills: deepvista-shared deepvista-vistabook deepvista-recipe-export-knowledge-as-skills
 
-### Export as a reusable skill
-
-Once your VistaBook works well, export it so your agent can invoke it directly:
-
-```bash
-deepvista vistabook +export <vistabook_id> --format skill > idea-evaluator-skill.md
+Export my founder playbook VistaBook as a SKILL.md file so I can share it with my team.
 ```
 
 ---
 
 ## VistaBook Patterns
 
-VistaBooks shine for recurring, structured work. Some patterns to consider building:
+Build these workflows in the DeepVista web app, then invoke them through your agent:
 
-| Pattern | Description |
-|---------|-------------|
-| **Research synthesis** | Search KB → read top cards → produce structured report |
-| **Idea evaluation** | Run checklist against a new idea using founder frameworks |
-| **Weekly review** | Surface pinned cards, capture the week's key learnings |
-| **Interview debrief** | Structured questions → knowledge card creation |
-| **Competitive analysis** | Search for a company/space → produce landscape summary |
-| **Decision memo** | Structured thinking on a hard decision, grounded in your KB |
+| VistaBook | Prompt to invoke |
+|-----------|-----------------|
+| **Research synthesis** | "Search my KB for [topic] and run my Research Synthesis VistaBook" |
+| **Idea evaluation** | "Evaluate this idea against my founder frameworks: [idea]" |
+| **Weekly review** | "Run my weekly review — surface pinned cards and capture this week's key learnings" |
+| **Interview debrief** | "I just finished a user interview. Run my Interview Debrief VistaBook with these notes: [notes]" |
+| **Decision memo** | "Help me think through this decision using my knowledge base: [decision]" |
+| **Competitive analysis** | "Run a competitive analysis on [company/space] using everything I've captured" |
 
 ---
 
-## Tips for AI Agents
+## CLI Reference
 
-When using the DeepVista skills with Claude Code or OpenCode:
+The agent handles all of this for you, but here it is for reference.
 
-**Read before write.** Always search before creating — avoid duplicates.
+### Auth
 
-```
-Search my knowledge base for anything on "founder mode" before creating a new note.
-```
-
-**Use profiles explicitly.** Tell the agent which environment you're on.
-
-```
-Use --profile staging for all commands today.
+```bash
+deepvista auth login                    # open browser
+deepvista auth login --code <code>      # paste code from browser
+deepvista auth status                   # check state
+deepvista auth logout                   # clear credentials
 ```
 
-**Confirm writes.** The skills mark write commands with `[!CAUTION]` — your agent will ask before executing. This is intentional.
+### Profiles
 
-**Stream VistaBook runs.** When an agent runs a VistaBook, output comes as streaming NDJSON. Tell the agent to display progress as it arrives.
-
-**Chain operations.** The agent can search → read → run a VistaBook in one shot with the `deepvista-recipe-research-to-vistabook` skill loaded.
-
+```bash
+deepvista config set staging --api-url https://api-staging.deepvista.ai
+deepvista --profile staging auth login
+deepvista config list
 ```
-Load my deepvista-vistabase and deepvista-vistabook skills, then search for everything
-I've captured about "product-market fit", synthesize the patterns, and run my
-"Research Synthesis" VistaBook with that context.
+
+### Notes
+
+```bash
+deepvista notes create --title "..." --content "..."
+deepvista notes +quick "one-liner note"
+deepvista notes list
+deepvista notes get <id>
+```
+
+### Knowledge base
+
+```bash
+deepvista vistabase +search "query" --limit 10
+deepvista vistabase +similar <card_id>
+deepvista vistabase get <card_id>
+deepvista vistabase list --type note
+```
+
+### VistaBooks
+
+```bash
+deepvista vistabook list
+deepvista vistabook +run <id> --input "context"
+deepvista vistabook +status <run_chat_id>
+deepvista vistabook +export <id> --format skill
+```
+
+### Global flags
+
+```bash
+deepvista --profile <name>    # use a named profile
+deepvista --api-url <url>     # override API endpoint
+deepvista --format table      # human-readable output
+deepvista --dry-run           # preview without executing
+deepvista --verbose           # show HTTP details
 ```
 
 ---
 
 ## See Also
 
-- [skills/](./skills/) — All SKILL.md files, installable via `npx skills add`
+- [skills/](./skills/) — SKILL.md files, installable via `npx skills add`
 - [deepvista.ai](https://deepvista.ai) — Web app to build and manage VistaBooks
 - [PyPI](https://pypi.org/project/deepvista-cli/) — Package releases
 - [GitHub Issues](https://github.com/DeepVista-AI/deepvista-cli/issues) — Bug reports and feature requests
