@@ -73,5 +73,51 @@ remove_autocapture "$HOME/.claude/CLAUDE.md"
 remove_autocapture "$HOME/.cursor/rules"
 remove_autocapture "$HOME/.opencode/AGENTS.md"
 
+# Remove Stop hook from Claude Code settings.json
+echo "==> Removing DeepVista auto-capture hook..."
+
+remove_stop_hook() {
+  local settings_file="$1"
+  local hook_script="$2"
+  [ ! -f "$settings_file" ] && return
+  grep -q "deepvista-autocapture" "$settings_file" 2>/dev/null || return
+
+  python3 - "$settings_file" "$hook_script" <<'PYEOF'
+import sys, json
+
+settings_path, hook_cmd = sys.argv[1], sys.argv[2]
+try:
+    with open(settings_path) as f:
+        cfg = json.load(f)
+except Exception:
+    sys.exit(0)
+
+hooks = cfg.get("hooks", {})
+stop_list = hooks.get("Stop", [])
+hooks["Stop"] = [
+    entry for entry in stop_list
+    if not any(h.get("command") == hook_cmd for h in entry.get("hooks", []))
+]
+if not hooks["Stop"]:
+    del hooks["Stop"]
+if not hooks:
+    cfg.pop("hooks", None)
+
+with open(settings_path, "w") as f:
+    json.dump(cfg, f, indent=2)
+PYEOF
+
+  echo "    Removed Stop hook from $settings_file"
+}
+
+HOOK_SCRIPT="$HOME/.claude/hooks/deepvista-autocapture.sh"
+remove_stop_hook "$HOME/.claude/settings.json" "$HOOK_SCRIPT"
+
+# Remove the hook script itself
+if [ -f "$HOOK_SCRIPT" ]; then
+  rm -f "$HOOK_SCRIPT"
+  echo "    Removed $HOOK_SCRIPT"
+fi
+
 echo ""
 echo "DeepVista has been uninstalled."
