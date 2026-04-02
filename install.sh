@@ -108,6 +108,59 @@ echo "==> Enabling DeepVista auto-capture..."
 [ -d "$HOME/.cursor" ]   && install_autocapture "$HOME/.cursor/rules"
 [ -d "$HOME/.opencode" ] && install_autocapture "$HOME/.opencode/AGENTS.md"
 
+echo "==> Installing DeepVista auto-capture hook..."
+
+install_stop_hook() {
+  local settings_file="$1"
+  local hook_script="$2"
+  mkdir -p "$(dirname "$settings_file")"
+
+  # Create settings file if missing
+  if [ ! -f "$settings_file" ]; then
+    echo '{}' > "$settings_file"
+  fi
+
+  # Idempotent: skip if hook already registered
+  if grep -q "deepvista-autocapture" "$settings_file" 2>/dev/null; then
+    return
+  fi
+
+  # Merge hook into settings JSON using Python (always available for deepvista)
+  python3 - "$settings_file" "$hook_script" <<'PYEOF'
+import sys, json
+
+settings_path, hook_cmd = sys.argv[1], sys.argv[2]
+try:
+    with open(settings_path) as f:
+        cfg = json.load(f)
+except Exception:
+    cfg = {}
+
+hooks = cfg.setdefault("hooks", {})
+stop_list = hooks.setdefault("Stop", [])
+stop_list.append({
+    "matcher": "",
+    "hooks": [{"type": "command", "command": hook_cmd}]
+})
+
+with open(settings_path, "w") as f:
+    json.dump(cfg, f, indent=2)
+PYEOF
+
+  echo "    Stop hook registered in $settings_file"
+}
+
+# Install hook script and register it for Claude Code
+if [ -d "$HOME/.claude" ]; then
+  mkdir -p "$HOME/.claude/hooks"
+  cp "$SRC/../hooks/deepvista-autocapture.sh" "$HOME/.claude/hooks/deepvista-autocapture.sh" 2>/dev/null || \
+    curl -sSL "https://raw.githubusercontent.com/$REPO/main/hooks/deepvista-autocapture.sh" \
+      -o "$HOME/.claude/hooks/deepvista-autocapture.sh"
+  chmod +x "$HOME/.claude/hooks/deepvista-autocapture.sh"
+  install_stop_hook "$HOME/.claude/settings.json" "$HOME/.claude/hooks/deepvista-autocapture.sh"
+  echo "    Auto-capture hook active — notable facts will be saved to DeepVista after each conversation turn"
+fi
+
 echo ""
 echo "DeepVista is ready. Open your AI agent and say:"
 echo ""
