@@ -51,7 +51,7 @@ If running from the cloned repo without installing, prefix commands with `uv run
 
 ```bash
 # Correct:
-deepvista --profile local notes list
+deepvista notes list
 
 # WRONG — will fail:
 deepvista notes list --profile local
@@ -59,10 +59,10 @@ deepvista notes list --profile local
 
 ## Profiles
 
-The CLI uses profiles to connect to different backends. Use `--profile local` for local development:
+Commands use the `default` profile unless you specify one. To target a specific backend, pass `--profile NAME` before the service name:
 
 ```bash
-deepvista --profile local <service> <command>
+deepvista --profile staging vistabase list
 ```
 
 List available profiles:
@@ -142,7 +142,7 @@ deepvista vistabase +search --help
 
 1. **Write commands** are marked with `> [!CAUTION]` — always confirm with the user before executing write/delete operations.
 2. **Read-only commands** are safe to run without confirmation.
-3. **Never output tokens or secrets** — use `deepvista --profile local auth status` to check auth state.
+3. **Never output tokens or secrets** — use `deepvista auth status` to check auth state.
 4. **Use `--dry-run`** to preview destructive operations before executing.
 5. **Tokens are sensitive** — stored in `~/.config/deepvista/credentials.json` (mode 0600).
 

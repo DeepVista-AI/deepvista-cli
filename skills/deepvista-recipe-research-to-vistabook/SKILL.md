@@ -23,30 +23,30 @@ Search your knowledge base for relevant context, then run a VistaBook workflow w
 
 1. **Search for relevant cards:**
    ```bash
-   deepvista --profile local vistabase +search "your research topic" --limit 10
+   deepvista vistabase +search "your research topic" --limit 10
    ```
 
 2. **Read the most relevant cards** (pick IDs from search results):
    ```bash
-   deepvista --profile local vistabase get <card_id_1>
-   deepvista --profile local vistabase get <card_id_2>
+   deepvista vistabase get <card_id_1>
+   deepvista vistabase get <card_id_2>
    ```
 
 3. **Summarize findings** into a context string for the VistaBook.
 
 4. **List available VistaBooks** to find the right workflow:
    ```bash
-   deepvista --profile local vistabook list
+   deepvista vistabook list
    ```
 
 5. **Run the VistaBook** with your research context:
    ```bash
-   deepvista --profile local vistabook +run <vistabook_id> --input "Based on my research: <summary of findings>"
+   deepvista vistabook +run <vistabook_id> --input "Based on my research: <summary of findings>"
    ```
 
 6. **Check run status:**
    ```bash
-   deepvista --profile local vistabook +status <run_chat_id>
+   deepvista vistabook +status <run_chat_id>
    ```
 
 ## Tips

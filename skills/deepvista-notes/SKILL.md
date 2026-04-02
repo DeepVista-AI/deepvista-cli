@@ -1,6 +1,9 @@
 ---
 name: deepvista-notes
-description: "DeepVista Notes: Create, read, update, and delete notes in your knowledge base."
+description: |
+  DeepVista Notes: Create, read, update, and delete notes in your knowledge base.
+  TRIGGER when: user wants to create, capture, save, read, list, update, or delete a note; user says "take a note", "jot this down", "save this as a note", "show my notes", or asks about a specific note by title or ID.
+  DO NOT TRIGGER when: user wants to analyze, summarize, or find patterns across notes (use deepvista-recipe-analyze-notes instead); or when working with non-note knowledge base cards.
 metadata:
   deepvista:
     category: "service"
@@ -23,19 +26,19 @@ Notes are context cards with `type=note`. They support rich markdown content and
 ### list
 
 ```bash
-deepvista --profile local notes list [--limit N] [--page N]
+deepvista notes list [--limit N] [--page N]
 ```
 
 ### get
 
 ```bash
-deepvista --profile local notes get <note_id>
+deepvista notes get <note_id>
 ```
 
 ### create
 
 ```bash
-deepvista --profile local notes create --title "Title" [--content "Markdown content"] [--tags '["t1"]']
+deepvista notes create --title "Title" [--content "Markdown content"] [--tags '["t1"]']
 ```
 
 > [!CAUTION] Write command — confirm with user before executing.
@@ -43,7 +46,7 @@ deepvista --profile local notes create --title "Title" [--content "Markdown cont
 ### update
 
 ```bash
-deepvista --profile local notes update <note_id> [--title "..."] [--content "..."] [--tags '["t1"]']
+deepvista notes update <note_id> [--title "..."] [--content "..."] [--tags '["t1"]']
 ```
 
 > [!CAUTION] Write command — confirm with user before executing.
@@ -51,7 +54,7 @@ deepvista --profile local notes update <note_id> [--title "..."] [--content "...
 ### delete
 
 ```bash
-deepvista --profile local notes delete <note_id>
+deepvista notes delete <note_id>
 ```
 
 > [!CAUTION] Destructive command — confirm with user before executing.
@@ -59,7 +62,7 @@ deepvista --profile local notes delete <note_id>
 ### +quick
 
 ```bash
-deepvista --profile local notes +quick "your text here"
+deepvista notes +quick "your text here"
 ```
 
 Quick-create a note from a single line of text. The first ~50 characters become the title; the full text is the content. Entity enrichment runs automatically.
@@ -78,16 +81,16 @@ Quick-create a note from a single line of text. The first ~50 characters become 
 
 ```bash
 # List recent notes
-deepvista --profile local notes list --limit 5
+deepvista notes list --limit 5
 
 # Create a meeting note
-deepvista --profile local notes create --title "Standup 2026-03-26" --content "## Discussed\n- Roadmap priorities\n- CLI release"
+deepvista notes create --title "Standup 2026-03-26" --content "## Discussed\n- Roadmap priorities\n- CLI release"
 
 # Quick note from a single line
-deepvista --profile local notes +quick "Alice mentioned the API migration deadline is April 15"
+deepvista notes +quick "Alice mentioned the API migration deadline is April 15"
 
 # Update a note
-deepvista --profile local notes update note_abc --content "Updated content with new findings..."
+deepvista notes update note_abc --content "Updated content with new findings..."
 ```
 
 ## See Also

@@ -23,7 +23,7 @@ Chat with the DeepVista AI agent. The agent can search your knowledge base, crea
 ### sessions
 
 ```bash
-deepvista --profile local chat sessions [--limit N] [--offset N] [--search "query"]
+deepvista chat sessions [--limit N] [--offset N] [--search "query"]
 ```
 
 Read-only — list chat sessions.
@@ -31,7 +31,7 @@ Read-only — list chat sessions.
 ### get
 
 ```bash
-deepvista --profile local chat get <chat_id>
+deepvista chat get <chat_id>
 ```
 
 Read-only — get a chat session with all pages.
@@ -39,7 +39,7 @@ Read-only — get a chat session with all pages.
 ### delete
 
 ```bash
-deepvista --profile local chat delete <chat_id>
+deepvista chat delete <chat_id>
 ```
 
 > [!CAUTION] Destructive command — confirm with user before executing.
@@ -47,7 +47,7 @@ deepvista --profile local chat delete <chat_id>
 ### +send
 
 ```bash
-deepvista --profile local chat +send "your message" [--chat-id ID] [--new]
+deepvista chat +send "your message" [--chat-id ID] [--new]
 ```
 
 > [!CAUTION]
@@ -69,19 +69,19 @@ Output is NDJSON (one JSON object per line) — each line is an SSE event from t
 
 ```bash
 # Send a message (new conversation)
-deepvista --profile local chat +send "What are my open tasks?" --new
+deepvista chat +send "What are my open tasks?" --new
 
 # Continue an existing conversation
-deepvista --profile local chat +send "Tell me more about the first one" --chat-id chat_abc
+deepvista chat +send "Tell me more about the first one" --chat-id chat_abc
 
 # Ask the agent to create a note
-deepvista --profile local chat +send "Create a note summarizing our ML strategy discussion"
+deepvista chat +send "Create a note summarizing our ML strategy discussion"
 
 # List recent sessions
-deepvista --profile local chat sessions --limit 5
+deepvista chat sessions --limit 5
 
 # Search sessions
-deepvista --profile local chat sessions --search "roadmap"
+deepvista chat sessions --search "roadmap"
 ```
 
 ## See Also

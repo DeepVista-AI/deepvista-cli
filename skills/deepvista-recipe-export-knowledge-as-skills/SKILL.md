@@ -22,13 +22,13 @@ Export multiple VistaBooks as SKILL.md files that can be installed in any AI age
 
 1. **List all VistaBooks:**
    ```bash
-   deepvista --profile local vistabook list
+   deepvista vistabook list
    ```
 
 2. **For each VistaBook to export**, generate the SKILL.md:
    ```bash
-   deepvista --profile local vistabook +export <vistabook_id_1> --format skill
-   deepvista --profile local vistabook +export <vistabook_id_2> --format skill
+   deepvista vistabook +export <vistabook_id_1> --format skill
+   deepvista vistabook +export <vistabook_id_2> --format skill
    ```
 
 3. **Save each skill** to the agent's skills directory:
