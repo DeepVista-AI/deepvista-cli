@@ -30,18 +30,19 @@ Install the DeepVista skills globally so they're available in every agent sessio
 cd ~ && npx skills add DeepVista-AI/deepvista-cli --yes
 ```
 
-This installs 8 skills into `~/.claude/skills/` (Claude Code) or `~/.agents/skills/` (OpenCode and others).
+This installs 9 skills into `~/.claude/skills/` (Claude Code) or `~/.agents/skills/` (OpenCode and others).
 
 | Skill | What it teaches your agent |
 |-------|---------------------------|
 | `deepvista-shared` | Auth, profiles, global flags, security rules |
 | `deepvista-vistabase` | Knowledge base — search, read, create, update cards |
-| `deepvista-notes` | Quick note capture |
+| `deepvista-notes` | Note capture and management |
 | `deepvista-vistabook` | Run structured AI workflows |
 | `deepvista-chat` | Conversational AI agent |
 | `deepvista-persona-knowledge-worker` | Daily knowledge workflow patterns |
 | `deepvista-recipe-research-to-vistabook` | Search → synthesize → run workflow |
 | `deepvista-recipe-export-knowledge-as-skills` | Turn your knowledge into installable skills |
+| `deepvista-recipe-analyze-notes` | Analyze, summarize, and find patterns across notes |
 
 ### Step 2 — Open Your Agent and Get Started
 
@@ -408,6 +409,7 @@ deepvista-cli/
     ├── deepvista-notes/        # Notes management
     ├── deepvista-chat/         # Chat with AI agent
     ├── deepvista-persona-knowledge-worker/
+    ├── deepvista-recipe-analyze-notes/
     ├── deepvista-recipe-export-knowledge-as-skills/
     └── deepvista-recipe-research-to-vistabook/
 ```
