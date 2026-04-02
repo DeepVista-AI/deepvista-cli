@@ -39,11 +39,11 @@ def notes_list(ctx: click.Context, limit: int, page_number: int) -> None:
         {
             "card_type": "note",
             "limit": limit,
-            "page_number": page_number,
+            "offset": (page_number - 1) * limit,
         },
     )
     cards = data.get("cards", [])
-    result = {"notes": cards, "count": len(cards), "has_more": data.get("has_more", False)}
+    result = {"notes": cards, "count": len(cards), "page": page_number, "has_more": data.get("has_more", False)}
     format_output(result, ctx.obj.output_format, columns=NOTE_COLUMNS, title="Notes")
 
 

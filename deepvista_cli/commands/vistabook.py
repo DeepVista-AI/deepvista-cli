@@ -45,11 +45,11 @@ def vistabook_list(ctx: click.Context, limit: int, page_number: int) -> None:
         {
             "card_type": "vistabook",
             "limit": limit,
-            "page_number": page_number,
+            "offset": (page_number - 1) * limit,
         },
     )
     cards = data.get("cards", [])
-    result = {"vistabooks": cards, "count": len(cards), "has_more": data.get("has_more", False)}
+    result = {"vistabooks": cards, "count": len(cards), "page": page_number, "has_more": data.get("has_more", False)}
     format_output(result, ctx.obj.output_format, columns=VISTABOOK_COLUMNS, title="VistaBooks")
 
 

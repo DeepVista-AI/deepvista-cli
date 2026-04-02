@@ -75,7 +75,7 @@ def vistabase_list(
     order_direction: str | None,
 ) -> None:
     """List context cards with optional filtering."""
-    body: dict = {"limit": limit, "page_number": page_number}
+    body: dict = {"limit": limit, "offset": (page_number - 1) * limit}
     if card_type:
         body["card_type"] = card_type
     if display_status:
@@ -89,7 +89,7 @@ def vistabase_list(
     cards = data.get("cards", [])
     result = {
         "cards": cards,
-        "page": data.get("page_number", page_number),
+        "page": page_number,
         "has_more": data.get("has_more", False),
         "count": len(cards),
     }
