@@ -20,6 +20,13 @@ CLI for DeepVista — manage your knowledge base, VistaBooks, notes, and chat fr
 
 ## For AI Agents
 
+<p>
+  <img src="https://cdn.simpleicons.org/anthropic/000000" width="18" alt="Claude Code" />&nbsp; <strong>Claude Code</strong> &nbsp;&nbsp;
+  <img src="https://cdn.simpleicons.org/cursor/000000" width="18" alt="Cursor" />&nbsp; <strong>Cursor</strong> &nbsp;&nbsp;
+  <strong>OpenCode</strong> &nbsp;&nbsp;
+  and any agent that supports skills
+</p>
+
 The key idea: **install once, then talk to your agent**. The agent handles authentication and all commands on your behalf.
 
 ### Install
