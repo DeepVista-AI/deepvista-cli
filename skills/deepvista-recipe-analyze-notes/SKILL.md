@@ -27,17 +27,17 @@ Search, retrieve, and analyze notes from the knowledge base to surface insights,
 
 1. **Search for relevant notes** using a query derived from the user's request:
    ```bash
-   deepvista --profile local vistabase +search "<topic or keyword>" --type note --limit 20
+   deepvista vistabase +search "<topic or keyword>" --type note --limit 20
    ```
 
 2. **List recent notes** if no specific topic was given, to get a broad view:
    ```bash
-   deepvista --profile local notes list --limit 20
+   deepvista notes list --limit 20
    ```
 
 3. **Fetch full content** for the most relevant notes (pick IDs from search/list results):
    ```bash
-   deepvista --profile local notes get <note_id>
+   deepvista notes get <note_id>
    ```
    Repeat for each note you need to read in full.
 
@@ -51,7 +51,7 @@ Search, retrieve, and analyze notes from the knowledge base to surface insights,
 
 6. **Optionally save the analysis** back as a new note (confirm with user first):
    ```bash
-   deepvista --profile local notes create --title "Analysis: <topic> — <date>" --content "<synthesis>"
+   deepvista notes create --title "Analysis: <topic> — <date>" --content "<synthesis>"
    ```
    > [!CAUTION] Write command — confirm with user before saving.
 
@@ -62,20 +62,20 @@ Search, retrieve, and analyze notes from the knowledge base to surface insights,
 - For time-bounded analysis ("notes from this week"), use `notes list` and filter by `created_at` in the JSON output.
 - Use `chat +send` to ask the AI agent to synthesize across a large set of notes:
   ```bash
-  deepvista --profile local chat +send "Here are my recent notes: <paste content>. What are the key themes?"
+  deepvista chat +send "Here are my recent notes: <paste content>. What are the key themes?"
   ```
 
 ## Examples
 
 ```bash
 # Find all notes about a project
-deepvista --profile local vistabase +search "project alpha" --type note --limit 15
+deepvista vistabase +search "project alpha" --type note --limit 15
 
 # Get full content of a note
-deepvista --profile local notes get note_abc123
+deepvista notes get note_abc123
 
 # Save analysis as a new note
-deepvista --profile local notes create \
+deepvista notes create \
   --title "Weekly Themes — 2026-04-02" \
   --content "## Key Themes\n- Theme 1\n- Theme 2\n\n## Open Questions\n- ..."
 ```

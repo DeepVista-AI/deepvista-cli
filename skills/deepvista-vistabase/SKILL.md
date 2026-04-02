@@ -23,7 +23,7 @@ VistaBase is DeepVista's knowledge base — a collection of context cards that r
 ### list
 
 ```bash
-deepvista --profile local vistabase list [--type TYPE] [--status STATUS] [--limit N] [--page N] [--order-by FIELD] [--order DIR]
+deepvista vistabase list [--type TYPE] [--status STATUS] [--limit N] [--page N] [--order-by FIELD] [--order DIR]
 ```
 
 | Flag | Required | Default | Description |
@@ -38,13 +38,13 @@ deepvista --profile local vistabase list [--type TYPE] [--status STATUS] [--limi
 ### get
 
 ```bash
-deepvista --profile local vistabase get <card_id>
+deepvista vistabase get <card_id>
 ```
 
 ### create
 
 ```bash
-deepvista --profile local vistabase create --type TYPE --title "Title" [--content "Description"] [--tags '["t1","t2"]'] [--no-enrich]
+deepvista vistabase create --type TYPE --title "Title" [--content "Description"] [--tags '["t1","t2"]'] [--no-enrich]
 ```
 
 > [!CAUTION] Write command — confirm with user before executing.
@@ -52,7 +52,7 @@ deepvista --profile local vistabase create --type TYPE --title "Title" [--conten
 ### update
 
 ```bash
-deepvista --profile local vistabase update <card_id> [--title "..."] [--content "..."] [--type TYPE] [--tags '["t1"]'] [--status pinned|archived]
+deepvista vistabase update <card_id> [--title "..."] [--content "..."] [--type TYPE] [--tags '["t1"]'] [--status pinned|archived]
 ```
 
 > [!CAUTION] Write command — confirm with user before executing.
@@ -60,7 +60,7 @@ deepvista --profile local vistabase update <card_id> [--title "..."] [--content 
 ### delete
 
 ```bash
-deepvista --profile local vistabase delete <card_id> [--type TYPE]
+deepvista vistabase delete <card_id> [--type TYPE]
 ```
 
 > [!CAUTION] Destructive command — confirm with user before executing.
@@ -70,7 +70,7 @@ deepvista --profile local vistabase delete <card_id> [--type TYPE]
 ### +search
 
 ```bash
-deepvista --profile local vistabase +search "query text" [--type TYPE] [--limit N]
+deepvista vistabase +search "query text" [--type TYPE] [--limit N]
 ```
 
 Search across all context cards using hybrid vector + keyword search.
@@ -86,7 +86,7 @@ Read-only. Results include relevance scores from hybrid search (vector similarit
 ### +similar
 
 ```bash
-deepvista --profile local vistabase +similar <card_id> [--limit N]
+deepvista vistabase +similar <card_id> [--limit N]
 ```
 
 Find context cards semantically similar to a given card. Uses the source card's content as a search query.
@@ -101,7 +101,7 @@ Read-only. The source card is excluded from results. Useful for discovering rela
 ### +pin
 
 ```bash
-deepvista --profile local vistabase +pin <card_id>
+deepvista vistabase +pin <card_id>
 ```
 
 > [!CAUTION] Write command.
@@ -109,7 +109,7 @@ deepvista --profile local vistabase +pin <card_id>
 ### +archive
 
 ```bash
-deepvista --profile local vistabase +archive <card_id>
+deepvista vistabase +archive <card_id>
 ```
 
 > [!CAUTION] Write command.
@@ -122,25 +122,25 @@ deepvista --profile local vistabase +archive <card_id>
 
 ```bash
 # Search for anything about quarterly metrics
-deepvista --profile local vistabase +search "quarterly metrics"
+deepvista vistabase +search "quarterly metrics"
 
 # Find people related to a topic
-deepvista --profile local vistabase +search "machine learning team" --type person
+deepvista vistabase +search "machine learning team" --type person
 
 # Find cards similar to a specific card
-deepvista --profile local vistabase +similar card_abc123 --limit 10
+deepvista vistabase +similar card_abc123 --limit 10
 
 # List all people cards
-deepvista --profile local vistabase list --type person
+deepvista vistabase list --type person
 
 # Create a topic card
-deepvista --profile local vistabase create --type topic --title "Machine Learning Strategy" --content "Our approach to ML..."
+deepvista vistabase create --type topic --title "Machine Learning Strategy" --content "Our approach to ML..."
 
 # Pin an important card
-deepvista --profile local vistabase +pin abc123
+deepvista vistabase +pin abc123
 
 # Get full details of a card
-deepvista --profile local vistabase get abc123
+deepvista vistabase get abc123
 ```
 
 ## See Also

@@ -23,7 +23,7 @@ VistaBooks are structured checklist workflows stored as context cards. Each Vist
 ### list
 
 ```bash
-deepvista --profile local vistabook list [--limit N] [--page N]
+deepvista vistabook list [--limit N] [--page N]
 ```
 
 Read-only -- lists all VistaBook templates.
@@ -31,7 +31,7 @@ Read-only -- lists all VistaBook templates.
 ### get
 
 ```bash
-deepvista --profile local vistabook get <vistabook_id>
+deepvista vistabook get <vistabook_id>
 ```
 
 Read-only -- returns full VistaBook content including checklist phases.
@@ -39,7 +39,7 @@ Read-only -- returns full VistaBook content including checklist phases.
 ### +run
 
 ```bash
-deepvista --profile local vistabook +run <vistabook_id> [--input "context text"]
+deepvista vistabook +run <vistabook_id> [--input "context text"]
 ```
 
 Start a VistaBook run -- the AI agent executes the workflow checklist step by step.
@@ -61,7 +61,7 @@ Output is NDJSON (one JSON object per line) as the agent streams its response.
 ### +status
 
 ```bash
-deepvista --profile local vistabook +status <run_chat_id>
+deepvista vistabook +status <run_chat_id>
 ```
 
 Read-only -- shows run state (running, awaiting_input, completed, failed, paused).
@@ -69,7 +69,7 @@ Read-only -- shows run state (running, awaiting_input, completed, failed, paused
 ### +export
 
 ```bash
-deepvista --profile local vistabook +export <vistabook_id> --format skill
+deepvista vistabook +export <vistabook_id> --format skill
 ```
 
 Export a VistaBook as a SKILL.md file -- the VistaBook-as-Skill pipeline. Author workflows in DeepVista's GUI, then export them as installable agent skills.
@@ -85,16 +85,16 @@ Read-only -- generates output but does not modify the VistaBook. The exported SK
 
 ```bash
 # List all vistabooks
-deepvista --profile local vistabook list
+deepvista vistabook list
 
 # Run a vistabook
-deepvista --profile local vistabook +run vb_abc123 --input "Focus on Q4 objectives"
+deepvista vistabook +run vb_abc123 --input "Focus on Q4 objectives"
 
 # Check if a run is complete
-deepvista --profile local vistabook +status chat_xyz789
+deepvista vistabook +status chat_xyz789
 
 # Export as a skill for other agents
-deepvista --profile local vistabook +export vb_abc123 --format skill
+deepvista vistabook +export vb_abc123 --format skill
 ```
 
 ## See Also
