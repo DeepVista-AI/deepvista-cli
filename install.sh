@@ -3,6 +3,7 @@ set -e
 
 REPO="DeepVista-AI/deepvista-cli"
 SKILLS=(
+  dv
   deepvista-shared
   deepvista-vistabase
   deepvista-notes

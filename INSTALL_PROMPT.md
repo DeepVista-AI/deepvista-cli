@@ -12,14 +12,14 @@ Run this once in your terminal:
 curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash
 ```
 
-This installs the `deepvista` CLI and all 9 skills for your agent — no Node or extra tools required.
+This installs the `deepvista` CLI and all 10 skills for your agent — no Node or extra tools required.
 
 ---
 
 ## Then: Paste This Prompt Into Your Agent
 
 ```
-Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-vistabook deepvista-chat deepvista-persona-knowledge-worker deepvista-recipe-research-to-vistabook deepvista-recipe-export-knowledge-as-skills deepvista-recipe-analyze-notes
+Load skills: dv
 
 Help me get started with DeepVista:
 

@@ -39,10 +39,11 @@ curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/inst
 
 The script:
 1. Installs the `deepvista` CLI (auto-detects `uv`, `pipx`, or `pip`)
-2. Copies 9 skills into your agent's skills directory (auto-detects Claude Code, OpenCode, Cursor, and others)
+2. Copies 10 skills into your agent's skills directory (auto-detects Claude Code, OpenCode, Cursor, and others)
 
 | Skill | What it teaches your agent |
 |-------|---------------------------|
+| `dv` | **Umbrella skill** — everything below in one slash command |
 | `deepvista-shared` | Auth, profiles, global flags, security rules |
 | `deepvista-vistabase` | Knowledge base — search, read, create, update cards |
 | `deepvista-notes` | Note capture and management |
@@ -58,7 +59,7 @@ The script:
 Open your agent and paste:
 
 ```
-Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-vistabook
+Load skills: dv
 
 Help me get started with DeepVista. Walk me through logging in.
 ```
@@ -67,6 +68,8 @@ Your agent will:
 1. Open the browser login page
 2. Guide you through pasting the auth code
 3. Confirm you're logged in with `deepvista auth status`
+
+> **Tip:** The `dv` skill is an umbrella that covers everything. You can also load individual skills (`deepvista-notes`, `deepvista-vistabase`, etc.) if you want a lighter context.
 
 > **Claude Code tip:** If you're prompted to confirm skill file reads, run once:
 > ```bash
