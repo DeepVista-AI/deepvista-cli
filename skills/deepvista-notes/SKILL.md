@@ -1,6 +1,9 @@
 ---
 name: deepvista-notes
-description: "DeepVista Notes: Create, read, update, and delete notes in your knowledge base."
+description: |
+  DeepVista Notes: Create, read, update, and delete notes in your knowledge base.
+  TRIGGER when: user wants to create, capture, save, read, list, update, or delete a note; user says "take a note", "jot this down", "save this as a note", "show my notes", or asks about a specific note by title or ID.
+  DO NOT TRIGGER when: user wants to analyze, summarize, or find patterns across notes (use deepvista-recipe-analyze-notes instead); or when working with non-note knowledge base cards.
 metadata:
   deepvista:
     category: "service"
