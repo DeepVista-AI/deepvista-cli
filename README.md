@@ -6,6 +6,7 @@ CLI for DeepVista — manage your knowledge base, VistaBooks, notes, and chat fr
 
 - [For AI Agents](#for-ai-agents)
 - [Install](#install)
+- [Uninstall](#uninstall)
 - [Authentication](#authentication)
 - [Profiles](#profiles)
 - [Commands](#commands)
@@ -72,6 +73,20 @@ Your agent will:
 > ```bash
 > claude config set allowedPaths "~/.claude/skills" --global
 > ```
+
+### Auto-Capture Notes
+
+The install script automatically enables auto-capture in every detected agent — no manual setup required.
+
+| Agent | Config file written |
+|-------|-------------------|
+| Claude Code | `~/.claude/CLAUDE.md` |
+| Cursor | `~/.cursor/rules` |
+| OpenCode | `~/.opencode/AGENTS.md` |
+
+Once installed, your agent will silently save facts, decisions, insights, and action items to your DeepVista knowledge base as you work — no manual invocation needed. The install is idempotent: re-running it won't duplicate the block.
+
+To remove auto-capture, delete the `<!-- deepvista-auto-capture -->` block from the relevant config file, or run the uninstall script (see [Uninstall](#uninstall)).
 
 ---
 
@@ -218,6 +233,21 @@ pipx install git+https://github.com/DeepVista-AI/deepvista-cli.git
 uv sync
 uv run deepvista --help
 ```
+
+## Uninstall
+
+```bash
+curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/uninstall.sh | bash
+```
+
+The script:
+1. Uninstalls the `deepvista` CLI (auto-detects `uv`, `pipx`, or `pip`)
+2. Removes all DeepVista skills from detected agent skill directories
+3. Removes the auto-capture block from agent config files (`~/.claude/CLAUDE.md`, `~/.cursor/rules`, `~/.opencode/AGENTS.md`)
+
+Any other content in those config files is left untouched.
+
+---
 
 ## Authentication
 
