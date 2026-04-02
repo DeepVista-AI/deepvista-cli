@@ -1,16 +1,18 @@
 # DeepVista Install Prompt
 
-Copy and paste the prompt below into Claude Code (or any compatible agent) to install and configure DeepVista.
+Copy and paste the prompt below into any AI agent (Claude Code, OpenCode, Cursor, etc.) to configure DeepVista.
 
 ---
 
-## First: Install Skills
+## First: Install
 
-Run this once in your terminal to install the DeepVista skills globally:
+Run this once in your terminal:
 
 ```bash
-cd ~ && npx skills add DeepVista-AI/deepvista-cli --yes
+curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash
 ```
+
+This installs the `deepvista` CLI and all 9 skills for your agent — no Node or extra tools required.
 
 ---
 

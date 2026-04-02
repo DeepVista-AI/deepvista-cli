@@ -20,17 +20,19 @@ CLI for DeepVista — manage your knowledge base, VistaBooks, notes, and chat fr
 
 ## For AI Agents
 
-The key idea: **install the skills once, then talk to your agent**. The agent handles CLI installation, authentication, and all commands on your behalf.
+The key idea: **install once, then talk to your agent**. The agent handles authentication and all commands on your behalf.
 
-### Step 1 — Install Skills
+### Install
 
-Install the DeepVista skills globally so they're available in every agent session:
+Run this in your terminal — no Node, no extra tools required beyond a Python package manager and either `git` or `curl`:
 
 ```bash
-cd ~ && npx skills add DeepVista-AI/deepvista-cli --yes
+curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash
 ```
 
-This installs 9 skills into `~/.claude/skills/` (Claude Code) or `~/.agents/skills/` (OpenCode and others).
+The script:
+1. Installs the `deepvista` CLI (auto-detects `uv`, `pipx`, or `pip`)
+2. Copies 9 skills into your agent's skills directory (auto-detects Claude Code, OpenCode, Cursor, and others)
 
 | Skill | What it teaches your agent |
 |-------|---------------------------|
@@ -44,21 +46,20 @@ This installs 9 skills into `~/.claude/skills/` (Claude Code) or `~/.agents/skil
 | `deepvista-recipe-export-knowledge-as-skills` | Turn your knowledge into installable skills |
 | `deepvista-recipe-analyze-notes` | Analyze, summarize, and find patterns across notes |
 
-### Step 2 — Open Your Agent and Get Started
+### Get Started
 
-Open Claude Code (or your agent) and ask it to set everything up:
+Open your agent and paste:
 
 ```
 Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-vistabook
 
-Help me get started with DeepVista. Install the CLI if needed, then walk me through logging in.
+Help me get started with DeepVista. Walk me through logging in.
 ```
 
 Your agent will:
-1. Check if `deepvista` is installed; install it via `pip` or `uv` if not
-2. Open the browser login page
-3. Guide you through pasting the auth code
-4. Confirm you're logged in with `deepvista auth status`
+1. Open the browser login page
+2. Guide you through pasting the auth code
+3. Confirm you're logged in with `deepvista auth status`
 
 > **Claude Code tip:** If you're prompted to confirm skill file reads, run once:
 > ```bash
