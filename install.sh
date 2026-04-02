@@ -110,6 +110,18 @@ echo "==> Enabling DeepVista auto-capture..."
 
 echo "==> Installing DeepVista auto-capture hook..."
 
+# Download hook script to a temp location for use across agents
+HOOK_SRC="$TMP/deepvista-autocapture.sh"
+if [ -f "$SRC/../hooks/deepvista-autocapture.sh" ]; then
+  cp "$SRC/../hooks/deepvista-autocapture.sh" "$HOOK_SRC"
+elif command -v curl >/dev/null 2>&1; then
+  curl -sSL "https://raw.githubusercontent.com/$REPO/main/hooks/deepvista-autocapture.sh" \
+    -o "$HOOK_SRC"
+else
+  echo "    Warning: could not download hook script — skipping hook installation" >&2
+  HOOK_SRC=""
+fi
+
 install_stop_hook() {
   local settings_file="$1"
   local hook_script="$2"
@@ -150,15 +162,35 @@ PYEOF
   echo "    Stop hook registered in $settings_file"
 }
 
-# Install hook script and register it for Claude Code
-if [ -d "$HOME/.claude" ]; then
-  mkdir -p "$HOME/.claude/hooks"
-  cp "$SRC/../hooks/deepvista-autocapture.sh" "$HOME/.claude/hooks/deepvista-autocapture.sh" 2>/dev/null || \
-    curl -sSL "https://raw.githubusercontent.com/$REPO/main/hooks/deepvista-autocapture.sh" \
-      -o "$HOME/.claude/hooks/deepvista-autocapture.sh"
-  chmod +x "$HOME/.claude/hooks/deepvista-autocapture.sh"
+copy_hook() {
+  local hooks_dir="$1"
+  local dest="$hooks_dir/deepvista-autocapture.sh"
+  mkdir -p "$hooks_dir"
+  cp "$HOOK_SRC" "$dest"
+  chmod +x "$dest"
+  echo "    Hook copied to $dest"
+}
+
+if [ -n "$HOOK_SRC" ]; then
+  # Claude Code: copy hook and register in settings.json
+  copy_hook "$HOME/.claude/hooks"
   install_stop_hook "$HOME/.claude/settings.json" "$HOME/.claude/hooks/deepvista-autocapture.sh"
+
+  # Other detected agent dirs: copy hook so it's available if the agent supports it
+  [ -d "$HOME/.agents" ]   && copy_hook "$HOME/.agents/hooks"
+  [ -d "$HOME/.cursor" ]   && copy_hook "$HOME/.cursor/hooks"
+  [ -d "$HOME/.opencode" ] && copy_hook "$HOME/.opencode/hooks"
+
   echo "    Auto-capture hook active — notable facts will be saved to DeepVista after each conversation turn"
+fi
+
+echo "==> Checking DeepVista authentication..."
+
+if deepvista auth status >/dev/null 2>&1; then
+  echo "    Already authenticated."
+else
+  echo "    Not authenticated — launching login..."
+  deepvista auth login
 fi
 
 echo ""
