@@ -2,11 +2,13 @@
 
 Storage: ~/.config/deepvista/credentials.json (mode 0600)
 
-Token refresh uses Supabase GoTrue refresh endpoint — no browser needed.
+Token refresh uses the issuer URL from the JWT itself, so the CLI always
+refreshes against the correct Supabase instance (production vs staging).
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -18,12 +20,29 @@ from pathlib import Path
 import httpx
 from filelock import FileLock
 
-from deepvista_cli.config import CONFIG_DIR, SUPABASE_ANON_KEY, SUPABASE_URL
+from deepvista_cli.config import CONFIG_DIR
 from deepvista_cli.config import credentials_path as _default_creds_path
 
 logger = logging.getLogger(__name__)
 
 REFRESH_BUFFER_SECONDS = 60  # refresh when <60s remaining
+
+
+def _extract_issuer(access_token: str) -> str | None:
+    """Extract the `iss` claim from a JWT without verifying the signature.
+
+    The issuer looks like ``https://xyz.supabase.co/auth/v1`` and tells us
+    which Supabase instance issued the token — needed so we refresh against
+    the correct endpoint (production vs staging vs branch deploys).
+    """
+    try:
+        payload_b64 = access_token.split(".")[1]
+        # Fix padding
+        padded = payload_b64 + "=" * (4 - len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+        return payload.get("iss")
+    except Exception:
+        return None
 
 
 @dataclass
@@ -33,6 +52,8 @@ class TokenSet:
     expires_at: float  # unix timestamp
     user_id: str = ""
     email: str = ""
+    issuer: str = ""  # e.g. "https://xyz.supabase.co/auth/v1"
+    api_key: str = ""  # Supabase anon key — needed for token refresh
 
     @property
     def is_expired(self) -> bool:
@@ -45,6 +66,8 @@ class TokenSet:
             "expires_at": self.expires_at,
             "user_id": self.user_id,
             "email": self.email,
+            "issuer": self.issuer,
+            "api_key": self.api_key,
         }
 
     @classmethod
@@ -55,6 +78,8 @@ class TokenSet:
             expires_at=float(data.get("expires_at", 0)),
             user_id=data.get("user_id", ""),
             email=data.get("email", ""),
+            issuer=data.get("issuer", ""),
+            api_key=data.get("api_key", ""),
         )
 
 
@@ -102,17 +127,24 @@ def delete_tokens(path: Path | None = None) -> None:
         creds.unlink()
 
 
-def refresh_access_token(refresh_token: str) -> TokenSet:
+def refresh_access_token(tokens: TokenSet) -> TokenSet:
     """Exchange a refresh token for a new token set via Supabase GoTrue.
 
-    POST {SUPABASE_URL}/auth/v1/token?grant_type=refresh_token
+    Uses the issuer URL and api_key from the stored token set, so the CLI
+    never needs to know Supabase coordinates directly.
     """
-    url = f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token"
+    if not tokens.issuer or not tokens.api_key:
+        raise ValueError(
+            "Cannot refresh: missing issuer or api_key in stored credentials. "
+            "Please re-authenticate with: deepvista auth login"
+        )
+
+    url = f"{tokens.issuer}/token?grant_type=refresh_token"
     resp = httpx.post(
         url,
-        json={"refresh_token": refresh_token},
+        json={"refresh_token": tokens.refresh_token},
         headers={
-            "apikey": SUPABASE_ANON_KEY,
+            "apikey": tokens.api_key,
             "Content-Type": "application/json",
         },
         timeout=15,
@@ -126,6 +158,8 @@ def refresh_access_token(refresh_token: str) -> TokenSet:
         expires_at=time.time() + data.get("expires_in", 3600),
         user_id=user.get("id", ""),
         email=user.get("email", ""),
+        issuer=_extract_issuer(data["access_token"]) or tokens.issuer,
+        api_key=tokens.api_key,
     )
 
 
@@ -143,13 +177,13 @@ def get_valid_token(path: Path | None = None) -> TokenSet | None:
             tokens = load_tokens(creds) or tokens
             if tokens.is_expired:
                 try:
-                    tokens = refresh_access_token(tokens.refresh_token)
+                    tokens = refresh_access_token(tokens)
                     save_tokens(tokens, creds)
                 except httpx.HTTPStatusError as e:
                     logger.error("Token refresh failed: HTTP %s", e.response.status_code)
                     return None
-                except httpx.ConnectError:
-                    logger.error("Cannot reach Supabase for token refresh")
+                except (httpx.ConnectError, ValueError) as e:
+                    logger.error("Token refresh error: %s", e)
                     return None
 
     return tokens if tokens.access_token else None

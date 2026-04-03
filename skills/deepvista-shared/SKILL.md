@@ -74,11 +74,11 @@ deepvista config list
 ## Authentication
 
 ```bash
-# Step 1: Open browser login page
+# Interactive: opens browser, authenticates automatically
 deepvista auth login
 
-# Step 2: Copy the command shown in the browser and paste it:
-deepvista auth login --code <base64_code>
+# Non-interactive: visit /cli in browser, paste the code shown
+deepvista auth login --code XXXX-XXXX
 
 # Check auth state
 deepvista auth status

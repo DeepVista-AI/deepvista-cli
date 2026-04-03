@@ -257,19 +257,22 @@ Any other content in those config files is left untouched.
 deepvista auth login
 ```
 
-Opens your browser to DeepVista's login page. After authenticating with Google, copy the auth code shown on screen and paste it back into the terminal.
+Opens your browser to DeepVista's login page. If you're already logged in, the CLI authenticates automatically via a localhost callback.
 
-### Paste code directly (skip browser)
+### Non-interactive / headless
+
+Visit the web app at `/cli`, sign in, and paste the code shown:
 
 ```bash
-deepvista auth login --code <base64_auth_code>
+deepvista auth login --code XXXX-XXXX
 ```
 
 ### Self-hosted / staging
 
+Configure via profiles (see below):
+
 ```bash
-export DEEPVISTA_AUTH_URL=https://staging.deepvista.ai
-deepvista auth login
+deepvista --profile staging auth login
 ```
 
 ### Check / clear auth
@@ -313,9 +316,8 @@ deepvista config delete old # delete a profile
 Settings are resolved in this order (first wins):
 
 1. CLI flags (`--api-url`, `--format`, etc.)
-2. Environment variables (`DEEPVISTA_API_URL`, etc.)
-3. Named profile (`--profile local`)
-4. Built-in default (`https://api.deepvista.ai`)
+2. Named profile (`--profile local`)
+3. Built-in default (`https://api.deepvista.ai`)
 
 ## Commands
 
@@ -424,9 +426,6 @@ deepvista vistabase list --profile local
 
 | Variable | Description |
 |----------|-------------|
-| `DEEPVISTA_API_URL` | Backend API URL (default: `https://api.deepvista.ai`) |
-| `DEEPVISTA_AUTH_URL` | Auth app URL for login (default: `https://app.deepvista.ai`) |
-| `DEEPVISTA_SUPABASE_URL` | Supabase project URL |
 | `DEEPVISTA_CONFIG_DIR` | Config directory (default: `~/.config/deepvista`) |
 
 ## Files

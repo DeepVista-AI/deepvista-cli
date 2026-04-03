@@ -1,17 +1,16 @@
 """Configuration management for the DeepVista CLI.
 
 Resolution order for each setting:
-  1. CLI flags (--base-url, --format, etc.)
-  2. Environment variables (DEEPVISTA_*)
-  3. Config file (~/.config/deepvista/config.json) profile
-  4. Built-in defaults
+  1. CLI flags (--api-url, --format, etc.)
+  2. Config file (~/.config/deepvista/config.json) profile
+  3. Built-in defaults
 """
 
 from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -19,7 +18,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 DEFAULT_API_URL = "https://api.deepvista.ai"
-STAGING_API_URL = "https://api-staging.deepvista.ai"
+DEFAULT_AUTH_URL = "https://app.deepvista.ai"
 DEFAULT_FORMAT = "json"
 CONFIG_DIR = Path(os.environ.get("DEEPVISTA_CONFIG_DIR", Path.home() / ".config" / "deepvista"))
 
@@ -36,16 +35,6 @@ def credentials_path(profile: str = "default") -> Path:
 
 
 PROFILES_PATH = CONFIG_DIR / "config.json"
-
-# Supabase project coordinates (needed for PKCE auth + token refresh)
-SUPABASE_URL = os.environ.get("DEEPVISTA_SUPABASE_URL", "https://runcwaftjcrvwwcucudl.supabase.co")
-SUPABASE_ANON_KEY = os.environ.get(
-    "DEEPVISTA_SUPABASE_ANON_KEY",
-    # Public anon key — safe to embed; it only allows client-side operations gated by RLS.
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
-    ".eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1bmN3YWZ0amNydnd3Y3VjdWRsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczODY5MzgsImV4cCI6MjA4Mjk2MjkzOH0"
-    ".Ae6jkDZ4vHBAjFsRxCoiy_QdRTMnTQ6Se6b5iQfFdDU",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -118,23 +107,22 @@ def delete_profile(name: str) -> bool:
 class CLIConfig:
     """Resolved configuration for a single CLI invocation."""
 
-    api_url: str = field(default_factory=lambda: os.environ.get("DEEPVISTA_API_URL", DEFAULT_API_URL))
-    auth_url: str = field(default_factory=lambda: os.environ.get("DEEPVISTA_AUTH_URL", "https://app.deepvista.ai"))
+    api_url: str = DEFAULT_API_URL
+    auth_url: str = DEFAULT_AUTH_URL
     output_format: str = DEFAULT_FORMAT
     verbose: bool = False
     dry_run: bool = False
     profile: str = "default"
 
     def apply_profile(self, profile_name: str) -> None:
-        """Apply settings from a named profile (overrides defaults, env vars still win)."""
+        """Apply settings from a named profile."""
         profile = get_profile(profile_name)
         if not profile:
             return
 
-        # Profile values are overridden by env vars
-        if not os.environ.get("DEEPVISTA_API_URL") and "api_url" in profile:
+        if "api_url" in profile:
             self.api_url = profile["api_url"]
-        if not os.environ.get("DEEPVISTA_AUTH_URL") and "auth_url" in profile:
+        if "auth_url" in profile:
             self.auth_url = profile["auth_url"]
 
     def ensure_config_dir(self) -> Path:
