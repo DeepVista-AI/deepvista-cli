@@ -72,7 +72,7 @@ for dir in "${SKILL_DIRS[@]}"; do
 done
 
 # Auto-capture instruction block (written to each agent's global instructions file)
-read -r -d '' AUTOCAPTURE_BLOCK << 'EOF'
+read -r -d '' AUTOCAPTURE_BLOCK << 'EOF' || true
 
 <!-- deepvista-auto-capture -->
 ## DeepVista Auto-Capture
@@ -208,6 +208,7 @@ install_stop_hook() {
 
   # Idempotent: skip if hook already registered
   if grep -q "deepvista-autocapture" "$settings_file" 2>/dev/null; then
+    echo "    Stop hook already registered in $settings_file"
     return
   fi
 
