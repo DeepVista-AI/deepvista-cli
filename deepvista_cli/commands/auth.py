@@ -6,7 +6,7 @@ import time
 
 import click
 
-from deepvista_cli.auth.login import login_interactive, login_with_code
+from deepvista_cli.auth.login import login_auto, login_with_code
 from deepvista_cli.auth.tokens import delete_tokens, load_tokens
 from deepvista_cli.config import credentials_path
 from deepvista_cli.output.formatter import format_output, output_error
@@ -18,30 +18,33 @@ def auth_group() -> None:
 
 
 @auth_group.command("login")
-@click.option("--code", default=None, help="Auth code from the browser /auth/cli page.")
+@click.option("--code", default=None, help="One-time auth code from the browser.")
 @click.pass_context
 def auth_login(ctx: click.Context, code: str | None) -> None:
     """Login to DeepVista.
 
     \b
-    Step 1 — open the login page:
+    Interactive (opens browser, automatic):
       deepvista auth login
 
     \b
-    Step 2 — paste the command shown in the browser:
-      deepvista auth login --code <base64_code>
+    Non-interactive (paste code from browser):
+      deepvista auth login --code XXXX-XXXX
     """
+    creds_path = credentials_path(ctx.obj.profile)
+
     if code:
-        tokens = login_with_code(code, credentials_path(ctx.obj.profile))
-        result = {
-            "status": "authenticated",
-            "email": tokens.email,
-            "user_id": tokens.user_id,
-        }
-        format_output(result, ctx.obj.output_format)
-        click.echo(f"  Logged in as {tokens.email or tokens.user_id}", err=True)
+        tokens = login_with_code(code, ctx.obj.auth_url, creds_path)
     else:
-        login_interactive(auth_url=ctx.obj.auth_url)
+        tokens = login_auto(ctx.obj.auth_url, creds_path)
+
+    result = {
+        "status": "authenticated",
+        "email": tokens.email,
+        "user_id": tokens.user_id,
+    }
+    format_output(result, ctx.obj.output_format)
+    click.echo(f"  Logged in as {tokens.email or tokens.user_id}", err=True)
 
 
 @auth_group.command("status")
