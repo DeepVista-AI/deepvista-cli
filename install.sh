@@ -4,12 +4,12 @@ set -e
 REPO="DeepVista-AI/deepvista-cli"
 SKILLS=(
   deepvista-shared
-  deepvista-vistabase
+  deepvista-memory
   deepvista-notes
-  deepvista-vistabook
+  deepvista-recipe
   deepvista-chat
   deepvista-persona-knowledge-worker
-  deepvista-recipe-research-to-vistabook
+  deepvista-recipe-research-to-recipe
   deepvista-recipe-export-knowledge-as-skills
   deepvista-recipe-analyze-notes
 )
@@ -269,6 +269,6 @@ fi
 echo ""
 echo "DeepVista is ready. Open your AI agent and say:"
 echo ""
-echo '  Load skills: deepvista-shared deepvista-notes deepvista-vistabase'
+echo '  Load skills: deepvista-shared deepvista-notes deepvista-memory'
 echo '  Help me get started with DeepVista.'
 echo ""
