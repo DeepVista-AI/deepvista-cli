@@ -13,7 +13,6 @@ import click
 
 from deepvista_cli import __version__
 
-
 REPO = "DeepVista-AI/deepvista-cli"
 SKILL_RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/main/skills"
 
@@ -145,7 +144,7 @@ def upgrade_command(check: bool) -> None:
     # --- Upgrade skills ---
     if skill_updates:
         install_sh = f"https://raw.githubusercontent.com/{REPO}/main/install.sh"
-        click.echo(f"\nUpgrading skills...")
+        click.echo("\nUpgrading skills...")
         result = subprocess.run(["bash", "-c", f"curl -sSL {install_sh} | bash"])
         if result.returncode != 0:
             sys.exit(result.returncode)
