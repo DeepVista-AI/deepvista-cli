@@ -1,5 +1,6 @@
 ---
 name: deepvista-vistabase
+version: "0.1.0"
 description: "DeepVista Card: Manage your knowledge cards — create, search, and organize context cards."
 metadata:
   deepvista:

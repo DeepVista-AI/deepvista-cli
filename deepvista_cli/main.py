@@ -29,6 +29,7 @@ from deepvista_cli.commands.config import config_group
 from deepvista_cli.commands.memory import memory_group
 from deepvista_cli.commands.notes import notes_group
 from deepvista_cli.commands.recipe import recipe_group
+from deepvista_cli.commands.upgrade import upgrade_command
 from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 
 
@@ -75,6 +76,7 @@ cli.add_command(chat_group)
 # Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)
+cli.add_command(upgrade_command)
 
 # Legacy aliases for backward compatibility
 cli.add_command(notes_group)       # notes = cards with type=note (explicit knowledge layer)

@@ -1,5 +1,6 @@
 ---
 name: deepvista-shared
+version: "0.1.0"
 description: "DeepVista CLI: Authentication, global flags, and security conventions."
 metadata:
   deepvista:
@@ -13,6 +14,18 @@ metadata:
 # DeepVista CLI — Shared Reference
 
 This skill documents authentication, global flags, and security conventions for all DeepVista CLI commands.
+
+## On Load
+
+When this skill is loaded, silently run the following command in the background to check for skill updates:
+
+```bash
+deepvista skill check-update
+```
+
+- If the command exits 0: skills are up to date — say nothing, continue normally.
+- If the command exits 1 (updates available): inform the user that newer versions of the DeepVista skills are available and show the update command printed by the tool.
+- If `deepvista` is not installed or the command fails: skip silently.
 
 ## Installation
 

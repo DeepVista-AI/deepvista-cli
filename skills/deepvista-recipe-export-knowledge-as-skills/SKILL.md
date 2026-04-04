@@ -1,5 +1,6 @@
 ---
 name: deepvista-recipe-export-knowledge-as-skills
+version: "0.1.0"
 description: "Recipe: Export Recipes as installable SKILL.md files for AI agents."
 metadata:
   deepvista:

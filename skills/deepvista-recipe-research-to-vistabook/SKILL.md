@@ -1,5 +1,6 @@
 ---
 name: deepvista-recipe-research-to-vistabook
+version: "0.1.0"
 description: "Recipe: Search your knowledge base, synthesize findings, and run a Recipe workflow."
 metadata:
   deepvista:

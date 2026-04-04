@@ -1,5 +1,6 @@
 ---
 name: deepvista-chat
+version: "0.1.0"
 description: "DeepVista Chat: Send messages to the AI agent and manage chat sessions."
 metadata:
   deepvista:

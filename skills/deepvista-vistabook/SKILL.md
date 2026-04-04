@@ -1,5 +1,6 @@
 ---
 name: deepvista-vistabook
+version: "0.1.0"
 description: "DeepVista Recipe: Manage structured executable workflows (Recipes) and run them via the AI agent."
 metadata:
   deepvista:

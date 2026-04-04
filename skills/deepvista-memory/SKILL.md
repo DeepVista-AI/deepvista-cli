@@ -1,5 +1,6 @@
 ---
 name: deepvista-memory
+version: "0.1.0"
 description: "DeepVista Memory: View and search implicit memory context automatically accumulated from Chat."
 metadata:
   deepvista:

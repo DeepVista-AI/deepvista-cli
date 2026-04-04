@@ -1,5 +1,6 @@
 ---
 name: deepvista-notes
+version: "0.1.0"
 description: |
   DeepVista Notes: Create, read, update, and delete notes (explicit knowledge managed by the user).
   Notes are a shorthand for knowledge cards with type=note — the same as `deepvista card --type note`.
