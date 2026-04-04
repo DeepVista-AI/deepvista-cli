@@ -181,7 +181,7 @@ deepvista memory --help
 
 ## See Also
 
-- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Knowledge cards
-- [deepvista-vistabook](../deepvista-vistabook/SKILL.md) — Recipes (executable workflows)
+- [deepvista-memory](../deepvista-memory/SKILL.md) — Knowledge cards
+- [deepvista-recipe](../deepvista-recipe/SKILL.md) — Recipes (executable workflows)
 - [deepvista-notes](../deepvista-notes/SKILL.md) — Notes management
 - [deepvista-chat](../deepvista-chat/SKILL.md) — Chat with AI agent

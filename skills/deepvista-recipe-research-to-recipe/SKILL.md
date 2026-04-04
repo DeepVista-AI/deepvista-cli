@@ -1,5 +1,5 @@
 ---
-name: deepvista-recipe-research-to-vistabook
+name: deepvista-recipe-research-to-recipe
 version: "0.1.0"
 description: "Recipe: Search your knowledge base, synthesize findings, and run a Recipe workflow."
 metadata:
@@ -9,14 +9,14 @@ metadata:
       bins:
         - uv
       skills:
-        - deepvista-vistabase
-        - deepvista-vistabook
+        - deepvista-memory
+        - deepvista-recipe
     cliHelp: "deepvista card +search --help"
 ---
 
 # Research to Recipe
 
-> **PREREQUISITE:** Load the following skills: `deepvista-vistabase`, `deepvista-vistabook`
+> **PREREQUISITE:** Load the following skills: `deepvista-memory`, `deepvista-recipe`
 
 Search your knowledge base for relevant context, synthesize it, then run a Recipe workflow with that context as input.
 
@@ -58,5 +58,5 @@ Search your knowledge base for relevant context, synthesize it, then run a Recip
 
 ## See Also
 
-- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — card search and retrieval
-- [deepvista-vistabook](../deepvista-vistabook/SKILL.md) — Recipe list, run, and status
+- [deepvista-memory](../deepvista-memory/SKILL.md) — card search and retrieval
+- [deepvista-recipe](../deepvista-recipe/SKILL.md) — Recipe list, run, and status

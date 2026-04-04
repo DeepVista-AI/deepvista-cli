@@ -1,5 +1,5 @@
 ---
-name: deepvista-vistabook
+name: deepvista-recipe
 version: "0.1.0"
 description: "DeepVista Recipe: Manage structured executable workflows (Recipes) and run them via the AI agent."
 metadata:
@@ -26,7 +26,7 @@ Recipes are structured checklist workflows. Each Recipe is a template with phase
 After any write operation (run, create), always show the recipe URL to the user:
 
 ```
-https://app.deepvista.ai/vistabase?contextId=<id>
+https://app.deepvista.ai/memory?contextId=<id>
 ```
 
 Extract the `id` from the JSON response and present it as a clickable link.

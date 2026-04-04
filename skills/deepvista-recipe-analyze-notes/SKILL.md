@@ -13,14 +13,14 @@ metadata:
         - uv
       skills:
         - deepvista-shared
-        - deepvista-vistabase
+        - deepvista-memory
         - deepvista-notes
     cliHelp: "deepvista card +search --help"
 ---
 
 # Analyze Notes
 
-> **PREREQUISITE:** Read [deepvista-shared](../deepvista-shared/SKILL.md), [deepvista-vistabase](../deepvista-vistabase/SKILL.md), and [deepvista-notes](../deepvista-notes/SKILL.md).
+> **PREREQUISITE:** Read [deepvista-shared](../deepvista-shared/SKILL.md), [deepvista-memory](../deepvista-memory/SKILL.md), and [deepvista-notes](../deepvista-notes/SKILL.md).
 
 Search, retrieve, and analyze notes from the knowledge base to surface insights, patterns, and summaries.
 
@@ -84,5 +84,5 @@ deepvista notes create \
 ## See Also
 
 - [deepvista-notes](../deepvista-notes/SKILL.md) — CRUD operations on individual notes
-- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Full knowledge base search and management
-- [deepvista-recipe-research-to-vistabook](../deepvista-recipe-research-to-vistabook/SKILL.md) — Run a Recipe workflow with research findings
+- [deepvista-memory](../deepvista-memory/SKILL.md) — Full knowledge base search and management
+- [deepvista-recipe-research-to-recipe](../deepvista-recipe-research-to-recipe/SKILL.md) — Run a Recipe workflow with research findings

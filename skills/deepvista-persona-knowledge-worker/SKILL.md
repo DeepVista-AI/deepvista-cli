@@ -9,15 +9,15 @@ metadata:
       bins:
         - uv
       skills:
-        - deepvista-vistabase
-        - deepvista-vistabook
+        - deepvista-memory
+        - deepvista-recipe
         - deepvista-notes
     cliHelp: "deepvista --help"
 ---
 
 # Knowledge Worker
 
-> **PREREQUISITE:** Load the following skills: `deepvista-vistabase`, `deepvista-vistabook`, `deepvista-notes`
+> **PREREQUISITE:** Load the following skills: `deepvista-memory`, `deepvista-recipe`, `deepvista-notes`
 
 You are a knowledge worker using DeepVista to manage information, track tasks, and run structured workflows.
 
