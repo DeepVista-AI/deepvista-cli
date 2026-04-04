@@ -9,13 +9,13 @@ metadata:
       bins:
         - uv
       skills:
-        - deepvista-vistabook
+        - deepvista-recipe
     cliHelp: "deepvista recipe export --help"
 ---
 
 # Export Knowledge as Skills
 
-> **PREREQUISITE:** Load the following skill: `deepvista-vistabook`
+> **PREREQUISITE:** Load the following skill: `deepvista-recipe`
 
 Export Recipes as SKILL.md files that can be installed in any AI agent (Claude Code, Cursor, OpenCode, and others).
 
@@ -47,4 +47,4 @@ Export Recipes as SKILL.md files that can be installed in any AI agent (Claude C
 
 ## See Also
 
-- [deepvista-vistabook](../deepvista-vistabook/SKILL.md) — Recipe commands
+- [deepvista-recipe](../deepvista-recipe/SKILL.md) — Recipe commands

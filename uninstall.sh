@@ -2,14 +2,13 @@
 set -e
 
 SKILLS=(
-  dv
   deepvista-shared
-  deepvista-vistabase
+  deepvista-memory
   deepvista-notes
-  deepvista-vistabook
+  deepvista-recipe
   deepvista-chat
   deepvista-persona-knowledge-worker
-  deepvista-recipe-research-to-vistabook
+  deepvista-recipe-research-to-recipe
   deepvista-recipe-export-knowledge-as-skills
   deepvista-recipe-analyze-notes
 )

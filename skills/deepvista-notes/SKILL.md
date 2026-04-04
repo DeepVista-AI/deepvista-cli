@@ -37,7 +37,7 @@ Notes are context cards with `type=note`. They support rich markdown content and
 After any write operation (create, update, +quick), always show the note URL to the user:
 
 ```
-https://app.deepvista.ai/vistabase?contextId=<id>
+https://app.deepvista.ai/notes/<id>
 ```
 
 Extract the `id` from the JSON response (`card.id`) and present it as a clickable link.
@@ -120,5 +120,5 @@ deepvista card +search "API migration" --type note
 ## See Also
 
 - [deepvista-shared](../deepvista-shared/SKILL.md) — Auth and global flags
-- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Full knowledge base API (all card types)
+- [deepvista-memory](../deepvista-memory/SKILL.md) — Full knowledge base API (all card types)
 - [deepvista-recipe-analyze-notes](../deepvista-recipe-analyze-notes/SKILL.md) — Analyze patterns across notes
