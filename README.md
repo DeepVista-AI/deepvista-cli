@@ -1,12 +1,13 @@
 # deepvista-cli
 
-CLI for DeepVista — manage your knowledge base, VistaBooks, notes, and chat from the terminal. Designed for both humans and AI agents.
+CLI for DeepVista — chat, notes, recipes, and memory from your terminal. Designed for both humans and AI agents.
 
 ## Table of Contents
 
 - [For AI Agents](#for-ai-agents)
 - [Install](#install)
 - [Uninstall](#uninstall)
+- [Terminal UI (TUI)](#terminal-ui-tui)
 - [Authentication](#authentication)
 - [Profiles](#profiles)
 - [Commands](#commands)
@@ -40,14 +41,15 @@ curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/inst
 
 The script:
 1. Installs the `deepvista` CLI (auto-detects `uv`, `pipx`, or `pip`)
-2. Copies 9 skills into your agent's skills directory (auto-detects Claude Code, OpenCode, Cursor, and others)
+2. Copies skills into your agent's skills directory (auto-detects Claude Code, OpenCode, Cursor, and others)
 
 | Skill | What it teaches your agent |
 |-------|---------------------------|
 | `deepvista-shared` | Auth, profiles, global flags, security rules |
-| `deepvista-vistabase` | Knowledge base — search, read, create, update cards |
+| `deepvista-vistabase` | Knowledge cards — search, read, create, update |
 | `deepvista-notes` | Note capture and management |
-| `deepvista-vistabook` | Run structured AI workflows |
+| `deepvista-vistabook` | Run structured AI recipes/workflows |
+| `deepvista-memory` | View and search implicit memory context |
 | `deepvista-chat` | Conversational AI agent |
 | `deepvista-persona-knowledge-worker` | Daily knowledge workflow patterns |
 | `deepvista-recipe-research-to-vistabook` | Search → synthesize → run workflow |
@@ -59,7 +61,7 @@ The script:
 Open your agent and paste:
 
 ```
-Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-vistabook
+Load skills: deepvista-shared deepvista-notes deepvista-vistabase
 
 Help me get started with DeepVista. Walk me through logging in.
 ```
@@ -102,13 +104,7 @@ After listening to an episode, ask your agent:
 Load skills: deepvista-shared deepvista-notes
 
 I just listened to the Lenny's Podcast episode with Brian Chesky about founder mode.
-Here are my notes:
-
-- CEOs in "manager mode" lose touch with what's actually happening in the product
-- Founder mode means staying in the details — not micromanaging, but knowing
-- Skip-level meetings: he talks directly to ICs, bypasses middle layers
-- Airbnb COVID turnaround: cut to essentials, rediscovered product obsession
-- "Great founders don't just set vision and delegate. They stay in the arena."
+Here are my notes: ...
 
 Save this to my knowledge base as a note titled "Brian Chesky — Founder Mode".
 ```
@@ -122,48 +118,29 @@ Search my knowledge base for everything I've captured about founder mindset and 
 Show me the top 5 results.
 ```
 
-Quick capture mid-session:
-
-```
-Quick note: "Tobi Lütke on Lenny's — the company is a tool to amplify your ability to do what you love. Not the destination, the instrument."
-```
-
-### Research and Synthesize with a VistaBook
+### Research and Synthesize with a Recipe
 
 Once you've captured 10–20 interviews, ask your agent to synthesize patterns:
 
 ```
 Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook deepvista-recipe-research-to-vistabook
 
-I want to synthesize patterns from the founder interviews I've captured in my knowledge base.
-
-1. Search for cards about growth, momentum, and early-stage execution
-2. Search for cards about hiring and team building
-3. Find my "Research Synthesis" VistaBook (or the most relevant one)
-4. Run it with context focused on: what separates high-growth founders, common 0→1 mistakes,
-   and how great founders think about product
-
-Show me what you find before running the VistaBook so I can confirm.
+Search for cards about growth and early-stage execution, then find my Research Synthesis
+recipe and run it focused on: what separates high-growth founders, common 0→1 mistakes.
+Show me what you find before running.
 ```
 
-The agent searches, reads your notes, finds the VistaBook, confirms with you, then streams the run live.
+The agent searches, reads your notes, finds the Recipe, confirms with you, then streams the run live.
 
 ### Build a Founder Playbook
-
-Capture frameworks, then run an idea evaluation workflow:
 
 ```
 Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook
 
-I have a new startup idea I want to evaluate against my founder playbook.
-
-Idea: a CLI tool that lets developers query their observability stack in natural language.
-Context: I work in DevOps, I've felt this pain daily for 3 years. Market: all companies
-running microservices (~50k+ teams globally).
-
-1. Search my knowledge base for any idea validation frameworks I've captured
-2. Find my idea evaluation VistaBook
-3. Run it with the above context — but show me the VistaBook first so I can review it
+I have a new startup idea to evaluate. Idea: [your idea].
+1. Search my knowledge base for any idea validation frameworks
+2. Find my idea evaluation Recipe
+3. Run it with the above context — show me the Recipe first
 ```
 
 Export your playbook as a reusable skill:
@@ -171,21 +148,21 @@ Export your playbook as a reusable skill:
 ```
 Load skills: deepvista-shared deepvista-vistabook deepvista-recipe-export-knowledge-as-skills
 
-Export my founder playbook VistaBook as a SKILL.md file so I can share it with my team.
+Export my founder playbook Recipe as a SKILL.md file so I can share it with my team.
 ```
 
 ---
 
-## VistaBook Patterns
+## Recipe Patterns
 
 Build these workflows in the DeepVista web app, then invoke them through your agent:
 
-| VistaBook | Prompt to invoke |
-|-----------|-----------------|
-| **Research synthesis** | "Search my KB for [topic] and run my Research Synthesis VistaBook" |
+| Recipe | Prompt to invoke |
+|--------|-----------------|
+| **Research synthesis** | "Search my KB for [topic] and run my Research Synthesis Recipe" |
 | **Idea evaluation** | "Evaluate this idea against my founder frameworks: [idea]" |
 | **Weekly review** | "Run my weekly review — surface pinned cards and capture this week's key learnings" |
-| **Interview debrief** | "I just finished a user interview. Run my Interview Debrief VistaBook with these notes: [notes]" |
+| **Interview debrief** | "I just finished a user interview. Run my Interview Debrief Recipe with these notes: [notes]" |
 | **Decision memo** | "Help me think through this decision using my knowledge base: [decision]" |
 | **Competitive analysis** | "Run a competitive analysis on [company/space] using everything I've captured" |
 
@@ -193,44 +170,33 @@ Build these workflows in the DeepVista web app, then invoke them through your ag
 
 ## Install
 
-### From PyPI (once published)
+### From PyPI
 
 ```bash
 pip install deepvista-cli
-```
-
-```bash
+pipx install deepvista-cli
 uv tool install deepvista-cli
 ```
 
+### With Terminal UI support
+
 ```bash
-pipx install deepvista-cli
+pip install 'deepvista-cli[ui]'
+uv tool install 'deepvista-cli[ui]'
 ```
 
-### Directly from GitHub (available now)
+### Directly from GitHub
 
 ```bash
 pip install git+https://github.com/DeepVista-AI/deepvista-cli.git
-```
-
-Pin to a specific tag or branch:
-
-```bash
-pip install git+https://github.com/DeepVista-AI/deepvista-cli.git@v0.1.0
-pip install git+https://github.com/DeepVista-AI/deepvista-cli.git@main
-```
-
-Or with uv / pipx:
-
-```bash
 uv tool install git+https://github.com/DeepVista-AI/deepvista-cli.git
-pipx install git+https://github.com/DeepVista-AI/deepvista-cli.git
 ```
 
 ### For development (from this repo)
 
 ```bash
 uv sync
+uv pip install -e '.[ui]'   # include TUI
 uv run deepvista --help
 ```
 
@@ -241,11 +207,45 @@ curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/unin
 ```
 
 The script:
-1. Uninstalls the `deepvista` CLI (auto-detects `uv`, `pipx`, or `pip`)
+1. Uninstalls the `deepvista` CLI
 2. Removes all DeepVista skills from detected agent skill directories
-3. Removes the auto-capture block from agent config files (`~/.claude/CLAUDE.md`, `~/.cursor/rules`, `~/.opencode/AGENTS.md`)
+3. Removes the auto-capture block from agent config files
 
-Any other content in those config files is left untouched.
+---
+
+## Terminal UI (TUI)
+
+DeepVista includes a full terminal UI with four panels matching the product's core modules.
+
+### Launch
+
+```bash
+deepvista ui
+```
+
+Requires the `[ui]` optional dependency:
+
+```bash
+pip install 'deepvista-cli[ui]'
+```
+
+### Panels
+
+| Panel | Key | Description |
+|-------|-----|-------------|
+| **Chat** | `1` | Converse with the DeepVista AI agent. Select past sessions from the sidebar or start a new one. Responses stream in real time. |
+| **Notes** | `2` | Browse and search your explicit knowledge (notes). Click any note to read its full content. |
+| **Recipes** | `3` | List all Recipes (structured workflows). Select one to view its details and run it with the **▶ Run Recipe** button — output streams live. |
+| **Memory** | `4` | Read-only view of implicit context accumulated from your Chat sessions. Searchable. |
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `1` – `4` | Switch between Chat / Notes / Recipes / Memory |
+| `r` | Refresh the active panel |
+| `q` | Quit |
+| `Enter` | Send message (in Chat input) |
 
 ---
 
@@ -267,14 +267,6 @@ Visit the web app at `/cli`, sign in, and paste the code shown:
 deepvista auth login --code XXXX-XXXX
 ```
 
-### Self-hosted / staging
-
-Configure via profiles (see below):
-
-```bash
-deepvista --profile staging auth login
-```
-
 ### Check / clear auth
 
 ```bash
@@ -282,134 +274,143 @@ deepvista auth status
 deepvista auth logout
 ```
 
+---
+
 ## Profiles
 
 Profiles store `api_url` so you don't need env vars for each environment.
 
-### Create a profile
-
 ```bash
-# Local development
-deepvista config set local --api-url http://localhost:8080
-
-# Staging
+# Create profiles
+deepvista config set local   --api-url http://localhost:8080
 deepvista config set staging --api-url https://api-staging.deepvista.ai
-```
 
-### Use a profile
-
-```bash
-deepvista --profile local vistabase list
+# Use a profile
+deepvista --profile local card list
 deepvista --profile staging chat +send "hello" --new
+
+# Manage
+deepvista config list
+deepvista config show local
+deepvista config delete old
 ```
 
-### Manage profiles
+**Resolution order** (first wins): CLI flags → named profile → built-in default
 
-```bash
-deepvista config list       # list all profiles
-deepvista config show local # show one profile
-deepvista config delete old # delete a profile
-```
-
-### Resolution order
-
-Settings are resolved in this order (first wins):
-
-1. CLI flags (`--api-url`, `--format`, etc.)
-2. Named profile (`--profile local`)
-3. Built-in default (`https://api.deepvista.ai`)
+---
 
 ## Commands
 
-### vistabase — Knowledge base cards
+The CLI uses four resources:
+
+```
+card      Knowledge cards (all types)
+recipe    Executable workflows
+memory    Implicit context from Chat (read-only)
+chat      Conversational AI agent
+```
+
+### card — Knowledge cards
 
 ```bash
 # List cards
-deepvista vistabase list [--type person|note|topic|...] [--limit N] [--page N]
+deepvista card list [--type TYPE] [--status pinned|archived|normal] [--limit N] [--page N]
 
-# Get a card
-deepvista vistabase get <card_id>
-
-# Create a card
-deepvista vistabase create --type note --title "Title" --content "..."
-
-# Update a card
-deepvista vistabase update <card_id> --title "New title"
-
-# Delete a card
-deepvista vistabase delete <card_id>
+# Get / create / update / delete
+deepvista card get    <card_id>
+deepvista card create --type TYPE --title "Title" [--content "..."] [--tags '["t1"]']
+deepvista card update <card_id> [--title "..."] [--content "..."] [--status pinned|archived]
+deepvista card delete <card_id>
 
 # Search (hybrid vector + keyword)
-deepvista vistabase +search "query text" [--type person] [--limit 10]
+deepvista card +search "query text" [--type TYPE] [--limit 10]
 
 # Find similar cards
-deepvista vistabase +similar <card_id>
+deepvista card +similar <card_id>
 
 # Pin / archive
-deepvista vistabase +pin <card_id>
-deepvista vistabase +archive <card_id>
+deepvista card +pin     <card_id>
+deepvista card +archive <card_id>
 ```
 
-Card types: `person`, `organization`, `message`, `todo`, `topic`, `keypoint`, `file`, `note`, `vistabook`, `vistabook_run`
+Card types: `person`, `organization`, `message`, `todo`, `topic`, `keypoint`, `file`, `note`, `recipe`, `recipe_run`
 
-### vistabook — Workflow templates & runs
+### recipe — Executable workflows
 
 ```bash
-deepvista vistabook list [--limit N] [--page N]
-deepvista vistabook get <vistabook_id>
-deepvista vistabook +run <vistabook_id> [--input "context"]
-deepvista vistabook +status <run_chat_id>
-deepvista vistabook +export <vistabook_id> --format skill
+deepvista recipe list [--limit N] [--page N]
+deepvista recipe get    <recipe_id>
+deepvista recipe run    <recipe_id> [--input "context"]
+deepvista recipe status <run_chat_id>
+deepvista recipe export <recipe_id> --format skill
 ```
 
-### notes — Quick note management
+`recipe run` streams NDJSON as the agent works through the checklist.
+
+### memory — Implicit context
+
+Memory is automatically accumulated from Chat. It is read-only — updates happen through conversation.
 
 ```bash
-deepvista notes list [--limit N] [--page N]
-deepvista notes get <note_id>
-deepvista notes create --title "Title" --content "..."
-deepvista notes update <note_id> --title "..." --content "..."
-deepvista notes delete <note_id>
-deepvista notes +quick "Quick note from a single line"
+deepvista memory show   [--limit N]
+deepvista memory search "query text" [--limit N]
 ```
 
-### chat — Talk to the DeepVista agent
+### chat — AI agent
 
 ```bash
 deepvista chat sessions [--limit N] [--offset N] [--search "query"]
-deepvista chat get <chat_id>
+deepvista chat get    <chat_id>
 deepvista chat delete <chat_id>
-deepvista chat +send "your message" [--chat-id ID] [--new]
+deepvista chat +send  "your message" [--chat-id ID] [--new]
 ```
 
-Chat output is NDJSON (one JSON object per line) streamed from the agent.
+`chat +send` streams NDJSON as the agent responds.
+
+### notes — Quick note management (shorthand)
+
+`notes` is a convenience alias for `card` commands filtered to `type=note`.
+
+```bash
+deepvista notes list [--limit N]
+deepvista notes get    <note_id>
+deepvista notes create --title "Title" [--content "..."]
+deepvista notes update <note_id> [--title "..."] [--content "..."]
+deepvista notes delete <note_id>
+deepvista notes +quick "Quick note from a single line of text"
+```
+
+---
 
 ## Global Flags
+
+Global flags must come **before** the resource name:
+
+```bash
+# Correct
+deepvista --profile local card list
+
+# Wrong
+deepvista card list --profile local
+```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--format json\|table` | `json` | Output format |
 | `--verbose` | off | Show HTTP request/response details |
 | `--dry-run` | off | Show what would be sent, don't execute |
-| `--api-url URL` | staging | Override backend URL |
+| `--api-url URL` | `https://api.deepvista.ai` | Override backend URL |
 | `--profile NAME` | `default` | Use a named config profile |
+| `--version` | | Show version and exit |
 
-**Global flags must come before the service name:**
-
-```bash
-# Correct:
-deepvista --profile local vistabase list
-
-# Wrong:
-deepvista vistabase list --profile local
-```
+---
 
 ## Output
 
-- **JSON** (default): Structured JSON to stdout. Agents parse this.
+- **JSON** (default): structured JSON to stdout — agents parse this.
 - **Table**: `--format table` for human-readable output.
 - **Errors**: `{"error": {"code": N, "message": "...", "detail": "..."}}` on stderr.
-- **Streaming**: NDJSON for `chat +send` and `vistabook +run`.
+- **Streaming**: NDJSON for `chat +send` and `recipe run` (one JSON object per line).
 
 ## Exit Codes
 
@@ -417,8 +418,8 @@ deepvista vistabase list --profile local
 |------|---------|
 | 0 | Success |
 | 1 | API error |
-| 2 | Auth error |
-| 3 | Validation error |
+| 2 | Auth error (not logged in / token expired) |
+| 3 | Validation error (bad arguments) |
 | 4 | Network error |
 | 5 | Internal error |
 
@@ -428,23 +429,35 @@ deepvista vistabase list --profile local
 |----------|-------------|
 | `DEEPVISTA_CONFIG_DIR` | Config directory (default: `~/.config/deepvista`) |
 
+---
+
 ## Files
 
 ```
 deepvista-cli/
-├── deepvista_cli/          # Python package
-│   ├── main.py             # Click entry point
-│   ├── config.py           # Config + profiles
-│   ├── auth/               # Login, token storage
-│   ├── client/             # HTTP client, SSE streaming
-│   ├── commands/           # auth, vistabase, vistabook, notes, chat, config
-│   └── output/             # JSON + table formatters
-└── skills/                 # SKILL.md files for agent integration
-    ├── deepvista-shared/       # Auth, global flags, security rules
-    ├── deepvista-vistabase/    # Knowledge base cards
-    ├── deepvista-vistabook/    # Workflow templates & runs
-    ├── deepvista-notes/        # Notes management
-    ├── deepvista-chat/         # Chat with AI agent
+├── deepvista_cli/
+│   ├── main.py              # CLI entry point (five resources)
+│   ├── config.py            # Config + profiles
+│   ├── auth/                # Login, token storage, callback server
+│   ├── client/              # HTTP client, SSE streaming
+│   ├── commands/
+│   │   ├── card.py          # Knowledge cards
+│   │   ├── recipe.py        # Executable workflows
+│   │   ├── memory.py        # Implicit memory context
+│   │   ├── chat.py          # Conversational agent
+│   │   ├── notes.py         # Notes (alias for card --type note)
+│   │   ├── auth.py
+│   │   └── config.py
+│   ├── tui/
+│   │   └── app.py           # Terminal UI (requires [ui] extra)
+│   └── output/              # JSON + table formatters
+└── skills/                  # SKILL.md files for agent integration
+    ├── deepvista-shared/
+    ├── deepvista-vistabase/     # card commands
+    ├── deepvista-vistabook/     # recipe commands
+    ├── deepvista-memory/        # memory commands
+    ├── deepvista-notes/
+    ├── deepvista-chat/
     ├── deepvista-persona-knowledge-worker/
     ├── deepvista-recipe-analyze-notes/
     ├── deepvista-recipe-export-knowledge-as-skills/
@@ -453,7 +466,7 @@ deepvista-cli/
 
 ## See Also
 
-- [skills/](./skills/) — SKILL.md files, installable via `npx skills add`
-- [deepvista.ai](https://deepvista.ai) — Web app to build and manage VistaBooks
+- [skills/](./skills/) — SKILL.md files for agent integration
+- [deepvista.ai](https://deepvista.ai) — Web app to build and manage Recipes
 - [PyPI](https://pypi.org/project/deepvista-cli/) — Package releases
 - [GitHub Issues](https://github.com/DeepVista-AI/deepvista-cli/issues) — Bug reports and feature requests

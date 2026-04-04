@@ -1,5 +1,6 @@
 ---
 name: deepvista-shared
+version: "0.1.0"
 description: "DeepVista CLI: Authentication, global flags, and security conventions."
 metadata:
   deepvista:
@@ -14,6 +15,18 @@ metadata:
 
 This skill documents authentication, global flags, and security conventions for all DeepVista CLI commands.
 
+## On Load
+
+When this skill is loaded, silently run the following command in the background to check for skill updates:
+
+```bash
+deepvista skill check-update
+```
+
+- If the command exits 0: skills are up to date — say nothing, continue normally.
+- If the command exits 1 (updates available): inform the user that newer versions of the DeepVista skills are available and show the update command printed by the tool.
+- If `deepvista` is not installed or the command fails: skip silently.
+
 ## Installation
 
 If `deepvista` is not already installed, install it with any of:
@@ -22,8 +35,8 @@ If `deepvista` is not already installed, install it with any of:
 # From PyPI
 pip install deepvista-cli
 
-# From GitHub (latest)
-pip install git+https://github.com/DeepVista-AI/deepvista-cli.git
+# With TUI support
+pip install 'deepvista-cli[ui]'
 ```
 
 With uv or pipx:
@@ -42,27 +55,38 @@ deepvista --version
 ## Running Commands
 
 ```bash
-deepvista [GLOBAL FLAGS] <service> <command> [options]
+deepvista [GLOBAL FLAGS] <resource> <command> [options]
 ```
 
 If running from the cloned repo without installing, prefix commands with `uv run`.
 
-**IMPORTANT:** Global flags like `--profile` must come BEFORE the service name:
+**IMPORTANT:** Global flags like `--profile` must come BEFORE the resource name:
 
 ```bash
 # Correct:
-deepvista notes list
+deepvista card list
 
 # WRONG — will fail:
-deepvista notes list --profile local
+deepvista card list --profile local
 ```
+
+## Resources
+
+```
+card      Knowledge cards (context cards — all types)
+recipe    Executable workflows (run structured checklists)
+memory    Implicit context automatically accumulated from Chat
+chat      Conversational AI agent
+```
+
+Support commands: `auth`, `config`, `notes` (shorthand for card --type note)
 
 ## Profiles
 
-Commands use the `default` profile unless you specify one. To target a specific backend, pass `--profile NAME` before the service name:
+Commands use the `default` profile unless you specify one. To target a specific backend, pass `--profile NAME` before the resource name:
 
 ```bash
-deepvista --profile staging vistabase list
+deepvista --profile staging card list
 ```
 
 List available profiles:
@@ -90,15 +114,13 @@ deepvista auth logout
 ## CLI Syntax
 
 ```
-deepvista [--profile NAME] <service> <command> [options]
-deepvista [--profile NAME] <service> +<helper> [args] [options]
+deepvista [--profile NAME] <resource> <command> [options]
+deepvista [--profile NAME] <resource> +<helper> [args] [options]
 ```
-
-**Services:** `auth`, `config`, `vistabase`, `vistabook`, `notes`, `chat`
 
 ## Global Flags
 
-Global flags go BEFORE the service name.
+Global flags go BEFORE the resource name.
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -110,12 +132,21 @@ Global flags go BEFORE the service name.
 | `--version` | — | Show version and exit. |
 | `--help` | — | Show help for any command. |
 
+## Launch the TUI
+
+```bash
+deepvista ui
+```
+
+Opens the terminal UI with Chat, Notes, Recipes, and Memory panels.
+Requires: `pip install 'deepvista-cli[ui]'`
+
 ## Output Format
 
 - **JSON** (default): Structured JSON to stdout. Agents should parse this.
 - **Table**: Human-readable table on stderr + JSON on stdout.
 - **Errors**: `{"error": {"code": N, "message": "...", "detail": "..."}}` on stderr.
-- **Streaming** (chat, vistabook +run): NDJSON — one JSON object per line.
+- **Streaming** (chat +send, recipe run): NDJSON — one JSON object per line.
 
 ## Exit Codes
 
@@ -134,8 +165,10 @@ Every command supports `--help`:
 
 ```bash
 deepvista --help
-deepvista vistabase --help
-deepvista vistabase +search --help
+deepvista card --help
+deepvista card +search --help
+deepvista recipe --help
+deepvista memory --help
 ```
 
 ## Security Rules
@@ -148,7 +181,7 @@ deepvista vistabase +search --help
 
 ## See Also
 
-- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Knowledge base cards
-- [deepvista-vistabook](../deepvista-vistabook/SKILL.md) — VistaBook workflows
+- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Knowledge cards
+- [deepvista-vistabook](../deepvista-vistabook/SKILL.md) — Recipes (executable workflows)
 - [deepvista-notes](../deepvista-notes/SKILL.md) — Notes management
 - [deepvista-chat](../deepvista-chat/SKILL.md) — Chat with AI agent

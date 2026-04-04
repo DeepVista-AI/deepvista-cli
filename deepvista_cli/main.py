@@ -1,14 +1,17 @@
 """deepvista — CLI entry point.
 
+Resources: card · recipe · memory · chat
+Aliases:   notes (shorthand for card --type note)
+
 Usage:
-  deepvista <service> <command> [options]
-  deepvista <service> +<helper> [args] [options]
+  deepvista <resource> <command> [options]
+  deepvista <resource> +<helper> [args] [options]
 
 Global flags:
   --format json|table   Output format (default: json)
   --verbose             Show HTTP request/response details
   --dry-run             Show what would be sent without executing
-  --api-url URL        Override backend URL
+  --api-url URL         Override backend URL
   --profile NAME        Use a named config profile (local, staging, etc.)
   --version             Show version and exit
 """
@@ -20,11 +23,13 @@ import click
 from deepvista_cli import __version__
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.commands.auth import auth_group
+from deepvista_cli.commands.card import card_group
 from deepvista_cli.commands.chat import chat_group
 from deepvista_cli.commands.config import config_group
+from deepvista_cli.commands.memory import memory_group
 from deepvista_cli.commands.notes import notes_group
-from deepvista_cli.commands.vistabase import vistabase_group
-from deepvista_cli.commands.vistabook import vistabook_group
+from deepvista_cli.commands.recipe import recipe_group
+from deepvista_cli.commands.upgrade import upgrade_command
 from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 
 
@@ -39,7 +44,10 @@ from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 def cli(
     ctx: click.Context, output_format: str, verbose: bool, dry_run: bool, api_url: str | None, profile: str
 ) -> None:
-    """DeepVista CLI — manage your knowledge base, VistaBooks, notes, and chat."""
+    """DeepVista CLI — chat, notes, recipes, and memory from your terminal.
+
+    Resources: card · recipe · memory · chat
+    """
     config = CLIConfig(
         output_format=output_format,
         verbose=verbose,
@@ -60,13 +68,38 @@ def cli(
     ctx.obj._client = DeepVistaClient(config)
 
 
-# Register command groups
+# Primary resources (five resources)
+cli.add_command(card_group)
+cli.add_command(recipe_group)
+cli.add_command(memory_group)
+cli.add_command(chat_group)
+# Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)
-cli.add_command(vistabase_group)
-cli.add_command(vistabook_group)
-cli.add_command(notes_group)
-cli.add_command(chat_group)
+cli.add_command(upgrade_command)
+
+# Legacy aliases for backward compatibility
+cli.add_command(notes_group)       # notes = cards with type=note (explicit knowledge layer)
+
+
+@cli.command("ui")
+@click.pass_context
+def launch_ui(ctx: click.Context) -> None:
+    """Launch the DeepVista terminal UI (TUI).
+
+    Requires: pip install 'deepvista-cli[ui]'
+    """
+    try:
+        from deepvista_cli.tui.app import DeepVistaApp
+    except ImportError:
+        raise click.ClickException(
+            "TUI dependencies not installed.\n"
+            "Run: pip install 'deepvista-cli[ui]'\n"
+            "  or: uv pip install 'deepvista-cli[ui]'"
+        )
+
+    app = DeepVistaApp(cli_config=ctx.obj)
+    app.run()
 
 
 if __name__ == "__main__":

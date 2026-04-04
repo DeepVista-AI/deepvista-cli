@@ -1,6 +1,7 @@
 ---
 name: deepvista-recipe-research-to-vistabook
-description: "Recipe: Search your knowledge base, synthesize findings, and run a VistaBook workflow."
+version: "0.1.0"
+description: "Recipe: Search your knowledge base, synthesize findings, and run a Recipe workflow."
 metadata:
   deepvista:
     category: "recipe"
@@ -10,47 +11,52 @@ metadata:
       skills:
         - deepvista-vistabase
         - deepvista-vistabook
-    cliHelp: "deepvista vistabase +search --help"
+    cliHelp: "deepvista card +search --help"
 ---
 
-# Research to VistaBook
+# Research to Recipe
 
 > **PREREQUISITE:** Load the following skills: `deepvista-vistabase`, `deepvista-vistabook`
 
-Search your knowledge base for relevant context, then run a VistaBook workflow with that context.
+Search your knowledge base for relevant context, synthesize it, then run a Recipe workflow with that context as input.
 
 ## Steps
 
 1. **Search for relevant cards:**
    ```bash
-   deepvista vistabase +search "your research topic" --limit 10
+   deepvista card +search "your research topic" --limit 10
    ```
 
 2. **Read the most relevant cards** (pick IDs from search results):
    ```bash
-   deepvista vistabase get <card_id_1>
-   deepvista vistabase get <card_id_2>
+   deepvista card get <card_id_1>
+   deepvista card get <card_id_2>
    ```
 
-3. **Summarize findings** into a context string for the VistaBook.
+3. **Summarize findings** into a context string for the Recipe.
 
-4. **List available VistaBooks** to find the right workflow:
+4. **List available Recipes** to find the right workflow:
    ```bash
-   deepvista vistabook list
+   deepvista recipe list
    ```
 
-5. **Run the VistaBook** with your research context:
+5. **Confirm with the user** which Recipe to run and what context to pass, then run it:
    ```bash
-   deepvista vistabook +run <vistabook_id> --input "Based on my research: <summary of findings>"
+   deepvista recipe run <recipe_id> --input "Based on my research: <summary of findings>"
    ```
 
 6. **Check run status:**
    ```bash
-   deepvista vistabook +status <run_chat_id>
+   deepvista recipe status <run_chat_id>
    ```
 
 ## Tips
 
-- This recipe combines read operations (search, get) with a write operation (run).
-- Confirm with the user before step 5 (the write step).
-- The VistaBook run will have access to the full knowledge base, so the context input is for focusing the run, not the only information available.
+- Steps 1–4 are read-only. Step 5 (`recipe run`) is the only write operation — always confirm with the user before executing it.
+- The Recipe run has access to the full knowledge base; the `--input` flag focuses the run, it doesn't limit what the agent can see.
+- After a run starts, the agent creates a linked chat session — continue the conversation using `deepvista chat +send --chat-id <run_chat_id>`.
+
+## See Also
+
+- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — card search and retrieval
+- [deepvista-vistabook](../deepvista-vistabook/SKILL.md) — Recipe list, run, and status
