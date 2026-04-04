@@ -30,8 +30,29 @@ from textual.widgets import (
     TabPane,
 )
 
+from textual.theme import Theme
+
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.config import CLIConfig
+
+# ---------------------------------------------------------------------------
+# Brand theme
+# ---------------------------------------------------------------------------
+
+DEEPVISTA_THEME = Theme(
+    name="deepvista",
+    dark=True,
+    primary="#88a88e",     # primary-500  muted sage green
+    secondary="#537872",   # primary-600  darker teal-green
+    warning="#d4a537",     # warning-500
+    error="#c85c5c",       # danger-500
+    success="#88a88e",     # primary-500
+    accent="#537872",      # primary-600
+    foreground="#e8ece6",  # primary-200  warm off-white
+    background="#1b242a",  # primary-950  deepest dark
+    surface="#242f36",     # primary-900
+    panel="#303e48",       # primary-800
+)
 
 
 # ---------------------------------------------------------------------------
@@ -100,14 +121,15 @@ class NotesPanel(Container):
     }
     NotesPanel #notes-list-pane {
         width: 35;
-        border-right: solid $panel;
+        border-right: solid #303e48;
     }
     NotesPanel #notes-content-pane {
         width: 1fr;
         padding: 1 2;
     }
     NotesPanel .panel-title {
-        background: $panel;
+        background: #303e48;
+        color: #e8ece6;
         padding: 0 1;
         text-style: bold;
     }
@@ -205,14 +227,15 @@ class RecipesPanel(Container):
     }
     RecipesPanel #recipes-list-pane {
         width: 35;
-        border-right: solid $panel;
+        border-right: solid #303e48;
     }
     RecipesPanel #recipes-detail-pane {
         width: 1fr;
         padding: 1 2;
     }
     RecipesPanel .panel-title {
-        background: $panel;
+        background: #303e48;
+        color: #e8ece6;
         padding: 0 1;
         text-style: bold;
     }
@@ -222,7 +245,7 @@ class RecipesPanel(Container):
     }
     RecipesPanel #run-output {
         height: 1fr;
-        border: solid $panel;
+        border: solid #303e48;
         padding: 1;
         margin-top: 1;
         overflow-y: scroll;
@@ -335,10 +358,11 @@ class MemoryPanel(Container):
     }
     MemoryPanel .panel-title {
         text-style: bold;
+        color: #e8ece6;
         margin-bottom: 1;
     }
     MemoryPanel .memory-note {
-        color: $text-muted;
+        color: #808080;
         margin-bottom: 1;
         text-style: italic;
     }
@@ -350,7 +374,7 @@ class MemoryPanel(Container):
         overflow-y: scroll;
     }
     MemoryPanel .memory-entry {
-        border: solid $panel;
+        border: solid #303e48;
         padding: 1;
         margin-bottom: 1;
     }
@@ -449,14 +473,15 @@ class ChatPanel(Container):
     }
     ChatPanel #chat-sessions-pane {
         width: 32;
-        border-right: solid $panel;
+        border-right: solid #303e48;
     }
     ChatPanel #chat-main-pane {
         width: 1fr;
         layout: vertical;
     }
     ChatPanel .panel-title {
-        background: $panel;
+        background: #303e48;
+        color: #e8ece6;
         padding: 0 1;
         text-style: bold;
     }
@@ -466,22 +491,22 @@ class ChatPanel(Container):
         padding: 1 2;
     }
     ChatPanel .message-user {
-        background: $primary 20%;
+        background: #375053 30%;
         padding: 0 1;
         margin: 0 0 1 4;
-        border-left: solid $primary;
+        border-left: solid #88a88e;
     }
     ChatPanel .message-agent {
-        background: $surface;
+        background: #242f36;
         padding: 0 1;
         margin: 0 4 1 0;
-        border-left: solid $secondary;
+        border-left: solid #537872;
     }
     ChatPanel #chat-input-bar {
         height: auto;
         layout: horizontal;
         padding: 1;
-        border-top: solid $panel;
+        border-top: solid #303e48;
     }
     ChatPanel #chat-input {
         width: 1fr;
@@ -659,16 +684,33 @@ class DeepVistaApp(App[None]):
 
     TITLE = "DeepVista"
     SUB_TITLE = "chat · notes · recipes · memory"
+    ENABLE_COMMAND_PALETTE = False
 
     CSS = """
     Screen {
-        background: $background;
+        background: #1b242a;
     }
     TabbedContent {
         height: 1fr;
     }
     TabPane {
         padding: 0;
+    }
+    /* Tab bar */
+    Tabs {
+        background: #242f36;
+    }
+    Tab {
+        color: #808080;
+    }
+    Tab.-active {
+        color: #e8ece6;
+    }
+    Tab:focus {
+        color: #88a88e;
+    }
+    Underline > .underline--bar {
+        color: #88a88e;
     }
     """
 
@@ -684,6 +726,10 @@ class DeepVistaApp(App[None]):
     def __init__(self, cli_config: CLIConfig, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._config = cli_config
+
+    def on_mount(self) -> None:
+        self.register_theme(DEEPVISTA_THEME)
+        self.theme = "deepvista"
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
