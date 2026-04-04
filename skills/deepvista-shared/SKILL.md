@@ -57,17 +57,16 @@ deepvista card list
 deepvista card list --profile local
 ```
 
-## Five Resources
+## Resources
 
 ```
 card      Knowledge cards (context cards — all types)
 recipe    Executable workflows (run structured checklists)
 memory    Implicit context automatically accumulated from Chat
 chat      Conversational AI agent
-skill     Agent skills (reusable AI capabilities)
 ```
 
-Support commands: `auth`, `config`, `notes` (shorthand for cards with type=note)
+Support commands: `auth`, `config`, `notes` (shorthand for card --type note)
 
 ## Profiles
 

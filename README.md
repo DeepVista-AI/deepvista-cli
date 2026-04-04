@@ -301,14 +301,13 @@ deepvista config delete old
 
 ## Commands
 
-The CLI uses five resources:
+The CLI uses four resources:
 
 ```
 card      Knowledge cards (all types)
 recipe    Executable workflows
 memory    Implicit context from Chat (read-only)
 chat      Conversational AI agent
-skill     Agent skills
 ```
 
 ### card — Knowledge cards
@@ -367,14 +366,6 @@ deepvista chat +send  "your message" [--chat-id ID] [--new]
 ```
 
 `chat +send` streams NDJSON as the agent responds.
-
-### skill — Agent skills
-
-```bash
-deepvista skill list [--limit N] [--page N]
-deepvista skill get <skill_id>
-deepvista skill run <skill_id> [--input "context"]
-```
 
 ### notes — Quick note management (shorthand)
 
@@ -450,10 +441,9 @@ deepvista-cli/
 │   ├── auth/                # Login, token storage, callback server
 │   ├── client/              # HTTP client, SSE streaming
 │   ├── commands/
-│   │   ├── card.py          # Knowledge cards (replaces vistabase)
-│   │   ├── recipe.py        # Executable workflows (replaces vistabook)
+│   │   ├── card.py          # Knowledge cards
+│   │   ├── recipe.py        # Executable workflows
 │   │   ├── memory.py        # Implicit memory context
-│   │   ├── skill.py         # Agent skills
 │   │   ├── chat.py          # Conversational agent
 │   │   ├── notes.py         # Notes (alias for card --type note)
 │   │   ├── auth.py

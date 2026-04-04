@@ -1,6 +1,7 @@
 """deepvista — CLI entry point.
 
-Five resources: card · recipe · memory · chat · skill
+Resources: card · recipe · memory · chat
+Aliases:   notes (shorthand for card --type note)
 
 Usage:
   deepvista <resource> <command> [options]
@@ -28,7 +29,6 @@ from deepvista_cli.commands.config import config_group
 from deepvista_cli.commands.memory import memory_group
 from deepvista_cli.commands.notes import notes_group
 from deepvista_cli.commands.recipe import recipe_group
-from deepvista_cli.commands.skill import skill_group
 from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 
 
@@ -45,7 +45,7 @@ def cli(
 ) -> None:
     """DeepVista CLI — chat, notes, recipes, and memory from your terminal.
 
-    Resources: card · recipe · memory · chat · skill
+    Resources: card · recipe · memory · chat
     """
     config = CLIConfig(
         output_format=output_format,
@@ -72,8 +72,6 @@ cli.add_command(card_group)
 cli.add_command(recipe_group)
 cli.add_command(memory_group)
 cli.add_command(chat_group)
-cli.add_command(skill_group)
-
 # Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)
