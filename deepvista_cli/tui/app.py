@@ -16,7 +16,6 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.screen import Screen
 from textual.widgets import (
     Button,
     Footer,
@@ -25,14 +24,54 @@ from textual.widgets import (
     Label,
     ListItem,
     ListView,
-    LoadingIndicator,
     Markdown,
     Static,
     TabbedContent,
     TabPane,
 )
 
+from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.config import CLIConfig
+
+
+# ---------------------------------------------------------------------------
+# TUI-safe client: raises exceptions instead of calling sys.exit()
+# ---------------------------------------------------------------------------
+
+
+class _TUIClient(DeepVistaClient):
+    """DeepVistaClient that raises RuntimeError instead of calling sys.exit().
+
+    The base client calls sys.exit() on auth/API/network errors, which would
+    kill the entire TUI process. This subclass raises exceptions that the TUI
+    workers catch and display as inline error messages.
+    """
+
+    def _auth_headers(self) -> dict[str, str]:
+        from deepvista_cli.auth.tokens import get_valid_token
+        from deepvista_cli.config import credentials_path
+
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        tokens = get_valid_token(credentials_path(self.config.profile))
+        if tokens is not None and tokens.access_token:
+            headers["Authorization"] = f"Bearer {tokens.access_token}"
+            return headers
+        raise RuntimeError("Not authenticated — run: deepvista auth login")
+
+    def _handle_network_error(self, exc: Any) -> None:  # type: ignore[override]
+        import httpx
+        if isinstance(exc, httpx.ConnectError):
+            raise RuntimeError(f"Cannot connect to {self.config.api_url}") from exc
+        raise RuntimeError(f"Request timed out: {self.config.api_url}") from exc
+
+    def _handle_error(self, resp: Any) -> None:  # type: ignore[override]
+        try:
+            body = resp.json()
+            detail = body.get("detail", body.get("message", resp.text))
+        except Exception:
+            detail = resp.text
+        raise RuntimeError(f"API {resp.status_code}: {detail}")
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -72,10 +111,6 @@ class NotesPanel(Container):
         padding: 0 1;
         text-style: bold;
     }
-    NotesPanel .empty-hint {
-        color: $text-muted;
-        padding: 1 2;
-    }
     NotesPanel #notes-search {
         margin: 0 1 1 1;
     }
@@ -94,24 +129,26 @@ class NotesPanel(Container):
             yield Input(placeholder="Search notes…", id="notes-search")
             yield ListView(id="notes-listview")
         with ScrollableContainer(id="notes-content-pane"):
-            yield Markdown("", id="notes-content-md")
+            yield Markdown("*Select a note to view its content.*", id="notes-content-md")
 
     def on_mount(self) -> None:
         self.load_notes()
 
     @work(thread=True)
     def load_notes(self, query: str = "") -> None:
-        from deepvista_cli.client.http import DeepVistaClient
-
-        client = DeepVistaClient(self._config)
+        client = _TUIClient(self._config)
         body: dict = {"card_type": "note", "limit": 50, "page_number": 1}
         if query:
             body["query_text"] = query
         try:
             data = client.post("/get_context_cards", body)
             self._notes = data.get("cards", [])
-        except Exception:
+        except BaseException as e:
             self._notes = []
+            self.app.call_from_thread(
+                self.query_one("#notes-content-md", Markdown).update,
+                f"*Error loading notes: {e}*",
+            )
         self.app.call_from_thread(self._refresh_list)
 
     def _refresh_list(self) -> None:
@@ -210,14 +247,16 @@ class RecipesPanel(Container):
 
     @work(thread=True)
     def load_recipes(self) -> None:
-        from deepvista_cli.client.http import DeepVistaClient
-
-        client = DeepVistaClient(self._config)
+        client = _TUIClient(self._config)
         try:
             data = client.post("/get_context_cards", {"card_type": "vistabook", "limit": 50, "page_number": 1})
             self._recipes = data.get("cards", [])
-        except Exception:
+        except BaseException as e:
             self._recipes = []
+            self.app.call_from_thread(
+                self.query_one("#recipe-detail-md", Markdown).update,
+                f"*Error loading recipes: {e}*",
+            )
         self.app.call_from_thread(self._refresh_list)
 
     def _refresh_list(self) -> None:
@@ -259,9 +298,7 @@ class RecipesPanel(Container):
 
     @work(thread=True)
     def _run_recipe_worker(self, recipe_id: str) -> None:
-        from deepvista_cli.client.http import DeepVistaClient
-
-        client = DeepVistaClient(self._config)
+        client = _TUIClient(self._config)
         lines: list[str] = []
         try:
             body = {"user_instruction": f"[vistabook:{recipe_id}] Run this recipe"}
@@ -272,7 +309,7 @@ class RecipesPanel(Container):
                     self.app.call_from_thread(
                         self.query_one("#run-output", Static).update, "\n".join(lines[-30:])
                     )
-        except Exception as e:
+        except BaseException as e:
             lines.append(f"Error: {e}")
             self.app.call_from_thread(self.query_one("#run-output", Static).update, "\n".join(lines))
         self.app.call_from_thread(self.query_one("#run-btn", Button).__setattr__, "disabled", False)
@@ -333,9 +370,7 @@ class MemoryPanel(Container):
 
     @work(thread=True)
     def load_memory(self, query: str = "") -> None:
-        from deepvista_cli.client.http import DeepVistaClient
-
-        client = DeepVistaClient(self._config)
+        client = _TUIClient(self._config)
         try:
             if query:
                 data = client.post("/memory/search", {"query": query, "limit": 20})
@@ -343,7 +378,7 @@ class MemoryPanel(Container):
             else:
                 data = client.get("/memory/summary", params={"limit": 20})
                 entries = data.get("entries", data.get("items", []))
-        except Exception as e:
+        except BaseException as e:
             entries = [{"summary": f"Could not load memory: {e}", "source": "error"}]
         self.app.call_from_thread(self._render_entries, entries, query)
 
@@ -432,7 +467,6 @@ class ChatPanel(Container):
         self._config = cli_config
         self._sessions: list[dict] = []
         self._current_chat_id: str | None = None
-        self._messages: list[dict] = []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="chat-sessions-pane"):
@@ -446,19 +480,17 @@ class ChatPanel(Container):
 
     def on_mount(self) -> None:
         self.load_sessions()
-        # Show welcome hint
         self._append_message("agent", "Hello! Start a new conversation or select a session from the left.")
 
     @work(thread=True)
     def load_sessions(self) -> None:
-        from deepvista_cli.client.http import DeepVistaClient
-
-        client = DeepVistaClient(self._config)
+        client = _TUIClient(self._config)
         try:
             data = client.post("/get_chat_sessions", {"limit": 30, "offset": 0})
             self._sessions = data.get("sessions", [])
-        except Exception:
+        except BaseException as e:
             self._sessions = []
+            self.app.call_from_thread(self._append_message, "agent", f"Could not load sessions: {e}")
         self.app.call_from_thread(self._refresh_sessions)
 
     def _refresh_sessions(self) -> None:
@@ -474,7 +506,6 @@ class ChatPanel(Container):
         item_id = event.item.id or ""
         if item_id == "session-new":
             self._current_chat_id = None
-            self._messages = []
             msgs = self.query_one("#chat-messages", ScrollableContainer)
             msgs.remove_children()
             self._append_message("agent", "New conversation started. Say something!")
@@ -485,9 +516,7 @@ class ChatPanel(Container):
 
     @work(thread=True)
     def load_chat(self, chat_id: str) -> None:
-        from deepvista_cli.client.http import DeepVistaClient
-
-        client = DeepVistaClient(self._config)
+        client = _TUIClient(self._config)
         try:
             data = client.get(f"/chat_sessions/{chat_id}")
             session = data.get("session", data)
@@ -496,8 +525,8 @@ class ChatPanel(Container):
             for page in pages:
                 for msg in page.get("messages", []):
                     msgs.append(msg)
-        except Exception as e:
-            msgs = [{"role": "system", "content": f"Error loading chat: {e}"}]
+        except BaseException as e:
+            msgs = [{"role": "agent", "content": f"Error loading chat: {e}"}]
         self.app.call_from_thread(self._render_messages, msgs)
 
     def _render_messages(self, msgs: list[dict]) -> None:
@@ -536,9 +565,7 @@ class ChatPanel(Container):
 
     @work(thread=True)
     def _stream_response(self, message: str) -> None:
-        from deepvista_cli.client.http import DeepVistaClient
-
-        client = DeepVistaClient(self._config)
+        client = _TUIClient(self._config)
         body: dict = {"user_instruction": message}
         if self._current_chat_id:
             body["chat_id"] = self._current_chat_id
@@ -546,40 +573,35 @@ class ChatPanel(Container):
         accumulated = ""
         try:
             for event in client.stream_sse("/imagine", body):
-                # Track chat_id from response
                 if "chat_id" in event and not self._current_chat_id:
                     self._current_chat_id = event["chat_id"]
                 text = event.get("text", event.get("content", event.get("delta", "")))
                 if text:
                     accumulated += text
                     self.app.call_from_thread(self._update_streaming, accumulated)
-        except Exception as e:
-            accumulated = f"Error: {e}"
+        except BaseException as e:
+            accumulated = f"*Error: {e}*"
             self.app.call_from_thread(self._update_streaming, accumulated)
 
-        # Finalize
-        self.app.call_from_thread(self._finalize_response, accumulated)
+        self.app.call_from_thread(self._finalize_response)
 
     def _update_streaming(self, text: str) -> None:
-        """Update the last agent message while streaming."""
         container = self.query_one("#chat-messages", ScrollableContainer)
         children = list(container.children)
-        # Check if last child is a streaming placeholder
-        if children and hasattr(children[-1], "_is_streaming"):
-            children[-1].update(text)
+        if children and getattr(children[-1], "_is_streaming", False):
+            children[-1].update(text)  # type: ignore[union-attr]
         else:
             md = Markdown(text, classes="message-agent")
             md._is_streaming = True  # type: ignore[attr-defined]
             container.mount(md)
         container.scroll_end(animate=False)
 
-    def _finalize_response(self, text: str) -> None:
+    def _finalize_response(self) -> None:
         container = self.query_one("#chat-messages", ScrollableContainer)
         children = list(container.children)
-        if children and hasattr(children[-1], "_is_streaming"):
-            del children[-1]._is_streaming  # type: ignore[attr-defined]
+        if children and getattr(children[-1], "_is_streaming", False):
+            children[-1]._is_streaming = False  # type: ignore[attr-defined]
         self.query_one("#send-btn", Button).disabled = False
-        # Reload sessions to pick up the new/updated one
         self.load_sessions()
 
 
@@ -636,7 +658,6 @@ class DeepVistaApp(App[None]):
         self.query_one(TabbedContent).active = tab_id
 
     def action_refresh(self) -> None:
-        """Refresh the active panel."""
         active = self.query_one(TabbedContent).active
         if active == "notes":
             self.query_one("#notes-panel", NotesPanel).load_notes()
