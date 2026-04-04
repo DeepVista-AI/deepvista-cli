@@ -21,6 +21,16 @@ Cards are DeepVista's knowledge base — context cards representing people, orga
 
 **Command:** `deepvista card <subcommand>`
 
+## App URLs
+
+After any write operation (create, update), always show the card URL to the user:
+
+```
+https://app.deepvista.ai/vistabase?contextId=<id>
+```
+
+Extract the `id` from the JSON response and present it as a clickable link.
+
 ## CRUD Commands
 
 ### list

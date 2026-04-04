@@ -21,6 +21,16 @@ Recipes are structured checklist workflows. Each Recipe is a template with phase
 
 **Command:** `deepvista recipe <subcommand>`
 
+## App URLs
+
+After any write operation (run, create), always show the recipe URL to the user:
+
+```
+https://app.deepvista.ai/vistabook/<id>
+```
+
+Extract the `id` from the JSON response and present it as a clickable link.
+
 ## Commands
 
 ### list
