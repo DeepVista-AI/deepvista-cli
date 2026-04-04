@@ -37,7 +37,7 @@ Notes are context cards with `type=note`. They support rich markdown content and
 After any write operation (create, update, +quick), always show the note URL to the user:
 
 ```
-https://app.deepvista.ai/notes/<id>
+https://app.deepvista.ai/vistabase?contextId=<id>
 ```
 
 Extract the `id` from the JSON response (`card.id`) and present it as a clickable link.
