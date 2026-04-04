@@ -1,6 +1,6 @@
 ---
 name: deepvista-recipe-export-knowledge-as-skills
-description: "Recipe: Export multiple VistaBooks as installable SKILL.md files for AI agents."
+description: "Recipe: Export Recipes as installable SKILL.md files for AI agents."
 metadata:
   deepvista:
     category: "recipe"
@@ -9,38 +9,41 @@ metadata:
         - uv
       skills:
         - deepvista-vistabook
-    cliHelp: "deepvista vistabook +export --help"
+    cliHelp: "deepvista recipe export --help"
 ---
 
 # Export Knowledge as Skills
 
-> **PREREQUISITE:** Load the following skills: `deepvista-vistabook`
+> **PREREQUISITE:** Load the following skill: `deepvista-vistabook`
 
-Export multiple VistaBooks as SKILL.md files that can be installed in any AI agent (Claude Code, OpenCode, OpenClaw, Codex).
+Export Recipes as SKILL.md files that can be installed in any AI agent (Claude Code, Cursor, OpenCode, and others).
 
 ## Steps
 
-1. **List all VistaBooks:**
+1. **List all Recipes:**
    ```bash
-   deepvista vistabook list
+   deepvista recipe list
    ```
 
-2. **For each VistaBook to export**, generate the SKILL.md:
+2. **For each Recipe to export**, generate the SKILL.md:
    ```bash
-   deepvista vistabook +export <vistabook_id_1> --format skill
-   deepvista vistabook +export <vistabook_id_2> --format skill
+   deepvista recipe export <recipe_id> --format skill
    ```
 
 3. **Save each skill** to the agent's skills directory:
    ```bash
    mkdir -p ~/.agents/skills/<skill-name>/
-   # Extract the SKILL.md content from the JSON output and save it
+   # Write the SKILL.md content from the JSON output to that directory
    ```
 
-4. **Verify installation** — the skills should now be discoverable by the agent.
+4. **Verify** — the skill should now be discoverable by the agent.
 
 ## Tips
 
-- Read-only recipe — only generates files, does not modify VistaBooks.
-- This is the VistaBook-as-Skill pipeline: author workflows in DeepVista's GUI, share as agent skills.
-- Skills can also be distributed via `npx skills add` for the broader agent ecosystem.
+- Read-only recipe — only generates files, does not modify Recipes.
+- This is the Recipe-as-Skill pipeline: author workflows in DeepVista's GUI, export them as installable agent skills so anyone on your team can load them.
+- The exported SKILL.md includes the full checklist and instructions in a format agents can follow directly.
+
+## See Also
+
+- [deepvista-vistabook](../deepvista-vistabook/SKILL.md) — Recipe commands

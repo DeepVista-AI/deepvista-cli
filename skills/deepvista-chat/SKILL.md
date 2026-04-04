@@ -34,7 +34,7 @@ Read-only — list chat sessions.
 deepvista chat get <chat_id>
 ```
 
-Read-only — get a chat session with all pages.
+Read-only — returns session metadata (`id`, `summary`, `created_at`, `status`). Full message history is not returned by this endpoint.
 
 ### delete
 
@@ -59,11 +59,28 @@ deepvista chat +send "your message" [--chat-id ID] [--new]
 | `--chat-id` | No | — | Continue an existing chat session |
 | `--new` | No | false | Force start a new conversation |
 
-Output is NDJSON (one JSON object per line) — each line is an SSE event from the agent's streaming response.
+Output is **NDJSON** — one JSON object per line, streamed as the agent responds.
 
-- Use `--new` to force a fresh conversation context.
-- Without `--chat-id` or `--new`, the agent may auto-select or create a session.
-- The agent has access to your full knowledge base and can create/update cards during the conversation.
+## SSE Event Format
+
+`+send` streams events in this structure. Parse `page_delta` events to get the agent's response text:
+
+```json
+{"type": "chat_session", "id": "abc123", ...}
+{"type": "page", "page": {"user_instruction": "...", ...}}
+{"type": "page_delta", "parts": [
+  {"type": "tool_result", "output": "partial response text...", "done": false}
+], "page_index": 0}
+{"type": "page_delta", "parts": [
+  {"type": "tool_result", "output": "full response text", "done": true, "options": ["follow-up 1", "follow-up 2"]}
+]}
+```
+
+Key fields:
+- `type: "chat_session"` — first event; contains the `id` of the session
+- `type: "page_delta"` — carries the streamed response
+- `parts[].type: "tool_result"` — the agent's text; `output` is the **full accumulated text so far** (not an incremental delta)
+- `parts[].done: true` — final chunk; `options` may contain suggested follow-up prompts
 
 ## Examples
 
@@ -72,7 +89,7 @@ Output is NDJSON (one JSON object per line) — each line is an SSE event from t
 deepvista chat +send "What are my open tasks?" --new
 
 # Continue an existing conversation
-deepvista chat +send "Tell me more about the first one" --chat-id chat_abc
+deepvista chat +send "Tell me more about the first one" --chat-id abc123
 
 # Ask the agent to create a note
 deepvista chat +send "Create a note summarizing our ML strategy discussion"
@@ -80,10 +97,11 @@ deepvista chat +send "Create a note summarizing our ML strategy discussion"
 # List recent sessions
 deepvista chat sessions --limit 5
 
-# Search sessions
+# Search sessions by summary
 deepvista chat sessions --search "roadmap"
 ```
 
 ## See Also
 
 - [deepvista-shared](../deepvista-shared/SKILL.md) — Auth and global flags
+- [deepvista-memory](../deepvista-memory/SKILL.md) — View implicit context accumulated from Chat

@@ -14,7 +14,7 @@ metadata:
         - deepvista-shared
         - deepvista-vistabase
         - deepvista-notes
-    cliHelp: "deepvista vistabase +search --help"
+    cliHelp: "deepvista card +search --help"
 ---
 
 # Analyze Notes
@@ -27,7 +27,7 @@ Search, retrieve, and analyze notes from the knowledge base to surface insights,
 
 1. **Search for relevant notes** using a query derived from the user's request:
    ```bash
-   deepvista vistabase +search "<topic or keyword>" --type note --limit 20
+   deepvista card +search "<topic or keyword>" --type note --limit 20
    ```
 
 2. **List recent notes** if no specific topic was given, to get a broad view:
@@ -57,8 +57,8 @@ Search, retrieve, and analyze notes from the knowledge base to surface insights,
 
 ## Tips
 
-- Use `vistabase +search` with specific keywords rather than listing everything — it uses hybrid vector+keyword search and returns the most relevant results.
-- Filter by tag if the user's notes are tagged: `vistabase +search "<query>" --type note` (tags are part of the card metadata returned in results).
+- Use `card +search` with specific keywords rather than listing everything — it uses hybrid vector+keyword search and returns the most relevant results.
+- Filter by type to stay focused on notes: `deepvista card +search "<query>" --type note`.
 - For time-bounded analysis ("notes from this week"), use `notes list` and filter by `created_at` in the JSON output.
 - Use `chat +send` to ask the AI agent to synthesize across a large set of notes:
   ```bash
@@ -69,7 +69,7 @@ Search, retrieve, and analyze notes from the knowledge base to surface insights,
 
 ```bash
 # Find all notes about a project
-deepvista vistabase +search "project alpha" --type note --limit 15
+deepvista card +search "project alpha" --type note --limit 15
 
 # Get full content of a note
 deepvista notes get note_abc123
@@ -84,4 +84,4 @@ deepvista notes create \
 
 - [deepvista-notes](../deepvista-notes/SKILL.md) — CRUD operations on individual notes
 - [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Full knowledge base search and management
-- [deepvista-recipe-research-to-vistabook](../deepvista-recipe-research-to-vistabook/SKILL.md) — Run a VistaBook workflow with research findings
+- [deepvista-recipe-research-to-vistabook](../deepvista-recipe-research-to-vistabook/SKILL.md) — Run a Recipe workflow with research findings
