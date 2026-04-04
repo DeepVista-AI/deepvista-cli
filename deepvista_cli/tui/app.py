@@ -371,6 +371,7 @@ class MemoryPanel(Container):
     @work(thread=True)
     def load_memory(self, query: str = "") -> None:
         client = _TUIClient(self._config)
+        entries: list[dict] = []
         try:
             if query:
                 data = client.post("/memory/search", {"query": query, "limit": 20})
@@ -378,8 +379,28 @@ class MemoryPanel(Container):
             else:
                 data = client.get("/memory/summary", params={"limit": 20})
                 entries = data.get("entries", data.get("items", []))
+        except RuntimeError as e:
+            err = str(e)
+            if "404" in err or "Not Found" in err:
+                # Memory API not yet available — fall back to recent chat sessions
+                try:
+                    data = client.post("/get_chat_sessions", {"limit": 20, "offset": 0})
+                    for s in data.get("sessions", []):
+                        summary = s.get("summary", "")
+                        if summary:
+                            entries.append({
+                                "summary": summary,
+                                "source": "chat",
+                                "created_at": s.get("created_at", ""),
+                            })
+                except BaseException:
+                    pass
+                if not entries:
+                    entries = [{"summary": "Memory will appear here as you use Chat.", "source": "info"}]
+            else:
+                entries = [{"summary": f"Error: {err}", "source": "error"}]
         except BaseException as e:
-            entries = [{"summary": f"Could not load memory: {e}", "source": "error"}]
+            entries = [{"summary": f"Error: {e}", "source": "error"}]
         self.app.call_from_thread(self._render_entries, entries, query)
 
     def _render_entries(self, entries: list[dict], query: str) -> None:
@@ -389,12 +410,17 @@ class MemoryPanel(Container):
             container.mount(Static("No memory entries found.", classes="memory-note"))
             return
         for entry in entries:
-            summary = entry.get("summary", entry.get("title", entry.get("content", "")))
             source = entry.get("source", "")
+            summary = entry.get("summary", entry.get("title", entry.get("content", "")))
             created = entry.get("created_at", "")
+
+            if source == "info":
+                container.mount(Static(summary, classes="memory-note"))
+                continue
+
             text = f"**{_short(summary, 80)}**"
-            if source:
-                text += f"\n*Source: {source}*"
+            if source and source not in ("error",):
+                text += f"\n*{source}*"
             if created:
                 text += f"  ·  {created[:10]}"
             container.mount(Markdown(text, classes="memory-entry"))
