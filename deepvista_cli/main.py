@@ -73,6 +73,11 @@ cli.add_command(card_group)
 cli.add_command(recipe_group)
 cli.add_command(memory_group)
 cli.add_command(chat_group)
+
+# Make `memory` a synonym for `card` — all card subcommands work under `memory` too
+for _name, _cmd in card_group.commands.items():
+    if _name not in memory_group.commands:
+        memory_group.add_command(_cmd, name=_name)
 # Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)
