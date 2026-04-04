@@ -8,7 +8,6 @@ Four modules: Chat · Notes · Recipes · Memory
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from textual import on, work
@@ -16,6 +15,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
+from textual.theme import Theme
 from textual.widgets import (
     Button,
     Footer,
@@ -29,8 +29,6 @@ from textual.widgets import (
     TabbedContent,
     TabPane,
 )
-
-from textual.theme import Theme
 
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.config import CLIConfig
@@ -583,7 +581,11 @@ class ChatPanel(Container):
             msgs: list[dict] = [
                 {
                     "role": "agent",
-                    "content": f"**{summary}**\n\n*Session {chat_id[:8]}…  ·  {created}*\n\nContinue this conversation below.",
+                    "content": (
+                        f"**{summary}**\n\n"
+                        f"*Session {chat_id[:8]}…  ·  {created}*\n\n"
+                        "Continue this conversation below."
+                    ),
                 }
             ]
         except BaseException as e:
