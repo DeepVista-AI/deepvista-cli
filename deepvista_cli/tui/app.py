@@ -153,11 +153,14 @@ class NotesPanel(Container):
 
     def _refresh_list(self) -> None:
         lv = self.query_one("#notes-listview", ListView)
-        lv.clear()
-        for note in self._notes:
-            lv.append(ListItem(Label(_short(note.get("title", "(untitled)"), 30)), id=f"note-{note['id']}"))
+        lv.remove_children()
         if not self._notes:
-            lv.append(ListItem(Label("No notes found."), id="note-empty"))
+            lv.append(ListItem(Label("No notes found.")))
+            return
+        for note in self._notes:
+            item = ListItem(Label(_short(note.get("title", "(untitled)"), 30)))
+            item._note_id = note["id"]  # type: ignore[attr-defined]
+            lv.append(item)
 
     @on(Input.Submitted, "#notes-search")
     def search_notes(self, event: Input.Submitted) -> None:
@@ -165,10 +168,9 @@ class NotesPanel(Container):
 
     @on(ListView.Selected, "#notes-listview")
     def note_selected(self, event: ListView.Selected) -> None:
-        item_id = event.item.id or ""
-        if not item_id.startswith("note-"):
+        note_id = getattr(event.item, "_note_id", None)
+        if not note_id:
             return
-        note_id = item_id[5:]
         note = next((n for n in self._notes if n["id"] == note_id), None)
         if note:
             self.selected_note = note
@@ -261,18 +263,20 @@ class RecipesPanel(Container):
 
     def _refresh_list(self) -> None:
         lv = self.query_one("#recipes-listview", ListView)
-        lv.clear()
-        for recipe in self._recipes:
-            lv.append(ListItem(Label(_short(recipe.get("title", "(untitled)"), 30)), id=f"recipe-{recipe['id']}"))
+        lv.remove_children()
         if not self._recipes:
-            lv.append(ListItem(Label("No recipes found."), id="recipe-empty"))
+            lv.append(ListItem(Label("No recipes found.")))
+            return
+        for recipe in self._recipes:
+            item = ListItem(Label(_short(recipe.get("title", "(untitled)"), 30)))
+            item._recipe_id = recipe["id"]  # type: ignore[attr-defined]
+            lv.append(item)
 
     @on(ListView.Selected, "#recipes-listview")
     def recipe_selected(self, event: ListView.Selected) -> None:
-        item_id = event.item.id or ""
-        if not item_id.startswith("recipe-"):
+        recipe_id = getattr(event.item, "_recipe_id", None)
+        if not recipe_id:
             return
-        recipe_id = item_id[7:]
         recipe = next((r for r in self._recipes if r["id"] == recipe_id), None)
         if recipe:
             self._selected_recipe = recipe
