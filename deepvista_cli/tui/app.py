@@ -521,11 +521,14 @@ class ChatPanel(Container):
 
     def _refresh_sessions(self) -> None:
         lv = self.query_one("#sessions-listview", ListView)
-        lv.clear()
-        lv.append(ListItem(Label("+ New Chat"), classes="new-chat-item"))
+        lv.remove_children()
+        new_item = ListItem(Label("+ New Chat"), classes="new-chat-item")
+        lv.append(new_item)
         for s in self._sessions:
             summary = _short(s.get("summary", "(no summary)"), 26)
-            lv.append(ListItem(Label(summary), id=f"session-{s['id']}"))
+            item = ListItem(Label(summary))
+            item._session_id = s["id"]  # type: ignore[attr-defined]
+            lv.append(item)
 
     @on(ListView.Selected, "#sessions-listview")
     def session_selected(self, event: ListView.Selected) -> None:
@@ -535,9 +538,8 @@ class ChatPanel(Container):
             msgs.remove_children()
             self._append_message("agent", "New conversation started. Say something!")
         else:
-            item_id = event.item.id or ""
-            if item_id.startswith("session-"):
-                chat_id = item_id[8:]
+            chat_id = getattr(event.item, "_session_id", None)
+            if chat_id:
                 self._current_chat_id = chat_id
                 self.load_chat(chat_id)
 
