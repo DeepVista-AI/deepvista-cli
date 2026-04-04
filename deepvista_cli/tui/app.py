@@ -522,23 +522,24 @@ class ChatPanel(Container):
     def _refresh_sessions(self) -> None:
         lv = self.query_one("#sessions-listview", ListView)
         lv.clear()
-        lv.append(ListItem(Label("+ New Chat"), id="session-new"))
+        lv.append(ListItem(Label("+ New Chat"), classes="new-chat-item"))
         for s in self._sessions:
             summary = _short(s.get("summary", "(no summary)"), 26)
             lv.append(ListItem(Label(summary), id=f"session-{s['id']}"))
 
     @on(ListView.Selected, "#sessions-listview")
     def session_selected(self, event: ListView.Selected) -> None:
-        item_id = event.item.id or ""
-        if item_id == "session-new":
+        if event.item.has_class("new-chat-item"):
             self._current_chat_id = None
             msgs = self.query_one("#chat-messages", ScrollableContainer)
             msgs.remove_children()
             self._append_message("agent", "New conversation started. Say something!")
-        elif item_id.startswith("session-"):
-            chat_id = item_id[8:]
-            self._current_chat_id = chat_id
-            self.load_chat(chat_id)
+        else:
+            item_id = event.item.id or ""
+            if item_id.startswith("session-"):
+                chat_id = item_id[8:]
+                self._current_chat_id = chat_id
+                self.load_chat(chat_id)
 
     @work(thread=True)
     def load_chat(self, chat_id: str) -> None:
@@ -546,11 +547,14 @@ class ChatPanel(Container):
         try:
             data = client.get(f"/chat_sessions/{chat_id}")
             session = data.get("session", data)
-            pages = session.get("pages", [])
-            msgs: list[dict] = []
-            for page in pages:
-                for msg in page.get("messages", []):
-                    msgs.append(msg)
+            summary = session.get("summary", "")
+            created = (session.get("created_at", "") or "")[:10]
+            msgs: list[dict] = [
+                {
+                    "role": "agent",
+                    "content": f"**{summary}**\n\n*Session {chat_id[:8]}…  ·  {created}*\n\nContinue this conversation below.",
+                }
+            ]
         except BaseException as e:
             msgs = [{"role": "agent", "content": f"Error loading chat: {e}"}]
         self.app.call_from_thread(self._render_messages, msgs)
@@ -596,18 +600,26 @@ class ChatPanel(Container):
         if self._current_chat_id:
             body["chat_id"] = self._current_chat_id
 
-        accumulated = ""
+        latest_text = ""
         try:
             for event in client.stream_sse("/imagine", body):
-                if "chat_id" in event and not self._current_chat_id:
-                    self._current_chat_id = event["chat_id"]
-                text = event.get("text", event.get("content", event.get("delta", "")))
-                if text:
-                    accumulated += text
-                    self.app.call_from_thread(self._update_streaming, accumulated)
+                event_type = event.get("type", "")
+
+                # Capture session ID from the first event
+                if event_type == "chat_session" and not self._current_chat_id:
+                    self._current_chat_id = event.get("id")
+
+                # page_delta carries the streamed response text
+                elif event_type == "page_delta":
+                    for part in event.get("parts", []):
+                        if part.get("type") == "tool_result":
+                            output = part.get("output", "")
+                            if output and output != latest_text:
+                                latest_text = output
+                                self.app.call_from_thread(self._update_streaming, latest_text)
         except BaseException as e:
-            accumulated = f"*Error: {e}*"
-            self.app.call_from_thread(self._update_streaming, accumulated)
+            latest_text = latest_text or f"*Error: {e}*"
+            self.app.call_from_thread(self._update_streaming, latest_text or f"*Error: {e}*")
 
         self.app.call_from_thread(self._finalize_response)
 
