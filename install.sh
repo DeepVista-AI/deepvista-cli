@@ -16,8 +16,18 @@ SKILLS=(
 
 echo "==> Installing deepvista CLI..."
 
+# Install uv if not present
+if ! command -v uv >/dev/null 2>&1; then
+  echo "    uv not found — installing uv..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  # Add uv to PATH for the rest of this script
+  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+fi
+
 if command -v uv >/dev/null 2>&1; then
-  uv tool install --reinstall deepvista-cli
+  # Remove broken tool environment before reinstalling (e.g. missing Python executable)
+  uv tool uninstall deepvista-cli 2>/dev/null || true
+  uv tool install --force deepvista-cli
 elif command -v pipx >/dev/null 2>&1; then
   pipx install deepvista-cli
 elif command -v pip3 >/dev/null 2>&1; then
