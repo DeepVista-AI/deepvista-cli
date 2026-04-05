@@ -17,7 +17,7 @@ SKILLS=(
 echo "==> Installing deepvista CLI..."
 
 if command -v uv >/dev/null 2>&1; then
-  uv tool install deepvista-cli
+  uv tool install --reinstall deepvista-cli
 elif command -v pipx >/dev/null 2>&1; then
   pipx install deepvista-cli
 elif command -v pip3 >/dev/null 2>&1; then
