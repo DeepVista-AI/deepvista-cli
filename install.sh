@@ -27,13 +27,13 @@ fi
 if command -v uv >/dev/null 2>&1; then
   # Remove broken tool environment before reinstalling (e.g. missing Python executable)
   uv tool uninstall deepvista-cli 2>/dev/null || true
-  uv tool install --force deepvista-cli
+  uv tool install --force "deepvista-cli[ui]"
 elif command -v pipx >/dev/null 2>&1; then
-  pipx install deepvista-cli
+  pipx install "deepvista-cli[ui]"
 elif command -v pip3 >/dev/null 2>&1; then
-  pip3 install --user deepvista-cli
+  pip3 install --user "deepvista-cli[ui]"
 elif command -v pip >/dev/null 2>&1; then
-  pip install --user deepvista-cli
+  pip install --user "deepvista-cli[ui]"
 else
   echo "Error: no Python package manager found (pip, pipx, or uv required)" >&2
   exit 1
