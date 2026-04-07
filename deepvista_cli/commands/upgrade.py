@@ -7,11 +7,22 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+from http.client import HTTPResponse
 from pathlib import Path
+from urllib.parse import urlparse
 
 import click
 
 from deepvista_cli import __version__
+
+
+def _safe_urlopen(url: str, timeout: int = 10) -> HTTPResponse:
+    """Open a URL, but only allow https:// scheme to prevent file:// attacks."""
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(f"Only https:// URLs are allowed, got: {parsed.scheme}://")
+    return urllib.request.urlopen(url, timeout=timeout)  # nosec B310 - scheme validated above
+
 
 REPO = "DeepVista-AI/deepvista-cli"
 SKILL_RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/main/skills"
@@ -47,7 +58,7 @@ def _parse_skill_version(skill_md: str) -> str | None:
 def _fetch_remote_skill_version(skill_name: str) -> str | None:
     url = f"{SKILL_RAW_BASE}/{skill_name}/SKILL.md"
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        with _safe_urlopen(url, timeout=5) as resp:
             return _parse_skill_version(resp.read().decode("utf-8", errors="replace"))
     except Exception:
         return None
@@ -103,7 +114,7 @@ def upgrade_command(check: bool) -> None:
     click.echo("Checking CLI...")
     pypi_url = "https://pypi.org/pypi/deepvista-cli/json"
     try:
-        with urllib.request.urlopen(pypi_url, timeout=10) as resp:
+        with _safe_urlopen(pypi_url, timeout=10) as resp:
             latest_cli = json.loads(resp.read().decode("utf-8"))["info"]["version"]
     except Exception as exc:
         raise click.ClickException(f"Could not reach PyPI: {exc}")
