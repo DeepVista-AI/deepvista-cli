@@ -28,6 +28,8 @@ CARD_TYPES = [
     "note",
     "recipe",
     "recipe_run",
+    "vistabook",
+    "vistabook_run",
 ]
 
 CARD_COLUMNS = ["id", "type", "title", "display_status", "updated_at"]
