@@ -43,6 +43,7 @@ def memory_show(ctx: click.Context, limit: int) -> None:
     Read-only — memory can only be updated through Chat interactions.
     """
     data = _client(ctx).get("/memory/summary", params={"limit": limit})
+    # Memory entries don't have web app URLs (implicit context only)
     format_output(data, ctx.obj.output_format, columns=MEMORY_COLUMNS, title="Memory Context")
 
 

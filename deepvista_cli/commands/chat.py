@@ -39,7 +39,13 @@ def chat_sessions(ctx: click.Context, limit: int, offset: int, search: str | Non
     data = _client(ctx).post("/get_chat_sessions", body)
     sessions = data.get("sessions", [])
     result = {"sessions": sessions, "count": len(sessions), "has_more": data.get("has_more", False)}
-    format_output(result, ctx.obj.output_format, columns=["id", "summary", "created_at"], title="Chat Sessions")
+    format_output(
+        result,
+        ctx.obj.output_format,
+        columns=["id", "summary", "created_at"],
+        title="Chat Sessions",
+        entity_type="chat",
+    )
 
 
 @chat_group.command("get")
@@ -51,7 +57,7 @@ def chat_get(ctx: click.Context, chat_id: str) -> None:
     Read-only.
     """
     data = _client(ctx).get(f"/chat_sessions/{chat_id}")
-    format_output(data, ctx.obj.output_format, title=f"Chat: {chat_id}")
+    format_output(data, ctx.obj.output_format, title=f"Chat: {chat_id}", entity_type="chat")
 
 
 @chat_group.command("delete")
@@ -63,7 +69,7 @@ def chat_delete(ctx: click.Context, chat_id: str) -> None:
     > [!CAUTION] This is a destructive write command — confirm with the user before executing.
     """
     data = _client(ctx).delete(f"/chat_sessions/{chat_id}")
-    format_output(data, ctx.obj.output_format)
+    format_output(data, ctx.obj.output_format, entity_type="chat")
 
 
 # ---------------------------------------------------------------------------

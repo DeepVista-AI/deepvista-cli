@@ -93,7 +93,7 @@ def vistabase_list(
         "has_more": data.get("has_more", False),
         "count": len(cards),
     }
-    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title="VistaBase Cards")
+    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title="VistaBase Cards", entity_type="vistabase")
 
 
 @vistabase_group.command("get")
@@ -102,7 +102,7 @@ def vistabase_list(
 def vistabase_get(ctx: click.Context, card_id: str) -> None:
     """Get a context card by ID."""
     data = _client(ctx).post("/get_context_card", {"card_id": card_id})
-    format_output(data, ctx.obj.output_format, title=f"Card: {card_id}")
+    format_output(data, ctx.obj.output_format, title=f"Card: {card_id}", entity_type="vistabase")
 
 
 @vistabase_group.command("create")
@@ -142,7 +142,7 @@ def vistabase_create(
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(data, ctx.obj.output_format, title="Created Card")
+    format_output(data, ctx.obj.output_format, title="Created Card", entity_type="vistabase")
 
 
 @vistabase_group.command("update")
@@ -184,7 +184,7 @@ def vistabase_update(
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
     data = _client(ctx).post("/update_context_card", body)
-    format_output(data, ctx.obj.output_format, title=f"Updated Card: {card_id}")
+    format_output(data, ctx.obj.output_format, title=f"Updated Card: {card_id}", entity_type="vistabase")
 
 
 @vistabase_group.command("delete")
@@ -200,7 +200,7 @@ def vistabase_delete(ctx: click.Context, card_id: str, card_type: str | None) ->
     if card_type:
         params["card_type"] = card_type
     data = _client(ctx).delete(f"/context_cards/{card_id}", params=params)
-    format_output(data, ctx.obj.output_format)
+    format_output(data, ctx.obj.output_format, entity_type="vistabase")
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +225,9 @@ def vistabase_search(ctx: click.Context, query: str, card_type: str | None, limi
     data = _client(ctx).post("/get_context_cards", body)
     cards = data.get("cards", [])
     result = {"query": query, "results": cards, "count": len(cards)}
-    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Search: {query}")
+    format_output(
+        result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Search: {query}", entity_type="vistabase"
+    )
 
 
 @vistabase_group.command("+similar")
@@ -251,7 +253,9 @@ def vistabase_similar(ctx: click.Context, card_id: str, limit: int) -> None:
     # Filter out the source card itself
     cards = [c for c in data.get("cards", []) if c.get("id") != card_id]
     result = {"source_card_id": card_id, "similar": cards, "count": len(cards)}
-    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Similar to: {card_id}")
+    format_output(
+        result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Similar to: {card_id}", entity_type="vistabase"
+    )
 
 
 @vistabase_group.command("+pin")
@@ -263,7 +267,7 @@ def vistabase_pin(ctx: click.Context, card_id: str) -> None:
     > [!CAUTION] This is a write command.
     """
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "pinned"})
-    format_output(data, ctx.obj.output_format)
+    format_output(data, ctx.obj.output_format, entity_type="vistabase")
 
 
 @vistabase_group.command("+archive")
@@ -275,4 +279,4 @@ def vistabase_archive(ctx: click.Context, card_id: str) -> None:
     > [!CAUTION] This is a write command.
     """
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "archived"})
-    format_output(data, ctx.obj.output_format)
+    format_output(data, ctx.obj.output_format, entity_type="vistabase")
