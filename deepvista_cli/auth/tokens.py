@@ -1,6 +1,17 @@
 """Token load / save / refresh logic.
 
-Storage: ~/.config/deepvista/credentials.json (mode 0600)
+Storage: ~/.config/deepvista/credentials.{profile}.json (mode 0600)
+
+Each credentials file supports multiple accounts:
+  {
+    "active": "user@example.com",
+    "accounts": {
+      "user@example.com": { ...token_set... },
+      "other@example.com": { ...token_set... }
+    }
+  }
+
+Legacy single-token files are auto-migrated on first read.
 
 Token refresh uses the issuer URL from the JWT itself, so the CLI always
 refreshes against the correct Supabase instance (production vs staging).
@@ -59,6 +70,11 @@ class TokenSet:
     def is_expired(self) -> bool:
         return time.time() >= (self.expires_at - REFRESH_BUFFER_SECONDS)
 
+    @property
+    def account_key(self) -> str:
+        """Stable key for this account: email if available, else user_id."""
+        return self.email or self.user_id
+
     def to_dict(self) -> dict:
         return {
             "access_token": self.access_token,
@@ -84,44 +100,175 @@ class TokenSet:
 
 
 # ---------------------------------------------------------------------------
-# File storage
+# Multi-account file storage
 # ---------------------------------------------------------------------------
 
 
-def save_tokens(tokens: TokenSet, path: Path | None = None) -> None:
-    """Persist tokens to a per-profile credentials file (mode 0600).
-
-    Writes atomically via a temp file so the credentials file is never
-    world-readable, even briefly (avoids TOCTOU between write and chmod).
-    """
-    creds = path or _default_creds_path()
+def _write_credentials_file(data: dict, path: Path) -> None:
+    """Atomically write credentials JSON to *path* (mode 0600)."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=CONFIG_DIR, prefix=".credentials.", suffix=".tmp")
     try:
         os.chmod(tmp_path, 0o600)
         with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(tokens.to_dict(), indent=2))
-        os.replace(tmp_path, creds)
+            f.write(json.dumps(data, indent=2))
+        os.replace(tmp_path, path)
     except Exception:
         os.unlink(tmp_path)
         raise
-    logger.debug("Tokens saved to %s", creds)
+
+
+def _load_credentials_file(path: Path) -> dict | None:
+    """Load and return the raw credentials JSON, or None."""
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        logger.warning("Corrupt credentials file at %s", path)
+        return None
+
+
+def _is_legacy_format(data: dict) -> bool:
+    """True if *data* is a legacy single-token file (has access_token at top level)."""
+    return "access_token" in data and "accounts" not in data
+
+
+def _migrate_legacy(data: dict, path: Path) -> dict:
+    """Migrate a legacy single-token file to multi-account format in place."""
+    tokens = TokenSet.from_dict(data)
+    key = tokens.account_key or "default"
+    migrated = {
+        "active": key,
+        "accounts": {key: tokens.to_dict()},
+    }
+    _write_credentials_file(migrated, path)
+    logger.debug("Migrated legacy credentials to multi-account format at %s", path)
+    return migrated
+
+
+# ---------------------------------------------------------------------------
+# Public multi-account helpers
+# ---------------------------------------------------------------------------
+
+
+def load_all_accounts(path: Path | None = None) -> tuple[str | None, dict[str, TokenSet]]:
+    """Load all accounts from a credentials file.
+
+    Returns (active_key, {key: TokenSet}).  If the file doesn't exist or is
+    empty, returns (None, {}).
+    """
+    creds = path or _default_creds_path()
+    data = _load_credentials_file(creds)
+    if data is None:
+        return None, {}
+
+    if _is_legacy_format(data):
+        data = _migrate_legacy(data, creds)
+
+    accounts: dict[str, TokenSet] = {}
+    for key, token_data in data.get("accounts", {}).items():
+        try:
+            accounts[key] = TokenSet.from_dict(token_data)
+        except (KeyError, TypeError):
+            logger.warning("Skipping corrupt account entry: %s", key)
+
+    active = data.get("active")
+    if active and active not in accounts:
+        active = next(iter(accounts), None)
+
+    return active, accounts
+
+
+def save_account(tokens: TokenSet, path: Path | None = None, *, make_active: bool = True) -> None:
+    """Add or update an account in the credentials file.
+
+    If *make_active* is True (the default), this account becomes the active one.
+    """
+    creds = path or _default_creds_path()
+    active, accounts = load_all_accounts(creds)
+    key = tokens.account_key
+    if not key:
+        key = "default"
+    accounts[key] = tokens
+
+    if make_active or active is None:
+        active = key
+
+    data = {
+        "active": active,
+        "accounts": {k: v.to_dict() for k, v in accounts.items()},
+    }
+    _write_credentials_file(data, creds)
+    logger.debug("Account %s saved to %s", key, creds)
+
+
+def switch_active_account(account_key: str, path: Path | None = None) -> TokenSet:
+    """Set a different account as active. Raises KeyError if not found."""
+    creds = path or _default_creds_path()
+    _active, accounts = load_all_accounts(creds)
+    if account_key not in accounts:
+        raise KeyError(account_key)
+
+    data = {
+        "active": account_key,
+        "accounts": {k: v.to_dict() for k, v in accounts.items()},
+    }
+    _write_credentials_file(data, creds)
+    return accounts[account_key]
+
+
+def remove_account(account_key: str, path: Path | None = None) -> bool:
+    """Remove a specific account. Returns True if it existed.
+
+    If the removed account was active, the first remaining account becomes active.
+    """
+    creds = path or _default_creds_path()
+    active, accounts = load_all_accounts(creds)
+    if account_key not in accounts:
+        return False
+
+    del accounts[account_key]
+
+    if not accounts:
+        # Last account removed — delete the file entirely.
+        if creds.exists():
+            creds.unlink()
+        return True
+
+    if active == account_key:
+        active = next(iter(accounts))
+
+    data = {
+        "active": active,
+        "accounts": {k: v.to_dict() for k, v in accounts.items()},
+    }
+    _write_credentials_file(data, creds)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible single-token API (used by HTTP client & auth commands)
+# ---------------------------------------------------------------------------
+
+
+def save_tokens(tokens: TokenSet, path: Path | None = None) -> None:
+    """Persist tokens as the active account (multi-account aware)."""
+    save_account(tokens, path, make_active=True)
 
 
 def load_tokens(path: Path | None = None) -> TokenSet | None:
-    """Load tokens from a per-profile credentials file."""
-    creds = path or _default_creds_path()
-    if creds.exists():
-        try:
-            data = json.loads(creds.read_text())
-            return TokenSet.from_dict(data)
-        except (json.JSONDecodeError, KeyError):
-            logger.warning("Corrupt credentials file at %s", creds)
+    """Load the *active* account's tokens from a credentials file."""
+    active, accounts = load_all_accounts(path)
+    if active and active in accounts:
+        return accounts[active]
+    if accounts:
+        return next(iter(accounts.values()))
     return None
 
 
 def delete_tokens(path: Path | None = None) -> None:
-    """Remove stored tokens for a profile."""
+    """Remove all stored credentials for a profile."""
     creds = path or _default_creds_path()
     if creds.exists():
         creds.unlink()
@@ -164,7 +311,7 @@ def refresh_access_token(tokens: TokenSet) -> TokenSet:
 
 
 def get_valid_token(path: Path | None = None) -> TokenSet | None:
-    """Load tokens and auto-refresh if expired. Returns None if not authenticated."""
+    """Load the active account's tokens and auto-refresh if expired."""
     creds = path or _default_creds_path()
     tokens = load_tokens(creds)
     if tokens is None:
@@ -177,8 +324,9 @@ def get_valid_token(path: Path | None = None) -> TokenSet | None:
             tokens = load_tokens(creds) or tokens
             if tokens.is_expired:
                 try:
-                    tokens = refresh_access_token(tokens)
-                    save_tokens(tokens, creds)
+                    refreshed = refresh_access_token(tokens)
+                    save_account(refreshed, creds, make_active=True)
+                    tokens = refreshed
                 except httpx.HTTPStatusError as e:
                     logger.error("Token refresh failed: HTTP %s", e.response.status_code)
                     return None

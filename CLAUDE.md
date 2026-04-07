@@ -38,3 +38,33 @@ Fix any validation errors before committing.
 | ruff-format | formatting | yes — `ruff format` |
 | pyright | type checking | no — fix type errors manually |
 | skills-ref-validate | skill YAML/schema | no — fix schema errors manually |
+
+## Releasing a new version
+
+The `main` branch is protected. Follow this workflow:
+
+1. **Create release branch and bump version**
+   ```bash
+   git checkout main && git pull
+   git checkout -b release/vX.Y.Z
+   # Edit pyproject.toml: version = "X.Y.Z"
+   git add pyproject.toml
+   git commit -m "release: vX.Y.Z"
+   git push -u origin release/vX.Y.Z
+   ```
+
+2. **Create PR and merge**
+   ```bash
+   gh pr create --title "release: vX.Y.Z" --body "Bump version for release"
+   ```
+
+3. **After PR merged, tag and push**
+   ```bash
+   git checkout main && git pull
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+CI publishes to PyPI automatically on `v*` tags.
+
+**Version scheme:** `0.1.0aN` (alpha) → `0.1.0bN` (beta) → `0.1.0rcN` (rc) → `0.1.0` (stable)
