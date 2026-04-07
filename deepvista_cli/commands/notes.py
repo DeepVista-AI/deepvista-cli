@@ -45,7 +45,14 @@ def notes_list(ctx: click.Context, limit: int, page_number: int) -> None:
     )
     cards = data.get("cards", [])
     result = {"notes": cards, "count": len(cards), "has_more": data.get("has_more", False)}
-    format_output(result, ctx.obj.output_format, columns=NOTE_COLUMNS, title="Notes", entity_type="note")
+    format_output(
+        result,
+        ctx.obj.output_format,
+        columns=NOTE_COLUMNS,
+        title="Notes",
+        entity_type="note",
+        base_url=ctx.obj.auth_url,
+    )
 
 
 @notes_group.command("get")
@@ -57,7 +64,7 @@ def notes_get(ctx: click.Context, note_id: str) -> None:
     Read-only.
     """
     data = _client(ctx).post("/get_context_card", {"card_id": note_id, "card_type": "note"})
-    format_output(data, ctx.obj.output_format, title=f"Note: {note_id}", entity_type="note")
+    format_output(data, ctx.obj.output_format, title=f"Note: {note_id}", entity_type="note", base_url=ctx.obj.auth_url)
 
 
 @notes_group.command("create")
@@ -88,7 +95,7 @@ def notes_create(
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(data, ctx.obj.output_format, title="Created Note", entity_type="note")
+    format_output(data, ctx.obj.output_format, title="Created Note", entity_type="note", base_url=ctx.obj.auth_url)
 
 
 @notes_group.command("update")
@@ -127,7 +134,9 @@ def notes_update(
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
     data = _client(ctx).post("/update_context_card", body)
-    format_output(data, ctx.obj.output_format, title=f"Updated Note: {note_id}", entity_type="note")
+    format_output(
+        data, ctx.obj.output_format, title=f"Updated Note: {note_id}", entity_type="note", base_url=ctx.obj.auth_url
+    )
 
 
 @notes_group.command("delete")
@@ -139,7 +148,7 @@ def notes_delete(ctx: click.Context, note_id: str) -> None:
     > [!CAUTION] This is a destructive write command — confirm with the user before executing.
     """
     data = _client(ctx).delete(f"/context_cards/{note_id}", params={"card_type": "note"})
-    format_output(data, ctx.obj.output_format, entity_type="note")
+    format_output(data, ctx.obj.output_format, entity_type="note", base_url=ctx.obj.auth_url)
 
 
 # ---------------------------------------------------------------------------
@@ -169,4 +178,4 @@ def notes_quick(ctx: click.Context, text: str) -> None:
         "enrich": True,
     }
     data = _client(ctx).post("/create_context_card", body)
-    format_output(data, ctx.obj.output_format, title="Quick Note", entity_type="note")
+    format_output(data, ctx.obj.output_format, title="Quick Note", entity_type="note", base_url=ctx.obj.auth_url)

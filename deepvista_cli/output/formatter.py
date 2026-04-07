@@ -19,15 +19,17 @@ from deepvista_cli.config import DEFAULT_AUTH_URL
 # ---------------------------------------------------------------------------
 
 # URL patterns for different entity types
-# All context cards (vistabase, notes, recipes) use: /vistabase?contextId={id}
-# Chat sessions use: /chat?chatId={id}
+# Notes use: /notes/{id}
+# Recipes use: /recipes/{id}
+# Chat sessions use: /chat/{id}
+# Generic cards (vistabase) use: /vistabase?contextId={id}
 URL_PATTERNS = {
     "vistabase": "/vistabase?contextId={id}",
     "card": "/vistabase?contextId={id}",
     "note": "/notes/{id}",
     "recipe": "/recipes/{id}",
     "vistabook": "/recipes/{id}",
-    "chat": "/chat?chatId={id}",
+    "chat": "/chat/{id}",
 }
 
 

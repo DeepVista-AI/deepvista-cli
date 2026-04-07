@@ -50,7 +50,14 @@ def vistabook_list(ctx: click.Context, limit: int, page_number: int) -> None:
     )
     cards = data.get("cards", [])
     result = {"vistabooks": cards, "count": len(cards), "has_more": data.get("has_more", False)}
-    format_output(result, ctx.obj.output_format, columns=VISTABOOK_COLUMNS, title="VistaBooks", entity_type="vistabook")
+    format_output(
+        result,
+        ctx.obj.output_format,
+        columns=VISTABOOK_COLUMNS,
+        title="VistaBooks",
+        entity_type="vistabook",
+        base_url=ctx.obj.auth_url,
+    )
 
 
 @vistabook_group.command("get")
@@ -62,7 +69,13 @@ def vistabook_get(ctx: click.Context, vistabook_id: str) -> None:
     Read-only — never modifies the VistaBook.
     """
     data = _client(ctx).post("/get_context_card", {"card_id": vistabook_id, "card_type": "vistabook"})
-    format_output(data, ctx.obj.output_format, title=f"VistaBook: {vistabook_id}", entity_type="vistabook")
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title=f"VistaBook: {vistabook_id}",
+        entity_type="vistabook",
+        base_url=ctx.obj.auth_url,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +128,7 @@ def vistabook_status(ctx: click.Context, run_id: str) -> None:
         "visibility": session.get("visibility", ""),
         "created_at": session.get("created_at", ""),
     }
-    format_output(result, ctx.obj.output_format, title=f"Run: {run_id}", entity_type="chat")
+    format_output(result, ctx.obj.output_format, title=f"Run: {run_id}", entity_type="chat", base_url=ctx.obj.auth_url)
 
 
 @vistabook_group.command("+export")
@@ -130,4 +143,6 @@ def vistabook_export(ctx: click.Context, vistabook_id: str, export_format: str) 
     Read-only — generates output but does not modify the VistaBook.
     """
     data = _client(ctx).post("/export_vistabook_to_skill", {"card_ids": [vistabook_id]})
-    format_output(data, ctx.obj.output_format, title=f"Export: {vistabook_id}", entity_type="vistabook")
+    format_output(
+        data, ctx.obj.output_format, title=f"Export: {vistabook_id}", entity_type="vistabook", base_url=ctx.obj.auth_url
+    )
