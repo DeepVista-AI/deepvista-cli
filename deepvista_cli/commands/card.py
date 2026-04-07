@@ -15,6 +15,7 @@ from __future__ import annotations
 import click
 
 from deepvista_cli.client.http import DeepVistaClient
+from deepvista_cli.commands import resolve_content
 from deepvista_cli.output.formatter import format_output, output_error
 
 CARD_TYPES = [
@@ -115,6 +116,11 @@ def card_get(ctx: click.Context, card_id: str) -> None:
 )
 @click.option("--title", required=True, help="Card title.")
 @click.option("--content", "description", default=None, help="Card content/description (markdown).")
+@click.option(
+    "--content-file",
+    default=None,
+    help="Read content from a file path. Use '-' for stdin. Overrides --content.",
+)
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.option("--no-enrich", is_flag=True, default=False, help="Skip entity enrichment.")
 @click.pass_context
@@ -123,6 +129,7 @@ def card_create(
     card_type: str,
     title: str,
     description: str | None,
+    content_file: str | None,
     tags: str | None,
     no_enrich: bool,
 ) -> None:
@@ -132,6 +139,7 @@ def card_create(
     """
     import json as _json
 
+    description = resolve_content(description, content_file)
     body: dict = {
         "card_type": card_type,
         "title": title,
@@ -153,6 +161,11 @@ def card_create(
 @click.argument("card_id")
 @click.option("--title", default=None, help="New title.")
 @click.option("--content", "description", default=None, help="New content/description.")
+@click.option(
+    "--content-file",
+    default=None,
+    help="Read content from a file path. Use '-' for stdin. Overrides --content.",
+)
 @click.option("--type", "card_type", type=click.Choice(CARD_TYPES, case_sensitive=False), default=None)
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.option("--status", "display_status", type=click.Choice(["pinned", "archived"]), default=None)
@@ -162,6 +175,7 @@ def card_update(
     card_id: str,
     title: str | None,
     description: str | None,
+    content_file: str | None,
     card_type: str | None,
     tags: str | None,
     display_status: str | None,
@@ -172,6 +186,7 @@ def card_update(
     """
     import json as _json
 
+    description = resolve_content(description, content_file)
     body: dict = {"card_id": card_id}
     if title:
         body["title"] = title

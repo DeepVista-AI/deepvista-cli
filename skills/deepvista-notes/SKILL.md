@@ -62,16 +62,22 @@ Read-only — returns full note content including markdown body.
 ### create
 
 ```bash
-deepvista notes create --title "Title" [--content "Markdown content"] [--tags '["t1","t2"]']
+deepvista notes create --title "Title" [--content "Markdown content"] [--content-file path/to/file.md] [--tags '["t1","t2"]']
 ```
+
+- Use `--content-file <path>` to read content from a local file. This is **required** when importing files, URLs, or any content longer than a few sentences. Never paste large content inline via `--content` — always write it to a temporary file first, then use `--content-file`.
+- Use `--content-file -` to read from stdin (e.g. `curl ... | deepvista notes create --title "..." --content-file -`).
+- `--content-file` takes precedence over `--content` when both are provided.
 
 > [!CAUTION] Write command — confirm with user before executing.
 
 ### update
 
 ```bash
-deepvista notes update <note_id> [--title "..."] [--content "..."] [--tags '["t1"]']
+deepvista notes update <note_id> [--title "..."] [--content "..."] [--content-file path/to/file.md] [--tags '["t1"]']
 ```
+
+- Use `--content-file <path>` for large content updates, same as `create`.
 
 > [!CAUTION] Write command — confirm with user before executing.
 
@@ -97,6 +103,40 @@ Quick-create a note from a single line of text. The first ~50 characters become 
 - For notes with custom titles or structured content, use `notes create` instead.
 - Created notes are searchable with `deepvista card +search`.
 
+## Importing files or URLs as notes
+
+When the user asks to import a file, URL, or any large body of text as a note, **always use `--content-file`** to preserve the full content. Never summarize, truncate, or paraphrase the content — the user expects the exact text to be stored.
+
+### Importing a local file
+
+```bash
+deepvista notes create --title "Meeting transcript" --content-file /path/to/transcript.md
+```
+
+### Importing from a URL
+
+1. Download the file first, then import it:
+
+```bash
+curl -sL "https://example.com/document.md" -o /tmp/document.md
+deepvista notes create --title "Document title" --content-file /tmp/document.md
+```
+
+Or pipe directly via stdin:
+
+```bash
+curl -sL "https://example.com/document.md" | deepvista notes create --title "Document title" --content-file -
+```
+
+### Why `--content-file` instead of `--content`?
+
+When an agent reads a file and tries to pass it inline via `--content "..."`, the content often gets summarized or truncated because:
+- The agent's context window makes it impractical to echo large files verbatim
+- Shell argument length limits may apply
+- The agent may inadvertently paraphrase rather than copy
+
+`--content-file` reads the file directly from disk, bypassing the agent's context entirely. This guarantees the **exact, complete** file content is stored.
+
 ## Examples
 
 ```bash
@@ -105,6 +145,12 @@ deepvista notes list --limit 5
 
 # Create a meeting note
 deepvista notes create --title "Standup 2026-03-26" --content "## Discussed\n- Roadmap priorities\n- CLI release"
+
+# Import a file as a note (preferred for any file or large content)
+deepvista notes create --title "Architecture doc" --content-file docs/architecture.md
+
+# Import from URL via stdin
+curl -sL "https://example.com/article.md" | deepvista notes create --title "Article" --content-file -
 
 # Quick capture from a single line
 deepvista notes +quick "Alice mentioned the API migration deadline is April 15"

@@ -57,18 +57,20 @@ For each file discovered:
 
 1. **Read the file content** using the Read tool (skip binary files — if content is not valid UTF-8 text, skip with a note to the user).
 
-2. **Create a card** with type `file`, using the relative file path as the title:
+2. **Create a card** with type `file`, using the relative file path as the title.
+
+   **Always use `--content-file`** to read the file directly from disk — never paste file content inline via `--content`:
 
 ```bash
 deepvista card create \
   --type file \
   --title "<relative/path/to/file>" \
-  --content "<file content>" \
+  --content-file "<absolute/path/to/file>" \
   --tags '["imported"]'
 ```
 
 - Use the relative path from the root of the scanned directory as the title (e.g. `src/utils/helpers.py`).
-- Set `--content` to the full file text. For large files (>50 KB), truncate to the first 50 KB and append a note: `\n\n[Content truncated at 50 KB]`.
+- Use `--content-file` with the **absolute** file path so the CLI reads the file directly from disk. This guarantees the full, exact content is stored — no summarization or truncation by the agent.
 - Add `--tags '["imported"]'` so the user can find all imported cards with `deepvista card +search "imported"`.
 - If the user wants to tag by language or project name, add those tags too.
 

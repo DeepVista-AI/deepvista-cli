@@ -11,6 +11,7 @@ import json as _json
 import click
 
 from deepvista_cli.client.http import DeepVistaClient
+from deepvista_cli.commands import resolve_content
 from deepvista_cli.output.formatter import format_output, output_error
 
 NOTE_COLUMNS = ["id", "title", "display_status", "updated_at"]
@@ -62,13 +63,21 @@ def notes_get(ctx: click.Context, note_id: str) -> None:
 @notes_group.command("create")
 @click.option("--title", required=True, help="Note title.")
 @click.option("--content", "description", default=None, help="Note content (markdown).")
+@click.option(
+    "--content-file",
+    default=None,
+    help="Read content from a file path. Use '-' for stdin. Overrides --content.",
+)
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.pass_context
-def notes_create(ctx: click.Context, title: str, description: str | None, tags: str | None) -> None:
+def notes_create(
+    ctx: click.Context, title: str, description: str | None, content_file: str | None, tags: str | None
+) -> None:
     """Create a new note.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
+    description = resolve_content(description, content_file)
     body: dict = {"card_type": "note", "title": title, "enrich": True}
     if description:
         body["description"] = description
@@ -86,15 +95,26 @@ def notes_create(ctx: click.Context, title: str, description: str | None, tags: 
 @click.argument("note_id")
 @click.option("--title", default=None, help="New title.")
 @click.option("--content", "description", default=None, help="New content (markdown).")
+@click.option(
+    "--content-file",
+    default=None,
+    help="Read content from a file path. Use '-' for stdin. Overrides --content.",
+)
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.pass_context
 def notes_update(
-    ctx: click.Context, note_id: str, title: str | None, description: str | None, tags: str | None
+    ctx: click.Context,
+    note_id: str,
+    title: str | None,
+    description: str | None,
+    content_file: str | None,
+    tags: str | None,
 ) -> None:
     """Update a note.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
+    description = resolve_content(description, content_file)
     body: dict = {"card_id": note_id}
     if title:
         body["title"] = title
