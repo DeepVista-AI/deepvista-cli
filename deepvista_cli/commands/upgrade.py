@@ -28,6 +28,7 @@ SKILL_DIRS = [
 # Skill helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_skill_version(skill_md: str) -> str | None:
     in_frontmatter = False
     for line in skill_md.splitlines():
@@ -84,6 +85,7 @@ def _check_skill_updates() -> list[tuple[str, str | None, str | None]]:
 # ---------------------------------------------------------------------------
 # CLI command
 # ---------------------------------------------------------------------------
+
 
 @click.command("upgrade")
 @click.option("--check", is_flag=True, help="Only check for updates, do not install.")
