@@ -1,6 +1,5 @@
 ---
 name: deepvista-shared
-version: "0.1.0"
 description: "DeepVista CLI: Authentication, global flags, and security conventions."
 metadata:
   deepvista:

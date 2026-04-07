@@ -1,6 +1,5 @@
 ---
 name: deepvista-persona-knowledge-worker
-version: "0.1.0"
 description: "Persona: Knowledge worker daily workflow — check cards, process notes, run Recipes."
 metadata:
   deepvista:

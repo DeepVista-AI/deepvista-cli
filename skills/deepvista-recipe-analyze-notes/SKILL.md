@@ -1,6 +1,5 @@
 ---
 name: deepvista-recipe-analyze-notes
-version: "0.1.0"
 description: |
   Recipe: Analyze, summarize, and find patterns across notes in your DeepVista knowledge base.
   TRIGGER when: user asks to analyze notes, summarize notes, find patterns or themes in notes, review notes, get insights from notes, "what have I been thinking about", "what are common topics in my notes", "synthesize my notes", or any request to make sense of multiple notes at once.

@@ -1,6 +1,5 @@
 ---
 name: deepvista-recipe-import-files
-version: "0.1.0"
 description: |
   Recipe: Import files from the current directory (recursively) as context cards in DeepVista.
   TRIGGER when: user wants to import files as cards, "index this folder", "add files to DeepVista", "import codebase as context", "upload files as knowledge cards", "add all files in this directory to my knowledge base", or any request to bulk-import local files into DeepVista.
