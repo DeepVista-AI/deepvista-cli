@@ -84,7 +84,7 @@ cli.add_command(config_group)
 cli.add_command(upgrade_command)
 
 # Legacy aliases for backward compatibility
-cli.add_command(notes_group)       # notes = cards with type=note (explicit knowledge layer)
+cli.add_command(notes_group)  # notes = cards with type=note (explicit knowledge layer)
 
 
 @cli.command("ui")
