@@ -40,16 +40,16 @@ from deepvista_cli.config import CLIConfig
 DEEPVISTA_THEME = Theme(
     name="deepvista",
     dark=True,
-    primary="#88a88e",     # primary-500  muted sage green
-    secondary="#537872",   # primary-600  darker teal-green
-    warning="#d4a537",     # warning-500
-    error="#c85c5c",       # danger-500
-    success="#88a88e",     # primary-500
-    accent="#537872",      # primary-600
+    primary="#88a88e",  # primary-500  muted sage green
+    secondary="#537872",  # primary-600  darker teal-green
+    warning="#d4a537",  # warning-500
+    error="#c85c5c",  # danger-500
+    success="#88a88e",  # primary-500
+    accent="#537872",  # primary-600
     foreground="#e8ece6",  # primary-200  warm off-white
     background="#1b242a",  # primary-950  deepest dark
-    surface="#242f36",     # primary-900
-    panel="#303e48",       # primary-800
+    surface="#242f36",  # primary-900
+    panel="#303e48",  # primary-800
 )
 
 
@@ -79,6 +79,7 @@ class _TUIClient(DeepVistaClient):
 
     def _handle_network_error(self, exc: Any) -> None:  # type: ignore[override]
         import httpx
+
         if isinstance(exc, httpx.ConnectError):
             raise RuntimeError(f"Cannot connect to {self.config.api_url}") from exc
         raise RuntimeError(f"Request timed out: {self.config.api_url}") from exc
@@ -97,8 +98,10 @@ class _TUIClient(DeepVistaClient):
 # ---------------------------------------------------------------------------
 
 
-def _short(text: str, max_len: int = 60) -> str:
+def _short(text: str | None, max_len: int = 60) -> str:
     """Truncate text to max_len characters."""
+    if not text:
+        return "(no summary)"
     if len(text) <= max_len:
         return text
     return text[: max_len - 1] + "…"
@@ -331,9 +334,7 @@ class RecipesPanel(Container):
                 text = event.get("text", event.get("content", ""))
                 if text:
                     lines.append(text)
-                    self.app.call_from_thread(
-                        self.query_one("#run-output", Static).update, "\n".join(lines[-30:])
-                    )
+                    self.app.call_from_thread(self.query_one("#run-output", Static).update, "\n".join(lines[-30:]))
         except BaseException as e:
             lines.append(f"Error: {e}")
             self.app.call_from_thread(self.query_one("#run-output", Static).update, "\n".join(lines))
@@ -414,11 +415,13 @@ class MemoryPanel(Container):
                     for s in data.get("sessions", []):
                         summary = s.get("summary", "")
                         if summary:
-                            entries.append({
-                                "summary": summary,
-                                "source": "chat",
-                                "created_at": s.get("created_at", ""),
-                            })
+                            entries.append(
+                                {
+                                    "summary": summary,
+                                    "source": "chat",
+                                    "created_at": s.get("created_at", ""),
+                                }
+                            )
                 except BaseException:
                     pass
                 if not entries:
@@ -582,9 +585,7 @@ class ChatPanel(Container):
                 {
                     "role": "agent",
                     "content": (
-                        f"**{summary}**\n\n"
-                        f"*Session {chat_id[:8]}…  ·  {created}*\n\n"
-                        "Continue this conversation below."
+                        f"**{summary}**\n\n*Session {chat_id[:8]}…  ·  {created}*\n\nContinue this conversation below."
                     ),
                 }
             ]
