@@ -8,14 +8,14 @@ metadata:
       bins:
         - uv
       skills:
-        - deepvista-memory
+        - deepvista-vistabase
         - deepvista-recipe
     cliHelp: "deepvista card +search --help"
 ---
 
 # Research to Recipe
 
-> **PREREQUISITE:** Load the following skills: `deepvista-memory`, `deepvista-recipe`
+> **PREREQUISITE:** Load the following skills: `deepvista-vistabase`, `deepvista-recipe`
 
 Search your knowledge base for relevant context, synthesize it, then run a Recipe workflow with that context as input.
 
@@ -57,5 +57,5 @@ Search your knowledge base for relevant context, synthesize it, then run a Recip
 
 ## See Also
 
-- [deepvista-memory](../deepvista-memory/SKILL.md) — card search and retrieval
+- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — card search and retrieval
 - [deepvista-recipe](../deepvista-recipe/SKILL.md) — Recipe list, run, and status

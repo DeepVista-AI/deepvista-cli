@@ -124,5 +124,5 @@ deepvista card list --type file
 ## See Also
 
 - [deepvista-shared](../deepvista-shared/SKILL.md) — Auth and global flags
-- [deepvista-memory](../deepvista-memory/SKILL.md) — Search and manage all card types
+- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Search and manage all card types
 - [deepvista-notes](../deepvista-notes/SKILL.md) — Create notes (type=note) for summaries

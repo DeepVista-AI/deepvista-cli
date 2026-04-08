@@ -104,4 +104,4 @@ deepvista chat sessions --search "roadmap"
 ## See Also
 
 - [deepvista-shared](../deepvista-shared/SKILL.md) — Auth and global flags
-- [deepvista-memory](../deepvista-memory/SKILL.md) — View implicit context accumulated from Chat
+- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — View implicit context accumulated from Chat

@@ -180,7 +180,7 @@ deepvista memory --help
 
 ## See Also
 
-- [deepvista-memory](../deepvista-memory/SKILL.md) — Knowledge cards
+- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Implicit context (vistabase)
 - [deepvista-recipe](../deepvista-recipe/SKILL.md) — Recipes (executable workflows)
 - [deepvista-notes](../deepvista-notes/SKILL.md) — Notes management
 - [deepvista-chat](../deepvista-chat/SKILL.md) — Chat with AI agent

@@ -1,9 +1,9 @@
-"""deepvista memory — view and search implicit memory context.
+"""deepvista vistabase — view and search implicit memory context.
 
-Memory is the implicit context layer — automatically accumulated from Chat
+Vistabase is the implicit context layer — automatically accumulated from Chat
 sessions, never directly editable by users. It surfaces in Chat when relevant.
 
-Five resources: card · recipe · memory · chat · skill
+Five resources: card · recipe · vistabase · chat · skill
 
 Endpoints:
   GET  /memory/summary         -> memory overview
@@ -24,12 +24,16 @@ def _client(ctx: click.Context) -> DeepVistaClient:
     return ctx.obj._client
 
 
-@click.group("memory")
-def memory_group() -> None:
+@click.group("vistabase")
+def vistabase_group() -> None:
     """View implicit memory context accumulated from your conversations."""
 
 
-@memory_group.command("show")
+# Backward-compatible alias: `deepvista memory` still works
+memory_group = vistabase_group
+
+
+@vistabase_group.command("show")
 @click.option("--limit", default=20, help="Max memory entries to show (default 20).")
 @click.pass_context
 def memory_show(ctx: click.Context, limit: int) -> None:
@@ -42,7 +46,7 @@ def memory_show(ctx: click.Context, limit: int) -> None:
     format_output(data, ctx.obj.output_format, columns=MEMORY_COLUMNS, title="Memory Context")
 
 
-@memory_group.command("search")
+@vistabase_group.command("search")
 @click.argument("query")
 @click.option("--limit", default=10, help="Max results (default 10).")
 @click.pass_context

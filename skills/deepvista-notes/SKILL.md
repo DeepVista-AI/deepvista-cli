@@ -119,5 +119,5 @@ deepvista card +search "API migration" --type note
 ## See Also
 
 - [deepvista-shared](../deepvista-shared/SKILL.md) — Auth and global flags
-- [deepvista-memory](../deepvista-memory/SKILL.md) — Full knowledge base API (all card types)
+- [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Full knowledge base API (all card types)
 - [deepvista-recipe-analyze-notes](../deepvista-recipe-analyze-notes/SKILL.md) — Analyze patterns across notes
