@@ -1,6 +1,6 @@
 # deepvista-cli
 
-CLI for DeepVista — chat, notes, recipes, and memory from your terminal. Designed for both humans and AI agents.
+CLI for DeepVista — chat, notes, recipes, and vistabase from your terminal. Designed for both humans and AI agents.
 
 ## Table of Contents
 
@@ -49,7 +49,7 @@ The script:
 | `deepvista-vistabase` | Knowledge cards — search, read, create, update |
 | `deepvista-notes` | Note capture and management |
 | `deepvista-vistabook` | Run structured AI recipes/workflows |
-| `deepvista-memory` | View and search implicit memory context |
+| `deepvista-vistabase` | View and search implicit vistabase context |
 | `deepvista-chat` | Conversational AI agent |
 | `deepvista-persona-knowledge-worker` | Daily knowledge workflow patterns |
 | `deepvista-recipe-research-to-vistabook` | Search → synthesize → run workflow |
@@ -304,11 +304,13 @@ deepvista config delete old
 The CLI uses four resources:
 
 ```
-card      Knowledge cards (all types)
-recipe    Executable workflows
-memory    Implicit context from Chat (read-only)
-chat      Conversational AI agent
+card       Knowledge cards (all types)
+recipe     Executable workflows
+vistabase  Implicit context from Chat (read-only)
+chat       Conversational AI agent
 ```
+
+> **Backward compatibility:** `deepvista memory` is a deprecated alias for `deepvista vistabase`.
 
 ### card — Knowledge cards
 
@@ -347,14 +349,16 @@ deepvista recipe export <recipe_id> --format skill
 
 `recipe run` streams NDJSON as the agent works through the checklist.
 
-### memory — Implicit context
+### vistabase — Implicit context
 
-Memory is automatically accumulated from Chat. It is read-only — updates happen through conversation.
+Vistabase is automatically accumulated from Chat. It is read-only — updates happen through conversation.
 
 ```bash
-deepvista memory show   [--limit N]
-deepvista memory search "query text" [--limit N]
+deepvista vistabase show   [--limit N]
+deepvista vistabase search "query text" [--limit N]
 ```
+
+> `deepvista memory` is a deprecated alias that works identically.
 
 ### chat — AI agent
 
@@ -455,7 +459,7 @@ deepvista-cli/
     ├── deepvista-shared/
     ├── deepvista-vistabase/     # card commands
     ├── deepvista-vistabook/     # recipe commands
-    ├── deepvista-memory/        # memory commands
+    ├── deepvista-vistabase/     # vistabase commands
     ├── deepvista-notes/
     ├── deepvista-chat/
     ├── deepvista-persona-knowledge-worker/

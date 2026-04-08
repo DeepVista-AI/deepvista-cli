@@ -3,7 +3,7 @@ set -e
 
 SKILLS=(
   deepvista-shared
-  deepvista-memory
+  deepvista-vistabase
   deepvista-notes
   deepvista-recipe
   deepvista-chat
