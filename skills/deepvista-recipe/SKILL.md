@@ -89,6 +89,35 @@ Export a Recipe as a SKILL.md file for use in AI agents.
 
 Read-only — generates output but does not modify the Recipe.
 
+### discover
+
+```bash
+deepvista recipe discover [--search "query"] [--category persona|productivity|workflow] [--limit N]
+```
+
+Read-only — browse available recipes from the marketplace.
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--search` / `-s` | No | — | Filter by title or description |
+| `--category` / `-c` | No | — | Filter: persona, productivity, workflow |
+| `--limit` | No | 50 | Max results |
+
+### install
+
+```bash
+deepvista recipe install <recipe_id>
+```
+
+Install a marketplace recipe into your library.
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `<recipe_id>` | Yes | — | ID from `deepvista recipe discover` output |
+
+> [!CAUTION]
+> Write command — creates a new Recipe in your library. Confirm with the user before executing.
+
 ## Examples
 
 ```bash
@@ -103,6 +132,15 @@ deepvista recipe status chat_xyz789
 
 # Export as a skill for other agents
 deepvista recipe export vb_abc123 --format skill
+
+# Browse marketplace recipes
+deepvista recipe discover --category persona
+
+# Search marketplace
+deepvista recipe discover --search "email"
+
+# Install a marketplace recipe
+deepvista recipe install persona-researcher
 ```
 
 ## See Also
