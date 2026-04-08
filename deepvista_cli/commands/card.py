@@ -26,8 +26,6 @@ CARD_TYPES = [
     "keypoint",
     "file",
     "note",
-    "recipe",
-    "recipe_run",
     "vistabook",
     "vistabook_run",
 ]
