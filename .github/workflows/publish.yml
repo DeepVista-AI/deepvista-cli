@@ -98,17 +98,21 @@ jobs:
 
       - name: Publish skills to ClawHub
         run: |
-          VERSION="${{ needs.build.outputs.version }}"
+          PEP440_VERSION="${{ needs.build.outputs.version }}"
+
+          # Convert PEP 440 to semver: 0.1.0a15 -> 0.1.0-alpha.15, 0.1.0b3 -> 0.1.0-beta.3, 0.1.0rc1 -> 0.1.0-rc.1
+          SEMVER=$(echo "$PEP440_VERSION" | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+)a([0-9]+)/\1-alpha.\2/; s/([0-9]+\.[0-9]+\.[0-9]+)b([0-9]+)/\1-beta.\2/; s/([0-9]+\.[0-9]+\.[0-9]+)rc([0-9]+)/\1-rc.\2/')
+          echo "PEP 440 version: $PEP440_VERSION -> Semver: $SEMVER"
 
           for skill_dir in skills/*/; do
             skill_name=$(basename "$skill_dir")
-            echo "Publishing $skill_name v$VERSION..."
+            echo "Publishing $skill_name v$SEMVER..."
 
             clawhub publish "$skill_dir" \
               --slug "$skill_name" \
-              --version "$VERSION" \
+              --version "$SEMVER" \
               --tags latest \
-              --changelog "Release v$VERSION" \
+              --changelog "Release v$SEMVER" \
               || echo "  Warning: Failed to publish $skill_name (may already exist at this version)"
           done
 
