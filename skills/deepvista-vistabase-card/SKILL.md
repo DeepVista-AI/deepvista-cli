@@ -74,6 +74,23 @@ deepvista card update <card_id> [--title "..."] [--content "..."] [--type TYPE] 
 
 > [!CAUTION] Write command — confirm with user before executing.
 
+### edit
+
+```bash
+deepvista card edit <card_id> --old-string "text to find" --new-string "replacement" [--replace-all]
+```
+
+Targeted string replacement in a card's content — like Claude Code's Edit tool. Finds `old_string` in the card description and replaces it with `new_string`. By default, `old_string` must appear exactly once (provide more surrounding context to disambiguate).
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `<card_id>` | Yes | — | Card to edit |
+| `--old-string` | Yes | — | Exact text to find |
+| `--new-string` | Yes | — | Replacement text |
+| `--replace-all` | No | false | Replace all occurrences |
+
+> [!CAUTION] Write command — confirm with user before executing.
+
 ### delete
 
 ```bash
@@ -126,6 +143,24 @@ deepvista card +archive <card_id>
 
 > [!CAUTION] Write command.
 
+### +grep
+
+```bash
+deepvista card +grep "pattern" [--type TYPE] [-i] [--limit N] [-C N]
+```
+
+Regex search through card content. Returns matching lines with line numbers — like grep or ripgrep. Different from `+search` (semantic/keyword): this does literal/regex matching on card content.
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `<pattern>` | Yes | — | Regex pattern to search for |
+| `--type` | No | all | Filter by card type |
+| `-i` / `--ignore-case` | No | false | Case-insensitive matching |
+| `--limit` | No | 20 | Max cards to return |
+| `-C` / `--context` | No | 0 | Lines of context around each match |
+
+Read-only. Use `card get <id>` to read the full content of a result.
+
 ## Card Types
 
 `person`, `organization`, `message`, `todo`, `topic`, `keypoint`, `file`, `note`, `recipe`, `recipe_run`
@@ -139,11 +174,20 @@ deepvista card +search "quarterly metrics"
 # Find people related to a topic
 deepvista card +search "machine learning team" --type person
 
+# Grep for a specific pattern in card content
+deepvista card +grep "TODO|FIXME" --type note -i
+
+# Grep with context lines
+deepvista card +grep "API endpoint" -C 2
+
 # List all notes
 deepvista card list --type note
 
 # Create a topic card
 deepvista card create --type topic --title "Machine Learning Strategy" --content "Our approach to ML..."
+
+# Edit a card's content (targeted replacement)
+deepvista card edit abc123 --old-string "old API URL" --new-string "new API URL"
 
 # Pin an important card
 deepvista card +pin abc123

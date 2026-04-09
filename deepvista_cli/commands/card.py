@@ -1,4 +1,4 @@
-"""deepvista card — CRUD + search for context cards (knowledge base).
+"""deepvista card — CRUD + file-ops for context cards (knowledge base).
 
 Five resources: card · recipe · memory · chat · skill
 
@@ -7,6 +7,8 @@ Endpoints:
   POST /get_context_card       -> get by id
   POST /create_context_card    -> create
   POST /update_context_card    -> update
+  POST /edit_context_card      -> targeted string replacement (file-ops Edit)
+  POST /grep_context_cards     -> regex content search (file-ops Grep)
   DELETE /context_cards/{id}   -> delete
 """
 
@@ -206,6 +208,39 @@ def card_update(
     format_output(data, ctx.obj.output_format, title=f"Updated Card: {card_id}", entity_type="card")
 
 
+@card_group.command("edit")
+@click.argument("card_id")
+@click.option("--old-string", required=True, help="The exact text to find in the card content.")
+@click.option("--new-string", required=True, help="The replacement text.")
+@click.option(
+    "--replace-all", is_flag=True, default=False, help="Replace all occurrences (default: unique match only)."
+)
+@click.pass_context
+def card_edit(
+    ctx: click.Context,
+    card_id: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool,
+) -> None:
+    """Targeted string replacement in a card's content.
+
+    Like Claude Code's Edit tool — finds old_string in the card description
+    and replaces it with new_string. By default, old_string must appear
+    exactly once (provide more context to disambiguate).
+
+    > [!CAUTION] This is a write command — confirm with the user before executing.
+    """
+    body: dict = {
+        "card_id": card_id,
+        "old_string": old_string,
+        "new_string": new_string,
+        "replace_all": replace_all,
+    }
+    data = _client(ctx).post("/edit_context_card", body)
+    format_output(data, ctx.obj.output_format, title=f"Edited Card: {card_id}", entity_type="card")
+
+
 @card_group.command("delete")
 @click.argument("card_id")
 @click.option("--type", "card_type", default=None, help="Card type hint (optional, speeds up deletion).")
@@ -295,3 +330,38 @@ def card_archive(ctx: click.Context, card_id: str) -> None:
     """
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "archived"})
     format_output(data, ctx.obj.output_format, entity_type="card")
+
+
+@card_group.command("+grep")
+@click.argument("pattern")
+@click.option("--type", "card_type", type=click.Choice(CARD_TYPES, case_sensitive=False), default=None)
+@click.option("-i", "--ignore-case", is_flag=True, default=False, help="Case-insensitive matching.")
+@click.option("--limit", default=20, help="Max cards to return (default 20).")
+@click.option("-C", "--context", "context_lines", default=0, type=int, help="Lines of context around each match.")
+@click.pass_context
+def card_grep(
+    ctx: click.Context,
+    pattern: str,
+    card_type: str | None,
+    ignore_case: bool,
+    limit: int,
+    context_lines: int,
+) -> None:
+    """Regex search through card content. Returns matching lines with line numbers.
+
+    Different from +search (semantic/keyword) — this does literal/regex matching
+    on card content, like grep or ripgrep.
+
+    Read-only — never modifies your knowledge base.
+    """
+    body: dict = {
+        "pattern": pattern,
+        "case_insensitive": ignore_case,
+        "limit": limit,
+        "context_lines": context_lines,
+    }
+    if card_type:
+        body["card_type"] = card_type
+
+    data = _client(ctx).post("/grep_context_cards", body)
+    format_output(data, ctx.obj.output_format, title=f"Grep: {pattern}", entity_type="card")
