@@ -15,6 +15,7 @@ from __future__ import annotations
 import click
 
 from deepvista_cli.client.http import DeepVistaClient
+from deepvista_cli.commands import resolve_content
 from deepvista_cli.output.formatter import format_output, output_error
 
 CARD_TYPES = [
@@ -97,7 +98,7 @@ def card_list(
         "has_more": data.get("has_more", False),
         "count": len(cards),
     }
-    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title="Cards")
+    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title="Cards", entity_type="card")
 
 
 @card_group.command("get")
@@ -106,7 +107,7 @@ def card_list(
 def card_get(ctx: click.Context, card_id: str) -> None:
     """Get a context card by ID."""
     data = _client(ctx).post("/get_context_card", {"card_id": card_id})
-    format_output(data, ctx.obj.output_format, title=f"Card: {card_id}")
+    format_output(data, ctx.obj.output_format, title=f"Card: {card_id}", entity_type="card")
 
 
 @card_group.command("create")
@@ -115,6 +116,11 @@ def card_get(ctx: click.Context, card_id: str) -> None:
 )
 @click.option("--title", required=True, help="Card title.")
 @click.option("--content", "description", default=None, help="Card content/description (markdown).")
+@click.option(
+    "--content-file",
+    default=None,
+    help="Read content from a file path. Use '-' for stdin. Overrides --content.",
+)
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.option("--no-enrich", is_flag=True, default=False, help="Skip entity enrichment.")
 @click.pass_context
@@ -123,6 +129,7 @@ def card_create(
     card_type: str,
     title: str,
     description: str | None,
+    content_file: str | None,
     tags: str | None,
     no_enrich: bool,
 ) -> None:
@@ -132,6 +139,7 @@ def card_create(
     """
     import json as _json
 
+    description = resolve_content(description, content_file)
     body: dict = {
         "card_type": card_type,
         "title": title,
@@ -146,13 +154,18 @@ def card_create(
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(data, ctx.obj.output_format, title="Created Card")
+    format_output(data, ctx.obj.output_format, title="Created Card", entity_type="card")
 
 
 @card_group.command("update")
 @click.argument("card_id")
 @click.option("--title", default=None, help="New title.")
 @click.option("--content", "description", default=None, help="New content/description.")
+@click.option(
+    "--content-file",
+    default=None,
+    help="Read content from a file path. Use '-' for stdin. Overrides --content.",
+)
 @click.option("--type", "card_type", type=click.Choice(CARD_TYPES, case_sensitive=False), default=None)
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.option("--status", "display_status", type=click.Choice(["pinned", "archived"]), default=None)
@@ -162,6 +175,7 @@ def card_update(
     card_id: str,
     title: str | None,
     description: str | None,
+    content_file: str | None,
     card_type: str | None,
     tags: str | None,
     display_status: str | None,
@@ -172,6 +186,7 @@ def card_update(
     """
     import json as _json
 
+    description = resolve_content(description, content_file)
     body: dict = {"card_id": card_id}
     if title:
         body["title"] = title
@@ -188,7 +203,7 @@ def card_update(
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
     data = _client(ctx).post("/update_context_card", body)
-    format_output(data, ctx.obj.output_format, title=f"Updated Card: {card_id}")
+    format_output(data, ctx.obj.output_format, title=f"Updated Card: {card_id}", entity_type="card")
 
 
 @card_group.command("delete")
@@ -204,7 +219,7 @@ def card_delete(ctx: click.Context, card_id: str, card_type: str | None) -> None
     if card_type:
         params["card_type"] = card_type
     data = _client(ctx).delete(f"/context_cards/{card_id}", params=params)
-    format_output(data, ctx.obj.output_format)
+    format_output(data, ctx.obj.output_format, entity_type="card")
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +244,7 @@ def card_search(ctx: click.Context, query: str, card_type: str | None, limit: in
     data = _client(ctx).post("/get_context_cards", body)
     cards = data.get("cards", [])
     result = {"query": query, "results": cards, "count": len(cards)}
-    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Search: {query}")
+    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Search: {query}", entity_type="card")
 
 
 @card_group.command("+similar")
@@ -253,7 +268,9 @@ def card_similar(ctx: click.Context, card_id: str, limit: int) -> None:
     data = _client(ctx).post("/get_context_cards", body)
     cards = [c for c in data.get("cards", []) if c.get("id") != card_id]
     result = {"source_card_id": card_id, "similar": cards, "count": len(cards)}
-    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Similar to: {card_id}")
+    format_output(
+        result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Similar to: {card_id}", entity_type="card"
+    )
 
 
 @card_group.command("+pin")
@@ -265,7 +282,7 @@ def card_pin(ctx: click.Context, card_id: str) -> None:
     > [!CAUTION] This is a write command.
     """
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "pinned"})
-    format_output(data, ctx.obj.output_format)
+    format_output(data, ctx.obj.output_format, entity_type="card")
 
 
 @card_group.command("+archive")
@@ -277,4 +294,4 @@ def card_archive(ctx: click.Context, card_id: str) -> None:
     > [!CAUTION] This is a write command.
     """
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "archived"})
-    format_output(data, ctx.obj.output_format)
+    format_output(data, ctx.obj.output_format, entity_type="card")

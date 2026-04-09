@@ -54,7 +54,7 @@ def recipe_list(ctx: click.Context, limit: int, page_number: int) -> None:
     )
     cards = data.get("cards", [])
     result = {"recipes": cards, "count": len(cards), "has_more": data.get("has_more", False)}
-    format_output(result, ctx.obj.output_format, columns=RECIPE_COLUMNS, title="Recipes")
+    format_output(result, ctx.obj.output_format, columns=RECIPE_COLUMNS, title="Recipes", entity_type="recipe")
 
 
 @recipe_group.command("get")
@@ -66,7 +66,7 @@ def recipe_get(ctx: click.Context, recipe_id: str) -> None:
     Read-only — never modifies the Recipe.
     """
     data = _client(ctx).post("/get_context_card", {"card_id": recipe_id, "card_type": "vistabook"})
-    format_output(data, ctx.obj.output_format, title=f"Recipe: {recipe_id}")
+    format_output(data, ctx.obj.output_format, title=f"Recipe: {recipe_id}", entity_type="recipe")
 
 
 # ---------------------------------------------------------------------------
@@ -110,13 +110,14 @@ def recipe_status(ctx: click.Context, run_id: str) -> None:
     data = _client(ctx).get(f"/chat_sessions/{run_id}")
     session = data.get("session", data)
     result = {
+        "id": run_id,  # Use 'id' so URL generation works
         "chat_id": run_id,
         "summary": session.get("summary", ""),
         "run_status": session.get("run_status", ""),
         "visibility": session.get("visibility", ""),
         "created_at": session.get("created_at", ""),
     }
-    format_output(result, ctx.obj.output_format, title=f"Run: {run_id}")
+    format_output(result, ctx.obj.output_format, title=f"Run: {run_id}", entity_type="chat")
 
 
 @recipe_group.command("export")
