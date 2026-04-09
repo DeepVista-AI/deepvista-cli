@@ -5,13 +5,18 @@ description: |
   TRIGGER when: user wants to import files as cards, "index this folder", "add files to DeepVista", "import codebase as context", "upload files as knowledge cards", "add all files in this directory to my knowledge base", or any request to bulk-import local files into DeepVista.
   DO NOT TRIGGER when: user wants to create a single note or card manually; or when working with non-file card types.
 metadata:
-  deepvista:
-    category: "recipe"
+  openclaw:
+    category: recipe
     requires:
       bins:
-        - uv
+        - deepvista
       skills:
         - deepvista-shared
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista card create --help"
 ---
 

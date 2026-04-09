@@ -1,0 +1,55 @@
+name: Publish Skills to ClawHub
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (do not actually publish)'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: clawhub
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clawhub CLI
+        run: npm install -g clawhub
+
+      - name: Get version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(grep -E '^version\s*=' pyproject.toml | sed 's/version = "//;s/"//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Publish skills to ClawHub
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          for skill_dir in skills/*/; do
+            skill_name=$(basename "$skill_dir")
+            echo "Publishing $skill_name v$VERSION..."
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "  [DRY RUN] Would publish: clawhub skill publish $skill_dir --slug $skill_name --version $VERSION --tags latest"
+            else
+              clawhub skill publish "$skill_dir" \
+                --slug "$skill_name" \
+                --version "$VERSION" \
+                --tags latest \
+                --changelog "Release v$VERSION" \
+                || echo "  Warning: Failed to publish $skill_name (may already exist at this version)"
+            fi
+          done
+
+          echo ""
+          echo "Skills published to: https://clawhub.ai/skills"

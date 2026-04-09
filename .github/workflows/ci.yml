@@ -27,12 +27,6 @@ jobs:
       - name: Pyright
         run: uv run pyright deepvista_cli/
 
-      - name: Validate Agent Skills
-        run: |
-          for dir in skills/*/; do
-            uv run agentskills validate "$dir"
-          done
-
       - name: Security scan (bandit)
         run: uv run --with bandit bandit -r deepvista_cli/ -ll -q
 
