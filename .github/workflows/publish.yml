@@ -93,9 +93,10 @@ jobs:
       - name: Install clawhub CLI
         run: npm install -g clawhub
 
+      - name: Authenticate with ClawHub
+        run: clawhub login --token "${{ secrets.CLAWHUB_TOKEN }}" --no-browser
+
       - name: Publish skills to ClawHub
-        env:
-          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |
           VERSION="${{ needs.build.outputs.version }}"
 
