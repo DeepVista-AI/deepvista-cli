@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: Publish
 
 on:
   push:
@@ -14,16 +14,27 @@ on:
         options:
           - testpypi
           - pypi
+          - clawhub
+          - all
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+
+      - name: Get version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(grep -E '^version\s*=' pyproject.toml | sed 's/version = "//;s/"//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
 
       - name: Build distributions
         run: uv build
@@ -52,7 +63,9 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
 
   publish-pypi:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'pypi')
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.target == 'pypi' || github.event.inputs.target == 'all'))
     needs: build
     runs-on: ubuntu-latest
     environment: pypi
@@ -66,3 +79,37 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-clawhub:
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.target == 'clawhub' || github.event.inputs.target == 'all'))
+    needs: build
+    runs-on: ubuntu-latest
+    environment: clawhub
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clawhub CLI
+        run: npm install -g clawhub
+
+      - name: Publish skills to ClawHub
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+
+          for skill_dir in skills/*/; do
+            skill_name=$(basename "$skill_dir")
+            echo "Publishing $skill_name v$VERSION..."
+
+            clawhub skill publish "$skill_dir" \
+              --slug "$skill_name" \
+              --version "$VERSION" \
+              --tags latest \
+              --changelog "Release v$VERSION" \
+              || echo "  Warning: Failed to publish $skill_name (may already exist at this version)"
+          done
+
+          echo ""
+          echo "Skills published to: https://clawhub.ai/skills"
