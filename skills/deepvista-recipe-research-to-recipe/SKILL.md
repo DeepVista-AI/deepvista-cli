@@ -2,14 +2,19 @@
 name: deepvista-recipe-research-to-recipe
 description: "Recipe: Search your knowledge base, synthesize findings, and run a Recipe workflow."
 metadata:
-  deepvista:
-    category: "recipe"
+  openclaw:
+    category: recipe
     requires:
       bins:
-        - uv
+        - deepvista
       skills:
         - deepvista-vistabase
         - deepvista-recipe
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista card +search --help"
 ---
 

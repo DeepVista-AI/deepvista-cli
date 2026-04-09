@@ -2,13 +2,18 @@
 name: deepvista-vistabase
 description: "DeepVista Vistabase: View and search implicit memory context automatically accumulated from Chat."
 metadata:
-  deepvista:
-    category: "service"
+  openclaw:
+    category: service
     requires:
       bins:
         - deepvista
       skills:
         - deepvista-shared
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista vistabase --help"
 ---
 

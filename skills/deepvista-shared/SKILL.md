@@ -2,11 +2,16 @@
 name: deepvista-shared
 description: "DeepVista CLI: Authentication, global flags, and security conventions."
 metadata:
-  deepvista:
-    category: "shared"
+  openclaw:
+    category: shared
     requires:
       bins:
         - deepvista
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista --help"
 ---
 

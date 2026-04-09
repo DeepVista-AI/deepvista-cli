@@ -21,13 +21,7 @@ Fix all reported issues before committing — the pre-commit hook runs the same 
 
 ## After editing skill files
 
-The pre-commit hook validates every `skills/*/SKILL.md`. If you create or modify a skill, validate it manually first:
-
-```bash
-uv run agentskills validate skills/<skill-name>/
-```
-
-Fix any validation errors before committing.
+Skills are published to [ClawHub](https://clawhub.ai). The version is read from `pyproject.toml` at publish time — do not add a `version` field to SKILL.md files.
 
 ## Pre-commit hooks summary
 
@@ -37,7 +31,6 @@ Fix any validation errors before committing.
 | ruff-check | lint | yes — `ruff check --fix` |
 | ruff-format | formatting | yes — `ruff format` |
 | pyright | type checking | no — fix type errors manually |
-| skills-ref-validate | skill YAML/schema | no — fix schema errors manually |
 
 ## Releasing a new version
 

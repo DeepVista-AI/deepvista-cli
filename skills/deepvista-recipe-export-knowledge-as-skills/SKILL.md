@@ -2,13 +2,18 @@
 name: deepvista-recipe-export-knowledge-as-skills
 description: "Recipe: Export Recipes as installable SKILL.md files for AI agents."
 metadata:
-  deepvista:
-    category: "recipe"
+  openclaw:
+    category: recipe
     requires:
       bins:
-        - uv
+        - deepvista
       skills:
         - deepvista-recipe
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista recipe export --help"
 ---
 

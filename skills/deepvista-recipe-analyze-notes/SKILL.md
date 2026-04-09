@@ -5,15 +5,20 @@ description: |
   TRIGGER when: user asks to analyze notes, summarize notes, find patterns or themes in notes, review notes, get insights from notes, "what have I been thinking about", "what are common topics in my notes", "synthesize my notes", or any request to make sense of multiple notes at once.
   DO NOT TRIGGER when: user wants to create, update, or delete a single note (use deepvista-notes instead); or when the request is about a specific known note by ID.
 metadata:
-  deepvista:
-    category: "recipe"
+  openclaw:
+    category: recipe
     requires:
       bins:
-        - uv
+        - deepvista
       skills:
         - deepvista-shared
         - deepvista-vistabase
         - deepvista-notes
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista card +search --help"
 ---
 

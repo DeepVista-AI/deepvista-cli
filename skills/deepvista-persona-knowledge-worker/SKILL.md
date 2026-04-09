@@ -2,15 +2,20 @@
 name: deepvista-persona-knowledge-worker
 description: "Persona: Knowledge worker daily workflow — check cards, process notes, run Recipes."
 metadata:
-  deepvista:
-    category: "persona"
+  openclaw:
+    category: persona
     requires:
       bins:
-        - uv
+        - deepvista
       skills:
         - deepvista-vistabase
         - deepvista-recipe
         - deepvista-notes
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista --help"
 ---
 

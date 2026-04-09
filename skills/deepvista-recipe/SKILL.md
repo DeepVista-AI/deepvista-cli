@@ -2,13 +2,18 @@
 name: deepvista-recipe
 description: "DeepVista Recipe: Manage structured executable workflows (Recipes) and run them via the AI agent."
 metadata:
-  deepvista:
-    category: "service"
+  openclaw:
+    category: service
     requires:
       bins:
-        - uv
+        - deepvista
       skills:
         - deepvista-shared
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista recipe --help"
 ---
 

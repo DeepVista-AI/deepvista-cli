@@ -2,13 +2,18 @@
 name: deepvista-chat
 description: "DeepVista Chat: Send messages to the AI agent and manage chat sessions."
 metadata:
-  deepvista:
-    category: "service"
+  openclaw:
+    category: service
     requires:
       bins:
-        - uv
+        - deepvista
       skills:
         - deepvista-shared
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista chat --help"
 ---
 

@@ -2,13 +2,18 @@
 name: deepvista-vistabase-card
 description: "DeepVista Card: Manage your knowledge cards — create, search, and organize context cards."
 metadata:
-  deepvista:
-    category: "service"
+  openclaw:
+    category: service
     requires:
       bins:
-        - uv
+        - deepvista
       skills:
         - deepvista-shared
+    install:
+      - kind: uv
+        package: deepvista-cli
+        bins: [deepvista]
+    homepage: https://cli.deepvista.ai
     cliHelp: "deepvista card --help"
 ---
 
