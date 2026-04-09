@@ -24,9 +24,9 @@ from deepvista_cli.config import DEFAULT_AUTH_URL
 URL_PATTERNS = {
     "vistabase": "/vistabase?contextId={id}",
     "card": "/vistabase?contextId={id}",
-    "note": "/vistabase?contextId={id}",
-    "recipe": "/vistabase?contextId={id}",
-    "vistabook": "/vistabase?contextId={id}",
+    "note": "/notes/{id}",
+    "recipe": "/recipes/{id}",
+    "vistabook": "/recipes/{id}",
     "chat": "/chat?chatId={id}",
 }
 

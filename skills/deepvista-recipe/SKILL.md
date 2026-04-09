@@ -30,7 +30,7 @@ Recipes are structured checklist workflows. Each Recipe is a template with phase
 After any write operation (run, create), always show the recipe URL to the user:
 
 ```
-https://app.deepvista.ai/memory?contextId=<id>
+https://app.deepvista.ai/recipes/<id>
 ```
 
 Extract the `id` from the JSON response and present it as a clickable link.
