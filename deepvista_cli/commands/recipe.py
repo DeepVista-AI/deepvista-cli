@@ -132,4 +132,60 @@ def recipe_export(ctx: click.Context, recipe_id: str, export_format: str) -> Non
     Read-only — generates output but does not modify the Recipe.
     """
     data = _client(ctx).post("/export_vistabook_to_skill", {"card_ids": [recipe_id]})
-    format_output(data, ctx.obj.output_format, title=f"Export: {recipe_id}", entity_type="recipe")
+    format_output(data, ctx.obj.output_format, title=f"Export: {recipe_id}")
+
+
+# ---------------------------------------------------------------------------
+# Marketplace: Discover & Install
+# ---------------------------------------------------------------------------
+
+DISCOVER_COLUMNS = ["id", "title", "category", "version", "installed"]
+
+
+@recipe_group.command("discover")
+@click.option("--search", "-s", default=None, help="Search term to filter recipes.")
+@click.option(
+    "--category",
+    "-c",
+    type=click.Choice(["persona", "productivity", "workflow"]),
+    default=None,
+    help="Filter by category.",
+)
+@click.option("--limit", default=50, help="Max results (default 50).")
+@click.pass_context
+def recipe_discover(ctx: click.Context, search: str | None, category: str | None, limit: int) -> None:
+    """Discover public recipes from the marketplace.
+
+    Read-only — browse available recipes without installing anything.
+    Use `deepvista recipe install <id>` to install a recipe.
+    """
+    body: dict = {"limit": limit, "offset": 0}
+    if search:
+        body["search"] = search
+    if category:
+        body["category"] = category
+
+    data = _client(ctx).post("/discover_recipes", body)
+    recipes = data.get("recipes", [])
+    result = {"recipes": recipes, "count": len(recipes), "has_more": data.get("has_more", False)}
+    format_output(result, ctx.obj.output_format, columns=DISCOVER_COLUMNS, title="Marketplace Recipes")
+
+
+@recipe_group.command("install")
+@click.argument("recipe_id")
+@click.pass_context
+def recipe_install(ctx: click.Context, recipe_id: str) -> None:
+    """Install a marketplace recipe into your library.
+
+    > [!CAUTION] This is a write command — it creates a new Recipe in your
+    > library from the marketplace. Confirm with the user before executing.
+
+    The recipe_id must match an entry in the marketplace registry.
+    Use `deepvista recipe discover` to browse available recipes.
+    """
+    data = _client(ctx).post("/install_marketplace_recipe", {"recipe_id": recipe_id})
+
+    if data.get("already_installed"):
+        click.echo(json.dumps({"status": "already_installed", "card": data.get("card", {})}, indent=2, default=str))
+    else:
+        click.echo(json.dumps({"status": "installed", "card": data.get("card", {})}, indent=2, default=str))
