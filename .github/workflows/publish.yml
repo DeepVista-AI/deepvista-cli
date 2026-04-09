@@ -103,7 +103,7 @@ jobs:
             skill_name=$(basename "$skill_dir")
             echo "Publishing $skill_name v$VERSION..."
 
-            clawhub skill publish "$skill_dir" \
+            clawhub publish "$skill_dir" \
               --slug "$skill_name" \
               --version "$VERSION" \
               --tags latest \
