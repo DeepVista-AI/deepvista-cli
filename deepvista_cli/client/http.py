@@ -75,13 +75,9 @@ class DeepVistaClient:
         )
         sys.exit(EXIT_AUTH_ERROR)
 
-    def _log_request(self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> None:
+    def _log_request(self, method: str, path: str, body: Any = None) -> None:
         if self.config.verbose:
             click.echo(f">>> {method} {self.config.api_url}{path}", err=True)
-            if headers:
-                origin = headers.get("X-DeepVista-Origin")
-                if origin:
-                    click.echo(f">>> X-DeepVista-Origin: {origin}", err=True)
             if body:
                 click.echo(f">>> Body: {json.dumps(body, default=str)}", err=True)
 
@@ -118,7 +114,7 @@ class DeepVistaClient:
     def _request(self, method: str, path: str, body: dict | None = None, params: dict | None = None) -> Any:
         """Unified request method with network error handling."""
         headers = self._auth_headers()
-        self._log_request(method, path, body, headers)
+        self._log_request(method, path, body)
         if self.config.dry_run:
             click.echo(
                 json.dumps(
@@ -168,7 +164,7 @@ class DeepVistaClient:
         """POST with SSE streaming. Yields parsed JSON events as NDJSON."""
         headers = self._auth_headers()
         headers["Accept"] = "text/event-stream"
-        self._log_request("POST (SSE)", path, body, headers)
+        self._log_request("POST (SSE)", path, body)
         if self.config.dry_run:
             click.echo(
                 json.dumps({"dry_run": True, "method": "POST_SSE", "path": path, "body": body}, default=str),
