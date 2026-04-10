@@ -79,7 +79,9 @@ class DeepVistaClient:
         if self.config.verbose:
             click.echo(f">>> {method} {self.config.api_url}{path}", err=True)
             if headers:
-                click.echo(f"Headers: {headers}", err=True)
+                origin = headers.get("X-DeepVista-Origin")
+                if origin:
+                    click.echo(f">>> X-DeepVista-Origin: {origin}", err=True)
             if body:
                 click.echo(f">>> Body: {json.dumps(body, default=str)}", err=True)
 
