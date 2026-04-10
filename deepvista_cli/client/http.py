@@ -19,6 +19,7 @@ from typing import Any, NoReturn
 import click
 import httpx
 
+from deepvista_cli import __version__
 from deepvista_cli.auth.tokens import get_valid_token
 from deepvista_cli.config import EXIT_API_ERROR, EXIT_AUTH_ERROR, EXIT_NETWORK_ERROR, CLIConfig, credentials_path
 
@@ -45,7 +46,10 @@ class DeepVistaClient:
 
         Auth: Authorization: Bearer <jwt> (from login).
         """
-        headers: dict[str, str] = {"Content-Type": "application/json"}
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "User-Agent": f"deepvista-cli/{__version__}",
+        }
 
         # JWT auth (from per-profile credentials file)
         tokens = get_valid_token(credentials_path(self.config.profile))
@@ -154,6 +158,12 @@ class DeepVistaClient:
 
     def stream_sse(self, path: str, body: dict | None = None) -> Iterator[dict]:
         """POST with SSE streaming. Yields parsed JSON events as NDJSON."""
+        # Auto-inject origin metadata for /imagine requests (chat creation)
+        if path == "/imagine" and body is not None and "origin" not in body:
+            from deepvista_cli.client.origin import build_origin
+
+            body = {**body, "origin": build_origin()}
+
         self._log_request("POST (SSE)", path, body)
         if self.config.dry_run:
             click.echo(
