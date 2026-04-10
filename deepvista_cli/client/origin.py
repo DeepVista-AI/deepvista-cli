@@ -4,21 +4,13 @@ Detects the calling AI agent (Claude Code, OpenCode, Cursor, etc.) from
 environment variables — with a process-tree fallback — and collects machine
 info so the backend can track where chats originate from.
 
-**Caching strategy:**
-
-* *System info* (hostname · OS · chip) is expensive to compute on macOS
-  under Rosetta (two subprocess calls).  It virtually never changes, so we
-  persist it to ``~/.config/deepvista/system.json`` and reuse across
-  invocations.  A hostname change invalidates the cache automatically.
-* *Agent info* changes between processes (OpenCode now, Claude Code next),
-  so it is detected per-process but only once — ``build_origin()`` is
-  decorated with ``@functools.lru_cache``.
+Everything is computed once per process via ``@functools.lru_cache`` on
+``build_origin()``.
 """
 
 from __future__ import annotations
 
 import functools
-import json
 import logging
 import os
 import platform
@@ -26,36 +18,8 @@ import re
 import subprocess
 
 from deepvista_cli import __version__
-from deepvista_cli.config import CONFIG_DIR
 
 log = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Persistent system-info cache  (~/.config/deepvista/system.json)
-# ---------------------------------------------------------------------------
-
-_SYSTEM_CACHE_PATH = CONFIG_DIR / "system.json"
-
-
-def _load_system_cache() -> str | None:
-    """Return the cached machine label if it exists and the hostname still matches."""
-    try:
-        data = json.loads(_SYSTEM_CACHE_PATH.read_text())
-        # Invalidate when the hostname changes (e.g. machine swap, new device).
-        if data.get("hostname") == platform.node():
-            return data.get("machine")  # type: ignore[no-any-return]
-    except (OSError, json.JSONDecodeError, KeyError):
-        pass
-    return None
-
-
-def _save_system_cache(machine_label: str) -> None:
-    """Persist the machine label so future invocations skip subprocess calls."""
-    try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        _SYSTEM_CACHE_PATH.write_text(json.dumps({"hostname": platform.node(), "machine": machine_label}, indent=2))
-    except OSError:
-        log.debug("failed to write system cache", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -240,24 +204,12 @@ _OS_LABELS: dict[str, str] = {
 
 
 def _machine_description() -> str:
-    """Human-readable device label: ``hostname · OS · chip``.
-
-    Checks the on-disk cache first.  On a cache miss the label is computed
-    (potentially spawning subprocesses on macOS/Rosetta) and persisted for
-    future invocations.
-    """
-    cached = _load_system_cache()
-    if cached is not None:
-        return cached
-
+    """Human-readable device label: ``hostname · OS · chip``."""
     hostname = platform.node()
     system = _OS_LABELS.get(platform.system(), platform.system())
     arch = _native_arch()
     chip = _ARCH_LABELS.get(arch, arch)
-    label = f"{hostname} · {system} · {chip}"
-
-    _save_system_cache(label)
-    return label
+    return f"{hostname} · {system} · {chip}"
 
 
 @functools.lru_cache(maxsize=1)
