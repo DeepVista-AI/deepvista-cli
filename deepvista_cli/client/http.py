@@ -75,9 +75,11 @@ class DeepVistaClient:
         )
         sys.exit(EXIT_AUTH_ERROR)
 
-    def _log_request(self, method: str, path: str, body: Any = None) -> None:
+    def _log_request(self, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None) -> None:
         if self.config.verbose:
             click.echo(f">>> {method} {self.config.api_url}{path}", err=True)
+            if headers:
+                click.echo(f"Headers: {headers}", err=True)
             if body:
                 click.echo(f">>> Body: {json.dumps(body, default=str)}", err=True)
 
@@ -113,7 +115,8 @@ class DeepVistaClient:
 
     def _request(self, method: str, path: str, body: dict | None = None, params: dict | None = None) -> Any:
         """Unified request method with network error handling."""
-        self._log_request(method, path, body)
+        headers = self._auth_headers()
+        self._log_request(method, path, body, headers)
         if self.config.dry_run:
             click.echo(
                 json.dumps(
@@ -125,7 +128,6 @@ class DeepVistaClient:
 
         try:
             client = self._get_client()
-            headers = self._auth_headers()
             if method == "GET":
                 resp = client.get(path, headers=headers, params=params)
             elif method == "POST":
@@ -162,7 +164,9 @@ class DeepVistaClient:
 
     def stream_sse(self, path: str, body: dict | None = None) -> Iterator[dict]:
         """POST with SSE streaming. Yields parsed JSON events as NDJSON."""
-        self._log_request("POST (SSE)", path, body)
+        headers = self._auth_headers()
+        headers["Accept"] = "text/event-stream"
+        self._log_request("POST (SSE)", path, body, headers)
         if self.config.dry_run:
             click.echo(
                 json.dumps({"dry_run": True, "method": "POST_SSE", "path": path, "body": body}, default=str),
@@ -171,8 +175,6 @@ class DeepVistaClient:
             sys.exit(0)
 
         client = self._get_client()
-        headers = self._auth_headers()
-        headers["Accept"] = "text/event-stream"
 
         try:
             with client.stream("POST", path, json=body or {}, headers=headers, timeout=300) as resp:
