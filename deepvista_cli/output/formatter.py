@@ -92,6 +92,22 @@ def add_urls_to_data(
         if "id" in data and list_key is None:
             return add_url_to_entity(data, entity_type, base_url)
 
+        # Handle wrapped single-entity responses like {"card": {..., "id": "..."}, "created": true}
+        single_entity_keys = ["card", "note", "recipe", "vistabook", "session"]
+        for key in single_entity_keys:
+            if key in data and isinstance(data[key], dict) and "id" in data[key]:
+                result = dict(data)
+                key_to_type = {
+                    "card": entity_type,
+                    "note": "note",
+                    "recipe": "recipe",
+                    "vistabook": "vistabook",
+                    "session": "chat",
+                }
+                item_type = key_to_type.get(key, entity_type)
+                result[key] = add_url_to_entity(data[key], item_type, base_url)
+                return result
+
         # Look for known list keys and add URLs to items
         known_keys = ["cards", "notes", "recipes", "vistabooks", "sessions", "results", "similar"]
         keys_to_check = [list_key] if list_key else known_keys
