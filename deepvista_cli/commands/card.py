@@ -100,7 +100,14 @@ def card_list(
         "has_more": data.get("has_more", False),
         "count": len(cards),
     }
-    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title="Cards", entity_type="card")
+    format_output(
+        result,
+        ctx.obj.output_format,
+        columns=CARD_COLUMNS,
+        title="Cards",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+    )
 
 
 @card_group.command("get")
@@ -109,7 +116,7 @@ def card_list(
 def card_get(ctx: click.Context, card_id: str) -> None:
     """Get a context card by ID."""
     data = _client(ctx).post("/get_context_card", {"card_id": card_id})
-    format_output(data, ctx.obj.output_format, title=f"Card: {card_id}", entity_type="card")
+    format_output(data, ctx.obj.output_format, title=f"Card: {card_id}", entity_type="card", base_url=ctx.obj.auth_url)
 
 
 @card_group.command("create")
@@ -156,7 +163,7 @@ def card_create(
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(data, ctx.obj.output_format, title="Created Card", entity_type="card")
+    format_output(data, ctx.obj.output_format, title="Created Card", entity_type="card", base_url=ctx.obj.auth_url)
 
 
 @card_group.command("update")
@@ -205,7 +212,9 @@ def card_update(
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
     data = _client(ctx).post("/update_context_card", body)
-    format_output(data, ctx.obj.output_format, title=f"Updated Card: {card_id}", entity_type="card")
+    format_output(
+        data, ctx.obj.output_format, title=f"Updated Card: {card_id}", entity_type="card", base_url=ctx.obj.auth_url
+    )
 
 
 @card_group.command("edit")
@@ -238,7 +247,9 @@ def card_edit(
         "replace_all": replace_all,
     }
     data = _client(ctx).post("/edit_context_card", body)
-    format_output(data, ctx.obj.output_format, title=f"Edited Card: {card_id}", entity_type="card")
+    format_output(
+        data, ctx.obj.output_format, title=f"Edited Card: {card_id}", entity_type="card", base_url=ctx.obj.auth_url
+    )
 
 
 @card_group.command("delete")
@@ -254,7 +265,7 @@ def card_delete(ctx: click.Context, card_id: str, card_type: str | None) -> None
     if card_type:
         params["card_type"] = card_type
     data = _client(ctx).delete(f"/context_cards/{card_id}", params=params)
-    format_output(data, ctx.obj.output_format, entity_type="card")
+    format_output(data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url)
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +290,14 @@ def card_search(ctx: click.Context, query: str, card_type: str | None, limit: in
     data = _client(ctx).post("/get_context_cards", body)
     cards = data.get("cards", [])
     result = {"query": query, "results": cards, "count": len(cards)}
-    format_output(result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Search: {query}", entity_type="card")
+    format_output(
+        result,
+        ctx.obj.output_format,
+        columns=CARD_COLUMNS,
+        title=f"Search: {query}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+    )
 
 
 @card_group.command("+similar")
@@ -304,7 +322,12 @@ def card_similar(ctx: click.Context, card_id: str, limit: int) -> None:
     cards = [c for c in data.get("cards", []) if c.get("id") != card_id]
     result = {"source_card_id": card_id, "similar": cards, "count": len(cards)}
     format_output(
-        result, ctx.obj.output_format, columns=CARD_COLUMNS, title=f"Similar to: {card_id}", entity_type="card"
+        result,
+        ctx.obj.output_format,
+        columns=CARD_COLUMNS,
+        title=f"Similar to: {card_id}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
     )
 
 
@@ -317,7 +340,7 @@ def card_pin(ctx: click.Context, card_id: str) -> None:
     > [!CAUTION] This is a write command.
     """
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "pinned"})
-    format_output(data, ctx.obj.output_format, entity_type="card")
+    format_output(data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url)
 
 
 @card_group.command("+archive")
@@ -329,7 +352,7 @@ def card_archive(ctx: click.Context, card_id: str) -> None:
     > [!CAUTION] This is a write command.
     """
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "archived"})
-    format_output(data, ctx.obj.output_format, entity_type="card")
+    format_output(data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url)
 
 
 @card_group.command("+grep")
@@ -364,4 +387,4 @@ def card_grep(
         body["card_type"] = card_type
 
     data = _client(ctx).post("/grep_context_cards", body)
-    format_output(data, ctx.obj.output_format, title=f"Grep: {pattern}", entity_type="card")
+    format_output(data, ctx.obj.output_format, title=f"Grep: {pattern}", entity_type="card", base_url=ctx.obj.auth_url)

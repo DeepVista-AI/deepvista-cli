@@ -54,7 +54,14 @@ def recipe_list(ctx: click.Context, limit: int, page_number: int) -> None:
     )
     cards = data.get("cards", [])
     result = {"recipes": cards, "count": len(cards), "has_more": data.get("has_more", False)}
-    format_output(result, ctx.obj.output_format, columns=RECIPE_COLUMNS, title="Recipes", entity_type="recipe")
+    format_output(
+        result,
+        ctx.obj.output_format,
+        columns=RECIPE_COLUMNS,
+        title="Recipes",
+        entity_type="recipe",
+        base_url=ctx.obj.auth_url,
+    )
 
 
 @recipe_group.command("get")
@@ -66,7 +73,9 @@ def recipe_get(ctx: click.Context, recipe_id: str) -> None:
     Read-only — never modifies the Recipe.
     """
     data = _client(ctx).post("/get_context_card", {"card_id": recipe_id, "card_type": "vistabook"})
-    format_output(data, ctx.obj.output_format, title=f"Recipe: {recipe_id}", entity_type="recipe")
+    format_output(
+        data, ctx.obj.output_format, title=f"Recipe: {recipe_id}", entity_type="recipe", base_url=ctx.obj.auth_url
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +126,7 @@ def recipe_status(ctx: click.Context, run_id: str) -> None:
         "visibility": session.get("visibility", ""),
         "created_at": session.get("created_at", ""),
     }
-    format_output(result, ctx.obj.output_format, title=f"Run: {run_id}", entity_type="chat")
+    format_output(result, ctx.obj.output_format, title=f"Run: {run_id}", entity_type="chat", base_url=ctx.obj.auth_url)
 
 
 @recipe_group.command("export")
@@ -132,7 +141,9 @@ def recipe_export(ctx: click.Context, recipe_id: str, export_format: str) -> Non
     Read-only — generates output but does not modify the Recipe.
     """
     data = _client(ctx).post("/export_vistabook_to_skill", {"card_ids": [recipe_id]})
-    format_output(data, ctx.obj.output_format, title=f"Export: {recipe_id}")
+    format_output(
+        data, ctx.obj.output_format, title=f"Export: {recipe_id}", entity_type="recipe", base_url=ctx.obj.auth_url
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +179,14 @@ def recipe_discover(ctx: click.Context, search: str | None, category: str | None
     data = _client(ctx).post("/discover_recipes", body)
     recipes = data.get("recipes", [])
     result = {"recipes": recipes, "count": len(recipes), "has_more": data.get("has_more", False)}
-    format_output(result, ctx.obj.output_format, columns=DISCOVER_COLUMNS, title="Marketplace Recipes")
+    format_output(
+        result,
+        ctx.obj.output_format,
+        columns=DISCOVER_COLUMNS,
+        title="Marketplace Recipes",
+        entity_type="recipe",
+        base_url=ctx.obj.auth_url,
+    )
 
 
 @recipe_group.command("install")
