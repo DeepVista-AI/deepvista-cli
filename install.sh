@@ -12,6 +12,7 @@ SKILLS=(
   deepvista-recipe-research-to-recipe
   deepvista-recipe-export-knowledge-as-skills
   deepvista-recipe-analyze-notes
+  deepvista-openclaw
 )
 
 echo "==> Installing deepvista CLI..."
@@ -47,6 +48,8 @@ SKILL_DIRS=()
 [ -d "$HOME/.agents" ]  && SKILL_DIRS+=("$HOME/.agents/skills")
 [ -d "$HOME/.cursor" ]  && SKILL_DIRS+=("$HOME/.cursor/skills")
 [ -d "$HOME/.opencode" ] && SKILL_DIRS+=("$HOME/.opencode/skills")
+# OpenClaw: skills live in the workspace directory
+[ -d "$HOME/.openclaw/workspace" ] && SKILL_DIRS+=("$HOME/.openclaw/workspace/skills")
 
 # Default to Claude if no agent directory found
 if [ ${#SKILL_DIRS[@]} -eq 0 ]; then
@@ -117,6 +120,18 @@ echo "==> Enabling DeepVista auto-capture..."
 [ -d "$HOME/.claude" ]   && install_autocapture "$HOME/.claude/CLAUDE.md"
 [ -d "$HOME/.cursor" ]   && install_autocapture "$HOME/.cursor/rules"
 [ -d "$HOME/.opencode" ] && install_autocapture "$HOME/.opencode/AGENTS.md"
+
+# OpenClaw: install autocapture to workspace AGENTS.md
+OPENCLAW_WORKSPACE="$HOME/.openclaw/workspace"
+if [ -d "$OPENCLAW_WORKSPACE" ]; then
+  install_autocapture "$OPENCLAW_WORKSPACE/AGENTS.md"
+  # Also copy the OpenClaw-specific skill to the workspace for reference
+  if [ -d "$SRC/deepvista-openclaw" ]; then
+    mkdir -p "$OPENCLAW_WORKSPACE/skills/deepvista-openclaw"
+    cp -r "$SRC/deepvista-openclaw/"* "$OPENCLAW_WORKSPACE/skills/deepvista-openclaw/"
+    echo "    OpenClaw skill installed to $OPENCLAW_WORKSPACE/skills/deepvista-openclaw"
+  fi
+fi
 
 echo "==> Installing DeepVista auto-capture hook..."
 
