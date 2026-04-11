@@ -32,6 +32,7 @@ SKILL_DIRS = [
     Path.home() / ".agents" / "skills",
     Path.home() / ".cursor" / "skills",
     Path.home() / ".opencode" / "skills",
+    Path.home() / ".openclaw" / "workspace" / "skills",
 ]
 
 
