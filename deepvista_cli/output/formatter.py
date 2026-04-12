@@ -19,17 +19,21 @@ from deepvista_cli.config import DEFAULT_AUTH_URL
 # ---------------------------------------------------------------------------
 
 # URL patterns for different entity types
+# New format: /vistabase/{id}?contextType={type}
 # Notes use: /notes/{id}
 # Recipes use: /recipes/{id}
 # Chat sessions use: /chat/{id}
-# Generic cards (vistabase) use: /vistabase?contextId={id}
 URL_PATTERNS = {
-    "vistabase": "/vistabase?contextId={id}",
-    "card": "/vistabase?contextId={id}",
+    "vistabase": "/vistabase/{id}",
+    "card": "/vistabase/{id}",
     "note": "/notes/{id}",
     "recipe": "/recipes/{id}",
     "vistabook": "/recipes/{id}",
     "chat": "/chat/{id}",
+    "person": "/vistabase/{id}?contextType=person",
+    "organization": "/vistabase/{id}?contextType=organization",
+    "topic": "/vistabase/{id}?contextType=topic",
+    "keypoint": "/vistabase/{id}?contextType=keypoint",
 }
 
 
@@ -38,7 +42,7 @@ def generate_url(entity_id: str, entity_type: str = "card", base_url: str = DEFA
 
     Args:
         entity_id: The UUID of the entity
-        entity_type: Type of entity (card, note, recipe, vistabook, chat)
+        entity_type: Type of entity (card, note, recipe, vistabook, chat, person, organization, topic, keypoint)
         base_url: Base URL of the web app (defaults to https://app.deepvista.ai)
 
     Returns:
@@ -63,7 +67,13 @@ def add_url_to_entity(entity: dict, entity_type: str = "card", base_url: str = D
         return entity
 
     result = dict(entity)
-    result["url"] = generate_url(entity["id"], entity_type, base_url)
+    # Use the entity's own 'type' field for more specific URL patterns
+    # (e.g., person, organization, topic, keypoint)
+    effective_type = entity.get("type", entity_type) or entity_type
+    # Map known entity types; fall back to the passed entity_type for unknown types
+    if effective_type not in URL_PATTERNS:
+        effective_type = entity_type
+    result["url"] = generate_url(entity["id"], effective_type, base_url)
     return result
 
 
