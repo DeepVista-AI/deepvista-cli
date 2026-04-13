@@ -79,7 +79,9 @@ fi
 for dir in "${SKILL_DIRS[@]}"; do
   mkdir -p "$dir"
   for skill in "${SKILLS[@]}"; do
-    cp -r "$SRC/$skill" "$dir/"
+    # Remove stale file/dir to avoid "Not a directory" errors on re-install
+    rm -rf "${dir:?}/$skill"
+    cp -r "$SRC/$skill" "$dir/$skill"
   done
   echo "    Skills installed to $dir"
 done
