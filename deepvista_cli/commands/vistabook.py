@@ -103,7 +103,7 @@ def vistabook_run(ctx: click.Context, vistabook_id: str, user_input: str | None)
     # Pass the vistabook reference in user_instruction instead.
     instruction = user_input or "Run this vistabook"
     body: dict = {
-        "user_instruction": f"[vistabook:{vistabook_id}] {instruction}",
+        "user_instruction": f'<contextCard id="{vistabook_id}" cardType="vistabook"></contextCard> {instruction}',
     }
 
     for event in _client(ctx).stream_sse("/imagine", body):

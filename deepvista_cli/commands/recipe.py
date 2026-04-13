@@ -101,7 +101,7 @@ def recipe_run(ctx: click.Context, recipe_id: str, user_input: str | None) -> No
 
     instruction = user_input or "Run this recipe"
     body: dict = {
-        "user_instruction": f"[vistabook:{recipe_id}] {instruction}",
+        "user_instruction": f'<contextCard id="{recipe_id}" cardType="vistabook"></contextCard> {instruction}',
     }
 
     for event in _client(ctx).stream_sse("/imagine", body):
