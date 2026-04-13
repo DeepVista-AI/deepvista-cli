@@ -36,6 +36,12 @@ URL_PATTERNS = {
     "keypoint": "/vistabase/{id}?contextType=keypoint",
 }
 
+# Known entity keys in API responses (singular for wrapped, plural for lists).
+# Entity type matches the key name except where overridden below.
+ENTITY_KEYS = ("card", "note", "recipe", "vistabook", "session")
+_KEY_TYPE_OVERRIDES = {"session": "chat"}
+GENERIC_LIST_KEYS = ("results", "similar")
+
 
 def generate_url(entity_id: str, entity_type: str = "card", base_url: str = DEFAULT_AUTH_URL) -> str:
     """Generate a web app URL for an entity.
@@ -104,24 +110,21 @@ def add_urls_to_data(
         if "id" in data and list_key is None:
             return add_url_to_entity(data, entity_type, base_url)
 
-        # Look for known list keys and add URLs to items
-        known_keys = ["cards", "notes", "recipes", "vistabooks", "sessions", "results", "similar"]
-        keys_to_check = [list_key] if list_key else known_keys
-
         result = dict(data)
+
+        # Wrapped single-entity responses (e.g. {"card": {..., "id": "..."}, "created": true})
+        for key in ENTITY_KEYS:
+            if key in result and isinstance(result[key], dict) and "id" in result[key]:
+                result[key] = add_url_to_entity(result[key], _KEY_TYPE_OVERRIDES.get(key, key), base_url)
+
+        # List responses (e.g. {"cards": [...], "total": 10})
+        plural_key_to_type = {f"{k}s": _KEY_TYPE_OVERRIDES.get(k, k) for k in ENTITY_KEYS}
+        plural_key_to_type.update({k: entity_type for k in GENERIC_LIST_KEYS})
+        keys_to_check = [list_key] if list_key else list(plural_key_to_type)
+
         for key in keys_to_check:
             if key in result and isinstance(result[key], list):
-                # Determine entity type from key
-                key_to_type = {
-                    "cards": "card",
-                    "notes": "note",
-                    "recipes": "recipe",
-                    "vistabooks": "vistabook",
-                    "sessions": "chat",
-                    "results": entity_type,
-                    "similar": entity_type,
-                }
-                item_type = key_to_type.get(key, entity_type)
+                item_type = plural_key_to_type.get(key, entity_type)
                 result[key] = [add_url_to_entity(item, item_type, base_url) for item in result[key]]
 
         return result
