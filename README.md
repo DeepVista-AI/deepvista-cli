@@ -1,7 +1,8 @@
 # deepvista-cli
 
+[![PyPI - Status](https://img.shields.io/pypi/status/deepvista-cli)](https://pypi.org/project/deepvista-cli/)
 [![PyPI](https://img.shields.io/pypi/v/deepvista-cli)](https://pypi.org/project/deepvista-cli/)
-[![ClawHub](https://img.shields.io/badge/ClawHub-skills-blue)](https://clawhub.ai/skills?q=deepvista)
+[![ClawHub](https://img.shields.io/badge/ClawHub-deepvista-blue)](https://clawhub.ai/skills?q=deepvista)
 [![skills.sh](https://img.shields.io/badge/skills.sh-DeepVista--AI-purple)](https://skills.sh/deepvista-ai/deepvista-cli)
 
 CLI for DeepVista — chat, notes, recipes, and vistabase from your terminal. Designed for both humans and AI agents.
