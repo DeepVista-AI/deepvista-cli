@@ -329,7 +329,8 @@ class RecipesPanel(Container):
         client = _TUIClient(self._config)
         lines: list[str] = []
         try:
-            body = {"user_instruction": f"[vistabook:{recipe_id}] Run this recipe"}
+            tag = f'<contextCard id="{recipe_id}" cardType="vistabook"></contextCard>'
+            body = {"user_instruction": f"{tag} Run this recipe"}
             for event in client.stream_sse("/imagine", body):
                 text = event.get("text", event.get("content", ""))
                 if text:
