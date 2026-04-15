@@ -163,7 +163,7 @@ Read-only. Use `card get <id>` to read the full content of a result.
 
 ## Card Types
 
-`person`, `organization`, `message`, `todo`, `topic`, `keypoint`, `file`, `note`, `recipe`, `recipe_run`
+`person`, `organization`, `message`, `todo`, `topic`, `keypoint`, `file`, `note`, `vistabook`, `vistabook_run`
 
 ## Examples
 

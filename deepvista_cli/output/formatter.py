@@ -21,14 +21,14 @@ from deepvista_cli.config import DEFAULT_AUTH_URL
 # URL patterns for different entity types
 # New format: /vistabase/{id}?contextType={type}
 # Notes use: /notes/{id}
-# Recipes use: /recipes/{id}
+# Skills use: /skills/{id}
 # Chat sessions use: /chat/{id}
 URL_PATTERNS = {
     "vistabase": "/vistabase/{id}",
     "card": "/vistabase/{id}",
     "note": "/notes/{id}",
-    "recipe": "/recipes/{id}",
-    "vistabook": "/recipes/{id}",
+    "skill": "/skills/{id}",
+    "vistabook": "/skills/{id}",
     "chat": "/chat/{id}",
     "person": "/vistabase/{id}?contextType=person",
     "organization": "/vistabase/{id}?contextType=organization",
@@ -38,7 +38,7 @@ URL_PATTERNS = {
 
 # Known entity keys in API responses (singular for wrapped, plural for lists).
 # Entity type matches the key name except where overridden below.
-ENTITY_KEYS = ("card", "note", "recipe", "vistabook", "session")
+ENTITY_KEYS = ("card", "note", "skill", "vistabook", "session")
 _KEY_TYPE_OVERRIDES = {"session": "chat"}
 GENERIC_LIST_KEYS = ("results", "similar")
 
@@ -48,7 +48,7 @@ def generate_url(entity_id: str, entity_type: str = "card", base_url: str = DEFA
 
     Args:
         entity_id: The UUID of the entity
-        entity_type: Type of entity (card, note, recipe, vistabook, chat, person, organization, topic, keypoint)
+        entity_type: Type of entity (card, note, skill, vistabook, chat, person, organization, topic, keypoint)
         base_url: Base URL of the web app (defaults to https://app.deepvista.ai)
 
     Returns:
@@ -91,7 +91,7 @@ def add_urls_to_data(
     Handles:
     - Single entity dict with 'id' field
     - List of entity dicts
-    - Dict with a list of entities under a known key (cards, notes, recipes, sessions, etc.)
+    - Dict with a list of entities under a known key (cards, notes, skills, sessions, etc.)
 
     Args:
         data: The data structure to process
@@ -197,7 +197,7 @@ def format_output(
         fmt: Output format ('json' or 'table')
         columns: Column names for table output
         title: Title for table output
-        entity_type: Type of entity for URL generation (card, note, recipe, chat)
+        entity_type: Type of entity for URL generation (card, note, skill, chat)
         base_url: Base URL for the web app
     """
     # Add URLs to entities

@@ -5,12 +5,12 @@ SKILLS=(
   deepvista-shared
   deepvista-vistabase
   deepvista-notes
-  deepvista-recipe
+  deepvista-skill
   deepvista-chat
   deepvista-persona-knowledge-worker
-  deepvista-recipe-research-to-recipe
-  deepvista-recipe-export-knowledge-as-skills
-  deepvista-recipe-analyze-notes
+  deepvista-skill-research-to-skill
+  deepvista-skill-export-knowledge
+  deepvista-skill-analyze-notes
 )
 
 # Uninstall CLI

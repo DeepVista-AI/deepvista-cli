@@ -3,7 +3,7 @@
 Vistabase is the implicit context layer — automatically accumulated from Chat
 sessions, never directly editable by users. It surfaces in Chat when relevant.
 
-Five resources: card · recipe · vistabase · chat · skill
+Five resources: card · skill · vistabase · chat
 
 Endpoints:
   GET  /memory/summary         -> memory overview

@@ -1,6 +1,6 @@
 """deepvista card — CRUD + file-ops for context cards (knowledge base).
 
-Five resources: card · recipe · memory · chat · skill
+Five resources: card · skill · vistabase · chat
 
 Endpoints:
   POST /get_context_cards      -> list / search
@@ -29,8 +29,6 @@ CARD_TYPES = [
     "keypoint",
     "file",
     "note",
-    "recipe",
-    "recipe_run",
     "vistabook",
     "vistabook_run",
 ]

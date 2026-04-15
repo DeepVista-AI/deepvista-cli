@@ -19,7 +19,7 @@ This installs the `deepvista` CLI and all 9 skills for your agent — no Node or
 ## Then: Paste This Prompt Into Your Agent
 
 ```
-Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-vistabook deepvista-chat deepvista-persona-knowledge-worker deepvista-recipe-research-to-vistabook deepvista-recipe-export-knowledge-as-skills deepvista-recipe-analyze-notes
+Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-vistabook deepvista-chat deepvista-persona-knowledge-worker deepvista-skill-research-to-skill deepvista-skill-export-knowledge deepvista-skill-analyze-notes
 
 Help me get started with DeepVista:
 
@@ -49,9 +49,9 @@ Help me get started with DeepVista:
 | `deepvista-vistabook` | Run structured AI workflows |
 | `deepvista-chat` | Conversational AI agent |
 | `deepvista-persona-knowledge-worker` | Daily knowledge workflow patterns |
-| `deepvista-recipe-research-to-vistabook` | Search → synthesize → run workflow |
-| `deepvista-recipe-export-knowledge-as-skills` | Turn your knowledge into installable skills |
-| `deepvista-recipe-analyze-notes` | Analyze, summarize, and find patterns across notes |
+| `deepvista-skill-research-to-skill` | Search → synthesize → run workflow |
+| `deepvista-skill-export-knowledge` | Turn your knowledge into installable skills |
+| `deepvista-skill-analyze-notes` | Analyze, summarize, and find patterns across notes |
 
 ---
 
@@ -68,7 +68,7 @@ Take a note: "Key insight from today's meeting — prioritize async workflows ov
 
 ### Analyze your notes
 ```
-Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-recipe-analyze-notes
+Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-skill-analyze-notes
 
 Analyze my recent notes and tell me what themes keep coming up.
 ```
@@ -83,7 +83,7 @@ Show me the top 5 results.
 
 ### Run a VistaBook workflow
 ```
-Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook deepvista-recipe-research-to-vistabook
+Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook deepvista-skill-research-to-skill
 
 I want to synthesize patterns from my knowledge base. Find my Research Synthesis VistaBook
 and run it — but show me what you find before running so I can confirm.

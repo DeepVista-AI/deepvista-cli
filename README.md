@@ -5,7 +5,7 @@
 [![ClawHub](https://img.shields.io/badge/ClawHub-deepvista-blue)](https://clawhub.ai/skills?q=deepvista)
 [![skills.sh](https://img.shields.io/badge/skills.sh-DeepVista--AI-purple)](https://skills.sh/deepvista-ai/deepvista-cli)
 
-CLI for DeepVista — chat, notes, recipes, and vistabase from your terminal. Designed for both humans and AI agents.
+CLI for DeepVista — chat, notes, skills, and vistabase from your terminal. Designed for both humans and AI agents.
 
 ## Table of Contents
 
@@ -53,13 +53,13 @@ The script:
 | `deepvista-shared` | Auth, profiles, global flags, security rules |
 | `deepvista-vistabase` | Knowledge cards — search, read, create, update |
 | `deepvista-notes` | Note capture and management |
-| `deepvista-vistabook` | Run structured AI recipes/workflows |
+| `deepvista-vistabook` | Run structured AI skills/workflows |
 | `deepvista-vistabase` | View and search implicit vistabase context |
 | `deepvista-chat` | Conversational AI agent |
 | `deepvista-persona-knowledge-worker` | Daily knowledge workflow patterns |
-| `deepvista-recipe-research-to-vistabook` | Search → synthesize → run workflow |
-| `deepvista-recipe-export-knowledge-as-skills` | Turn your knowledge into installable skills |
-| `deepvista-recipe-analyze-notes` | Analyze, summarize, and find patterns across notes |
+| `deepvista-skill-research-to-skill` | Search → synthesize → run workflow |
+| `deepvista-skill-export-knowledge` | Turn your knowledge into installable skills |
+| `deepvista-skill-analyze-notes` | Analyze, summarize, and find patterns across notes |
 
 ### Get Started
 
@@ -123,19 +123,19 @@ Search my knowledge base for everything I've captured about founder mindset and 
 Show me the top 5 results.
 ```
 
-### Research and Synthesize with a Recipe
+### Research and Synthesize with a Skill
 
 Once you've captured 10–20 interviews, ask your agent to synthesize patterns:
 
 ```
-Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook deepvista-recipe-research-to-vistabook
+Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook deepvista-skill-research-to-skill
 
 Search for cards about growth and early-stage execution, then find my Research Synthesis
-recipe and run it focused on: what separates high-growth founders, common 0→1 mistakes.
+skill and run it focused on: what separates high-growth founders, common 0→1 mistakes.
 Show me what you find before running.
 ```
 
-The agent searches, reads your notes, finds the Recipe, confirms with you, then streams the run live.
+The agent searches, reads your notes, finds the Skill, confirms with you, then streams the run live.
 
 ### Build a Founder Playbook
 
@@ -144,30 +144,30 @@ Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook
 
 I have a new startup idea to evaluate. Idea: [your idea].
 1. Search my knowledge base for any idea validation frameworks
-2. Find my idea evaluation Recipe
-3. Run it with the above context — show me the Recipe first
+2. Find my idea evaluation Skill
+3. Run it with the above context — show me the Skill first
 ```
 
 Export your playbook as a reusable skill:
 
 ```
-Load skills: deepvista-shared deepvista-vistabook deepvista-recipe-export-knowledge-as-skills
+Load skills: deepvista-shared deepvista-vistabook deepvista-skill-export-knowledge
 
-Export my founder playbook Recipe as a SKILL.md file so I can share it with my team.
+Export my founder playbook Skill as a SKILL.md file so I can share it with my team.
 ```
 
 ---
 
-## Recipe Patterns
+## Skill Patterns
 
 Build these workflows in the DeepVista web app, then invoke them through your agent:
 
-| Recipe | Prompt to invoke |
+| Skill | Prompt to invoke |
 |--------|-----------------|
-| **Research synthesis** | "Search my KB for [topic] and run my Research Synthesis Recipe" |
+| **Research synthesis** | "Search my KB for [topic] and run my Research Synthesis Skill" |
 | **Idea evaluation** | "Evaluate this idea against my founder frameworks: [idea]" |
 | **Weekly review** | "Run my weekly review — surface pinned cards and capture this week's key learnings" |
-| **Interview debrief** | "I just finished a user interview. Run my Interview Debrief Recipe with these notes: [notes]" |
+| **Interview debrief** | "I just finished a user interview. Run my Interview Debrief Skill with these notes: [notes]" |
 | **Decision memo** | "Help me think through this decision using my knowledge base: [decision]" |
 | **Competitive analysis** | "Run a competitive analysis on [company/space] using everything I've captured" |
 
@@ -240,14 +240,14 @@ pip install 'deepvista-cli[ui]'
 |-------|-----|-------------|
 | **Chat** | `1` | Converse with the DeepVista AI agent. Select past sessions from the sidebar or start a new one. Responses stream in real time. |
 | **Notes** | `2` | Browse and search your explicit knowledge (notes). Click any note to read its full content. |
-| **Recipes** | `3` | List all Recipes (structured workflows). Select one to view its details and run it with the **▶ Run Recipe** button — output streams live. |
+| **Skills** | `3` | List all Skills (structured workflows). Select one to view its details and run it with the **▶ Run Skill** button — output streams live. |
 | **Memory** | `4` | Read-only view of implicit context accumulated from your Chat sessions. Searchable. |
 
 ### Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `1` – `4` | Switch between Chat / Notes / Recipes / Memory |
+| `1` – `4` | Switch between Chat / Notes / Skills / Memory |
 | `r` | Refresh the active panel |
 | `q` | Quit |
 | `Enter` | Send message (in Chat input) |
@@ -310,7 +310,7 @@ The CLI uses four resources:
 
 ```
 card       Knowledge cards (all types)
-recipe     Executable workflows
+skill      Executable workflows
 vistabase  Implicit context from Chat (read-only)
 chat       Conversational AI agent
 ```
@@ -340,19 +340,19 @@ deepvista card +pin     <card_id>
 deepvista card +archive <card_id>
 ```
 
-Card types: `person`, `organization`, `message`, `todo`, `topic`, `keypoint`, `file`, `note`, `recipe`, `recipe_run`
+Card types: `person`, `organization`, `message`, `todo`, `topic`, `keypoint`, `file`, `note`, `skill`, `skill_run`
 
-### recipe — Executable workflows
+### skill — Executable workflows
 
 ```bash
-deepvista recipe list [--limit N] [--page N]
-deepvista recipe get    <recipe_id>
-deepvista recipe run    <recipe_id> [--input "context"]
-deepvista recipe status <run_chat_id>
-deepvista recipe export <recipe_id> --format skill
+deepvista skill list [--limit N] [--page N]
+deepvista skill get    <skill_id>
+deepvista skill run    <skill_id> [--input "context"]
+deepvista skill status <run_chat_id>
+deepvista skill export <skill_id> --format skill
 ```
 
-`recipe run` streams NDJSON as the agent works through the checklist.
+`skill run` streams NDJSON as the agent works through the checklist.
 
 ### vistabase — Implicit context
 
@@ -419,7 +419,7 @@ deepvista card list --profile local
 - **JSON** (default): structured JSON to stdout — agents parse this.
 - **Table**: `--format table` for human-readable output.
 - **Errors**: `{"error": {"code": N, "message": "...", "detail": "..."}}` on stderr.
-- **Streaming**: NDJSON for `chat +send` and `recipe run` (one JSON object per line).
+- **Streaming**: NDJSON for `chat +send` and `skill run` (one JSON object per line).
 
 ## Exit Codes
 
@@ -451,7 +451,7 @@ deepvista-cli/
 │   ├── client/              # HTTP client, SSE streaming
 │   ├── commands/
 │   │   ├── card.py          # Knowledge cards
-│   │   ├── recipe.py        # Executable workflows
+│   │   ├── skill.py         # Executable workflows
 │   │   ├── memory.py        # Implicit memory context
 │   │   ├── chat.py          # Conversational agent
 │   │   ├── notes.py         # Notes (alias for card --type note)
@@ -463,19 +463,19 @@ deepvista-cli/
 └── skills/                  # SKILL.md files for agent integration
     ├── deepvista-shared/
     ├── deepvista-vistabase/     # card commands
-    ├── deepvista-vistabook/     # recipe commands
+    ├── deepvista-vistabook/     # skill commands
     ├── deepvista-vistabase/     # vistabase commands
     ├── deepvista-notes/
     ├── deepvista-chat/
     ├── deepvista-persona-knowledge-worker/
-    ├── deepvista-recipe-analyze-notes/
-    ├── deepvista-recipe-export-knowledge-as-skills/
-    └── deepvista-recipe-research-to-vistabook/
+    ├── deepvista-skill-analyze-notes/
+    ├── deepvista-skill-export-knowledge/
+    └── deepvista-skill-research-to-skill/
 ```
 
 ## See Also
 
 - [skills/](./skills/) — SKILL.md files for agent integration
-- [deepvista.ai](https://deepvista.ai) — Web app to build and manage Recipes
+- [deepvista.ai](https://deepvista.ai) — Web app to build and manage Skills
 - [PyPI](https://pypi.org/project/deepvista-cli/) — Package releases
 - [GitHub Issues](https://github.com/DeepVista-AI/deepvista-cli/issues) — Bug reports and feature requests
