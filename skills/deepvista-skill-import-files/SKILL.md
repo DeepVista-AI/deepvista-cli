@@ -1,12 +1,12 @@
 ---
-name: deepvista-recipe-import-files
+name: deepvista-skill-import-files
 description: |
-  Recipe: Import files from the current directory (recursively) as context cards in DeepVista.
+  Skill: Import files from the current directory (recursively) as context cards in DeepVista.
   TRIGGER when: user wants to import files as cards, "index this folder", "add files to DeepVista", "import codebase as context", "upload files as knowledge cards", "add all files in this directory to my knowledge base", or any request to bulk-import local files into DeepVista.
   DO NOT TRIGGER when: user wants to create a single note or card manually; or when working with non-file card types.
 metadata:
   openclaw:
-    category: recipe
+    category: skill
     requires:
       bins:
         - deepvista
@@ -111,7 +111,7 @@ deepvista card +search "<keyword>" --type file
 ## Tips
 
 - **Large repos**: For repos with hundreds of files, import only the most relevant directories (e.g. `src/`) rather than the entire tree.
-- **Re-import / updates**: There is no deduplication — running the recipe twice will create duplicate cards. Warn the user if they are re-importing a directory they may have imported before.
+- **Re-import / updates**: There is no deduplication — running the skill twice will create duplicate cards. Warn the user if they are re-importing a directory they may have imported before.
 - **Tags for organization**: Encourage the user to pass a project-specific tag (e.g. `["imported", "my-project"]`) so they can filter cards per project later.
 - **Skip lock files and generated files**: Suggest skipping `*.lock`, `*.min.js`, `*.map`, `package-lock.json`, `yarn.lock` by default.
 

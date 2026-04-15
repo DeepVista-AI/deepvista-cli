@@ -78,7 +78,7 @@ deepvista card list --profile local
 
 ```
 card      Knowledge cards (context cards — all types)
-recipe    Executable workflows (run structured checklists)
+skill     Executable workflows (run structured checklists)
 memory    Implicit context automatically accumulated from Chat
 chat      Conversational AI agent
 ```
@@ -142,7 +142,7 @@ Global flags go BEFORE the resource name.
 deepvista ui
 ```
 
-Opens the terminal UI with Chat, Notes, Recipes, and Memory panels.
+Opens the terminal UI with Chat, Notes, Skills, and Memory panels.
 Requires: `pip install 'deepvista-cli[ui]'`
 
 ## Output Format
@@ -150,7 +150,7 @@ Requires: `pip install 'deepvista-cli[ui]'`
 - **JSON** (default): Structured JSON to stdout. Agents should parse this.
 - **Table**: Human-readable table on stderr + JSON on stdout.
 - **Errors**: `{"error": {"code": N, "message": "...", "detail": "..."}}` on stderr.
-- **Streaming** (chat +send, recipe run): NDJSON — one JSON object per line.
+- **Streaming** (chat +send, skill run): NDJSON — one JSON object per line.
 
 ## Exit Codes
 
@@ -171,7 +171,7 @@ Every command supports `--help`:
 deepvista --help
 deepvista card --help
 deepvista card +search --help
-deepvista recipe --help
+deepvista skill --help
 deepvista memory --help
 ```
 
@@ -186,6 +186,6 @@ deepvista memory --help
 ## See Also
 
 - [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Implicit context (vistabase)
-- [deepvista-recipe](../deepvista-recipe/SKILL.md) — Recipes (executable workflows)
+- [deepvista-skill](../deepvista-skill/SKILL.md) — Skills (executable workflows)
 - [deepvista-notes](../deepvista-notes/SKILL.md) — Notes management
 - [deepvista-chat](../deepvista-chat/SKILL.md) — Chat with AI agent

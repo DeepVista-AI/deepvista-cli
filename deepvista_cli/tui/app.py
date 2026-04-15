@@ -3,7 +3,7 @@
 Launch with: deepvista ui
 Requires:    pip install 'deepvista-cli[ui]'
 
-Four modules: Chat · Notes · Recipes · Memory
+Four modules: Chat · Notes · Skills · Memory
 """
 
 from __future__ import annotations
@@ -214,37 +214,37 @@ class NotesPanel(Container):
 
 
 # ---------------------------------------------------------------------------
-# Recipes panel
+# Skills panel
 # ---------------------------------------------------------------------------
 
 
-class RecipesPanel(Container):
-    """Recipes panel — structured executable workflows."""
+class SkillsPanel(Container):
+    """Skills panel — structured executable workflows."""
 
     DEFAULT_CSS = """
-    RecipesPanel {
+    SkillsPanel {
         layout: horizontal;
         height: 1fr;
     }
-    RecipesPanel #recipes-list-pane {
+    SkillsPanel #skills-list-pane {
         width: 35;
         border-right: solid #303e48;
     }
-    RecipesPanel #recipes-detail-pane {
+    SkillsPanel #skills-detail-pane {
         width: 1fr;
         padding: 1 2;
     }
-    RecipesPanel .panel-title {
+    SkillsPanel .panel-title {
         background: #303e48;
         color: #e8ece6;
         padding: 0 1;
         text-style: bold;
     }
-    RecipesPanel #run-btn {
+    SkillsPanel #run-btn {
         margin-top: 1;
         width: 20;
     }
-    RecipesPanel #run-output {
+    SkillsPanel #run-output {
         height: 1fr;
         border: solid #303e48;
         padding: 1;
@@ -256,81 +256,81 @@ class RecipesPanel(Container):
     def __init__(self, cli_config: CLIConfig, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._config = cli_config
-        self._recipes: list[dict] = []
-        self._selected_recipe: dict | None = None
+        self._skills: list[dict] = []
+        self._selected_skill: dict | None = None
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="recipes-list-pane"):
-            yield Static("  Recipes", classes="panel-title")
-            yield ListView(id="recipes-listview")
-        with Vertical(id="recipes-detail-pane"):
-            yield Markdown("*Select a recipe to view details.*", id="recipe-detail-md")
-            yield Button("▶  Run Recipe", id="run-btn", variant="success", disabled=True)
+        with Vertical(id="skills-list-pane"):
+            yield Static("  Skills", classes="panel-title")
+            yield ListView(id="skills-listview")
+        with Vertical(id="skills-detail-pane"):
+            yield Markdown("*Select a skill to view details.*", id="skill-detail-md")
+            yield Button("▶  Run Skill", id="run-btn", variant="success", disabled=True)
             yield Static("", id="run-output")
 
     def on_mount(self) -> None:
-        self.load_recipes()
+        self.load_skills()
 
     @work(thread=True)
-    def load_recipes(self) -> None:
+    def load_skills(self) -> None:
         client = _TUIClient(self._config)
         try:
             data = client.post("/get_context_cards", {"card_type": "vistabook", "limit": 50, "page_number": 1})
-            self._recipes = data.get("cards", [])
+            self._skills = data.get("cards", [])
         except BaseException as e:
-            self._recipes = []
+            self._skills = []
             self.app.call_from_thread(
-                self.query_one("#recipe-detail-md", Markdown).update,
-                f"*Error loading recipes: {e}*",
+                self.query_one("#skill-detail-md", Markdown).update,
+                f"*Error loading skills: {e}*",
             )
         self.app.call_from_thread(self._refresh_list)
 
     def _refresh_list(self) -> None:
-        lv = self.query_one("#recipes-listview", ListView)
+        lv = self.query_one("#skills-listview", ListView)
         lv.remove_children()
-        if not self._recipes:
-            lv.append(ListItem(Label("No recipes found.")))
+        if not self._skills:
+            lv.append(ListItem(Label("No skills found.")))
             return
-        for recipe in self._recipes:
-            item = ListItem(Label(_short(recipe.get("title", "(untitled)"), 30)))
-            item._recipe_id = recipe["id"]  # type: ignore[attr-defined]
+        for skill in self._skills:
+            item = ListItem(Label(_short(skill.get("title", "(untitled)"), 30)))
+            item._skill_id = skill["id"]  # type: ignore[attr-defined]
             lv.append(item)
 
-    @on(ListView.Selected, "#recipes-listview")
-    def recipe_selected(self, event: ListView.Selected) -> None:
-        recipe_id = getattr(event.item, "_recipe_id", None)
-        if not recipe_id:
+    @on(ListView.Selected, "#skills-listview")
+    def skill_selected(self, event: ListView.Selected) -> None:
+        skill_id = getattr(event.item, "_skill_id", None)
+        if not skill_id:
             return
-        recipe = next((r for r in self._recipes if r["id"] == recipe_id), None)
-        if recipe:
-            self._selected_recipe = recipe
-            title = recipe.get("title", "")
-            content = recipe.get("description", recipe.get("snippet", ""))
-            updated = recipe.get("updated_at", "")
+        skill = next((s for s in self._skills if s["id"] == skill_id), None)
+        if skill:
+            self._selected_skill = skill
+            title = skill.get("title", "")
+            content = skill.get("description", skill.get("snippet", ""))
+            updated = skill.get("updated_at", "")
             md = f"# {title}\n\n"
             if updated:
                 md += f"*Updated: {updated}*\n\n---\n\n"
             md += content or "*No description.*"
-            self.query_one("#recipe-detail-md", Markdown).update(md)
+            self.query_one("#skill-detail-md", Markdown).update(md)
             self.query_one("#run-btn", Button).disabled = False
             self.query_one("#run-output", Static).update("")
 
     @on(Button.Pressed, "#run-btn")
-    def run_recipe(self) -> None:
-        if not self._selected_recipe:
+    def run_skill(self) -> None:
+        if not self._selected_skill:
             return
-        recipe_id = self._selected_recipe["id"]
+        skill_id = self._selected_skill["id"]
         self.query_one("#run-btn", Button).disabled = True
         self.query_one("#run-output", Static).update("Running…")
-        self._run_recipe_worker(recipe_id)
+        self._run_skill_worker(skill_id)
 
     @work(thread=True)
-    def _run_recipe_worker(self, recipe_id: str) -> None:
+    def _run_skill_worker(self, skill_id: str) -> None:
         client = _TUIClient(self._config)
         lines: list[str] = []
         try:
-            tag = f'<contextCard id="{recipe_id}" cardType="vistabook"></contextCard>'
-            body = {"user_instruction": f"{tag} Run this recipe"}
+            tag = f'<contextCard id="{skill_id}" cardType="vistabook"></contextCard>'
+            body = {"user_instruction": f"{tag} Run this skill"}
             for event in client.stream_sse("/imagine", body):
                 text = event.get("text", event.get("content", ""))
                 if text:
@@ -684,10 +684,10 @@ class ChatPanel(Container):
 
 
 class DeepVistaApp(App[None]):
-    """DeepVista Terminal UI — Chat · Notes · Recipes · Memory."""
+    """DeepVista Terminal UI — Chat · Notes · Skills · Memory."""
 
     TITLE = "DeepVista"
-    SUB_TITLE = "chat · notes · recipes · memory"
+    SUB_TITLE = "chat · notes · skills · memory"
     ENABLE_COMMAND_PALETTE = False
 
     CSS = """
@@ -722,7 +722,7 @@ class DeepVistaApp(App[None]):
         Binding("q", "quit", "Quit", show=True),
         Binding("1", "switch_tab('chat')", "Chat", show=True),
         Binding("2", "switch_tab('notes')", "Notes", show=True),
-        Binding("3", "switch_tab('recipes')", "Recipes", show=True),
+        Binding("3", "switch_tab('skills')", "Skills", show=True),
         Binding("4", "switch_tab('memory')", "Memory", show=True),
         Binding("r", "refresh", "Refresh", show=True),
     ]
@@ -742,8 +742,8 @@ class DeepVistaApp(App[None]):
                 yield ChatPanel(self._config, id="chat-panel")
             with TabPane("📝 Notes  [2]", id="notes"):
                 yield NotesPanel(self._config, id="notes-panel")
-            with TabPane("⚡ Recipes  [3]", id="recipes"):
-                yield RecipesPanel(self._config, id="recipes-panel")
+            with TabPane("⚡ Skills  [3]", id="skills"):
+                yield SkillsPanel(self._config, id="skills-panel")
             with TabPane("🧠 Memory  [4]", id="memory"):
                 yield MemoryPanel(self._config, id="memory-panel")
         yield Footer()
@@ -755,8 +755,8 @@ class DeepVistaApp(App[None]):
         active = self.query_one(TabbedContent).active
         if active == "notes":
             self.query_one("#notes-panel", NotesPanel).load_notes()
-        elif active == "recipes":
-            self.query_one("#recipes-panel", RecipesPanel).load_recipes()
+        elif active == "skills":
+            self.query_one("#skills-panel", SkillsPanel).load_skills()
         elif active == "memory":
             self.query_one("#memory-panel", MemoryPanel).load_memory()
         elif active == "chat":

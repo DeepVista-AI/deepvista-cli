@@ -4,7 +4,7 @@ description: |
   DeepVista Notes: Create, read, update, and delete notes (explicit knowledge managed by the user).
   Notes are a shorthand for knowledge cards with type=note — the same as `deepvista card --type note`.
   TRIGGER when: user wants to create, capture, save, read, list, update, or delete a note; user says "take a note", "jot this down", "save this as a note", "show my notes", or asks about a specific note by title or ID.
-  DO NOT TRIGGER when: user wants to analyze, summarize, or find patterns across notes (use deepvista-recipe-analyze-notes instead); or when working with non-note knowledge base cards.
+  DO NOT TRIGGER when: user wants to analyze, summarize, or find patterns across notes (use deepvista-skill-analyze-notes instead); or when working with non-note knowledge base cards.
 metadata:
   openclaw:
     category: service
@@ -171,4 +171,4 @@ deepvista card +search "API migration" --type note
 
 - [deepvista-shared](../deepvista-shared/SKILL.md) — Auth and global flags
 - [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Full knowledge base API (all card types)
-- [deepvista-recipe-analyze-notes](../deepvista-recipe-analyze-notes/SKILL.md) — Analyze patterns across notes
+- [deepvista-skill-analyze-notes](../deepvista-skill-analyze-notes/SKILL.md) — Analyze patterns across notes

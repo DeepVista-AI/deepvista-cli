@@ -1,12 +1,12 @@
 ---
-name: deepvista-recipe-analyze-notes
+name: deepvista-skill-analyze-notes
 description: |
-  Recipe: Analyze, summarize, and find patterns across notes in your DeepVista knowledge base.
+  Skill: Analyze, summarize, and find patterns across notes in your DeepVista knowledge base.
   TRIGGER when: user asks to analyze notes, summarize notes, find patterns or themes in notes, review notes, get insights from notes, "what have I been thinking about", "what are common topics in my notes", "synthesize my notes", or any request to make sense of multiple notes at once.
   DO NOT TRIGGER when: user wants to create, update, or delete a single note (use deepvista-notes instead); or when the request is about a specific known note by ID.
 metadata:
   openclaw:
-    category: recipe
+    category: skill
     requires:
       bins:
         - deepvista
@@ -89,4 +89,4 @@ deepvista notes create \
 
 - [deepvista-notes](../deepvista-notes/SKILL.md) — CRUD operations on individual notes
 - [deepvista-vistabase](../deepvista-vistabase/SKILL.md) — Full knowledge base search and management
-- [deepvista-recipe-research-to-recipe](../deepvista-recipe-research-to-recipe/SKILL.md) — Run a Recipe workflow with research findings
+- [deepvista-skill-research-to-skill](../deepvista-skill-research-to-skill/SKILL.md) — Run a Skill workflow with research findings
