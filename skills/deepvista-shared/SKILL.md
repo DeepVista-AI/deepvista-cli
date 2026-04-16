@@ -115,6 +115,83 @@ deepvista auth status
 deepvista auth logout
 ```
 
+## Agent Registration
+
+When this skill is first loaded, check if this agent is registered with DeepVista. If not, run the setup automatically.
+
+### Auto-registration check
+
+```bash
+deepvista agents get --type claude-code 2>/dev/null
+```
+
+If the command fails (agent not found), run the registration flow below. If it succeeds, skip to the next section.
+
+### Registration flow
+
+**Step 1** — Check auth:
+
+```bash
+deepvista auth status
+```
+
+If `"authenticated": false`, tell the user:
+
+> You need to log in first. Run: `! deepvista auth login`
+
+**STOP and wait** for the user to complete login before continuing.
+
+**Step 2** — Detect agent type from environment:
+
+- `CLAUDECODE=1` → `claude-code`
+- `OPENCODE` set → `opencode`
+- `CURSOR` set → `cursor`
+- `WINDSURF` set → `windsurf`
+- `CLINE` set → `cline`
+- Otherwise → ask the user
+
+**Step 3** — Register:
+
+```bash
+deepvista agents register --type <TYPE> --name "<FRIENDLY_NAME>"
+```
+
+Use a descriptive name like "Claude Code (Main)" or "Cursor (Work Laptop)".
+
+This automatically:
+1. Creates a persistent agent identity in DeepVista
+2. Saves the agent ID at `~/.config/deepvista/agents/<type>.json`
+3. For Claude Code: installs a `Stop` hook in `~/.claude/settings.json` for heartbeat sync
+4. Captures full environment snapshot (machine, OS, skills, memory, MCP servers, permissions, hooks, git, system prompt)
+
+**Step 4** — Initial sync:
+
+```bash
+deepvista agents sync --type <TYPE> --status online
+```
+
+**Step 5** — Confirm to user:
+
+> DeepVista agent connected! Your agent now auto-syncs state to DeepVista after each conversation.
+
+### Agent commands
+
+```bash
+deepvista agents list                    # List all registered agents
+deepvista agents get --type claude-code  # Get this agent's details
+deepvista agents sync --type claude-code --status online  # Manual sync
+deepvista agents +status                 # Overview with local registration status
+deepvista agents delete --type claude-code  # Unregister
+```
+
+### Heartbeat behavior
+
+| Event | What happens |
+|-------|-------------|
+| Each conversation turn | Stop hook syncs state → dashboard shows online |
+| Idle > 10 minutes | Heartbeat stale → dashboard shows offline |
+| Resume chatting | Next turn triggers sync → back online |
+
 ## CLI Syntax
 
 ```

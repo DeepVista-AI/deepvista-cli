@@ -23,6 +23,7 @@ import click
 
 from deepvista_cli import __version__
 from deepvista_cli.client.http import DeepVistaClient
+from deepvista_cli.commands.agents import agents_group
 from deepvista_cli.commands.auth import auth_group
 from deepvista_cli.commands.card import card_group
 from deepvista_cli.commands.chat import chat_group
@@ -82,6 +83,8 @@ for _name, _cmd in card_group.commands.items():
 
 # Backward compatibility: `memory` is a deprecated alias for `vistabase`
 cli.add_command(vistabase_group, name="memory")
+# Agent orchestration
+cli.add_command(agents_group)
 # Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)
