@@ -532,7 +532,19 @@ def agents_register(ctx: click.Context, name: str, agent_type: str) -> None:
     if _install_hooks(agent_type, profile):
         click.echo(_json.dumps({"hooks": "installed Stop hook for heartbeat sync"}), err=True)
 
-    _output(ctx, agent, title="Registered Agent")
+    # Initial sync — set online immediately so dashboard shows green
+    _client(ctx).post(
+        f"/agents/{agent['id']}/sync",
+        {
+            "status": "online",
+            "sync_type": "manual",
+            "config_patch": config,
+        },
+    )
+
+    # Re-fetch to get updated heartbeat
+    refreshed = _client(ctx).get(f"/agents/{agent['id']}")
+    _output(ctx, refreshed.get("agent", agent), title="Registered Agent")
 
 
 # ---------------------------------------------------------------------------
