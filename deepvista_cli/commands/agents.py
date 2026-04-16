@@ -17,7 +17,6 @@ import click
 
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import build_origin, detect_agent_tool
-from deepvista_cli.commands import resolve_content
 from deepvista_cli.config import CONFIG_DIR
 from deepvista_cli.output.formatter import format_output, output_error
 
@@ -242,6 +241,44 @@ def _read_git_context() -> dict[str, str] | None:
         return None
 
 
+def _read_soul(agent_type: str) -> str | None:
+    """Auto-read system prompt / soul from agent config files."""
+    candidates: list[Path] = []
+
+    if agent_type in ("claude-code", "opencode"):
+        # Project CLAUDE.md first, then global
+        candidates.append(Path.cwd() / "CLAUDE.md")
+        candidates.append(_HOME / ".claude" / "CLAUDE.md")
+    elif agent_type == "cursor":
+        # Cursor rules
+        rules_dir = Path.cwd() / ".cursor" / "rules"
+        if rules_dir.is_dir():
+            parts = []
+            for f in sorted(rules_dir.glob("*.mdc")):
+                try:
+                    parts.append(f.read_text(encoding="utf-8").strip())
+                except OSError:
+                    continue
+            if parts:
+                return "\n\n".join(parts)
+    elif agent_type == "cline":
+        candidates.append(Path.cwd() / ".clinerules")
+    elif agent_type == "windsurf":
+        candidates.append(Path.cwd() / ".windsurfrules")
+    elif agent_type == "aider":
+        candidates.append(Path.cwd() / ".aider.conf.yml")
+
+    for path in candidates:
+        if path.is_file():
+            try:
+                content = path.read_text(encoding="utf-8").strip()
+                if content:
+                    return content
+            except OSError:
+                continue
+    return None
+
+
 def _build_config_snapshot(agent_type: str) -> dict:
     """Build a full config snapshot for sync/register per RFC spec."""
     origin = build_origin()
@@ -286,6 +323,11 @@ def _build_config_snapshot(agent_type: str) -> dict:
     git = _read_git_context()
     if git:
         config["git_context"] = git
+
+    # Soul (system prompt) — auto-read from agent config files
+    soul = _read_soul(agent_type)
+    if soul:
+        config["soul"] = soul
 
     return config
 
@@ -362,11 +404,11 @@ def agents_group() -> None:
     ),
     help="Agent tool type.",
 )
-@click.option("--soul", default=None, help="Persona/instructions markdown (SOUL.md content).")
-@click.option("--soul-file", default=None, help="Read soul from file. Use '-' for stdin.")
 @click.pass_context
-def agents_register(ctx: click.Context, name: str, agent_type: str, soul: str | None, soul_file: str | None) -> None:
+def agents_register(ctx: click.Context, name: str, agent_type: str) -> None:
     """Register a new agent and save its ID locally.
+
+    Auto-reads soul from system files (CLAUDE.md, .cursorrules, etc.).
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
@@ -379,10 +421,6 @@ def agents_register(ctx: click.Context, name: str, agent_type: str, soul: str | 
         return
 
     config = _build_config_snapshot(agent_type)
-
-    soul_content = resolve_content(soul, soul_file)
-    if soul_content:
-        config["soul"] = soul_content
 
     data = _client(ctx).post("/agents", {"name": name, "agent_type": agent_type, "config": config})
 
@@ -451,8 +489,6 @@ def agents_get(ctx: click.Context, agent_id: str | None, agent_type: str | None)
 @click.argument("agent_id", required=False, default=None)
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--name", default=None, help="New display name.")
-@click.option("--soul", default=None, help="New persona/instructions markdown.")
-@click.option("--soul-file", default=None, help="Read soul from file. Use '-' for stdin.")
 @click.option("--status", default=None, type=click.Choice(["online", "offline", "error"]), help="Set status.")
 @click.pass_context
 def agents_update(
@@ -460,15 +496,14 @@ def agents_update(
     agent_id: str | None,
     agent_type: str | None,
     name: str | None,
-    soul: str | None,
-    soul_file: str | None,
     status: str | None,
 ) -> None:
-    """Update an agent's name, soul, or status.
+    """Update an agent's name or status. Soul is auto-read from system files.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
     resolved_id = _resolve_agent_id(ctx, agent_id, agent_type)
+    resolved_type = agent_type or detect_agent_tool()[0]
 
     body: dict = {}
     if name:
@@ -476,12 +511,13 @@ def agents_update(
     if status:
         body["status"] = status
 
-    soul_content = resolve_content(soul, soul_file)
+    # Auto-read soul from system
+    soul_content = _read_soul(resolved_type)
     if soul_content:
         body["config"] = {"soul": soul_content}
 
     if not body:
-        output_error(3, "Nothing to update", "Provide --name, --soul, --soul-file, or --status.")
+        output_error(3, "Nothing to update", "Provide --name or --status.")
         return
 
     data = _client(ctx).patch(f"/agents/{resolved_id}", body)
@@ -537,8 +573,6 @@ def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | No
 @agents_group.command("sync")
 @click.argument("agent_id", required=False, default=None)
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
-@click.option("--soul", default=None, help="Updated soul content.")
-@click.option("--soul-file", default=None, help="Read soul from file.")
 @click.option("--status", default=None, type=click.Choice(["online", "offline", "error"]))
 @click.option("--memory", default=None, help="Memory JSON to merge into config.")
 @click.pass_context
@@ -546,12 +580,12 @@ def agents_sync(
     ctx: click.Context,
     agent_id: str | None,
     agent_type: str | None,
-    soul: str | None,
-    soul_file: str | None,
     status: str | None,
     memory: str | None,
 ) -> None:
     """Heartbeat + push state to DeepVista. Updates last_heartbeat_at.
+
+    Auto-reads soul, skills, MCP, permissions, hooks, git from system.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
@@ -562,12 +596,9 @@ def agents_sync(
     if status:
         body["status"] = status
 
-    # Build full config snapshot (fingerprint, skills, memory, MCP, permissions, hooks, git)
+    # Build full config snapshot (fingerprint, skills, memory, MCP, permissions, hooks, git, soul)
     config_patch = _build_config_snapshot(resolved_type)
 
-    soul_content = resolve_content(soul, soul_file)
-    if soul_content:
-        config_patch["soul"] = soul_content
     if memory:
         try:
             config_patch["memory"] = _json.loads(memory)
