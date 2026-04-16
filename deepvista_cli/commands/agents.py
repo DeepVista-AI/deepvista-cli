@@ -65,7 +65,7 @@ def _remove_agent_id(agent_type: str) -> None:
 # Hook installation — auto-install sync hooks into agent settings
 # ---------------------------------------------------------------------------
 
-_HOOK_MARKER = "deepvista agents sync"
+_HOOK_MARKER = "agents sync"
 
 
 def _install_hooks(agent_type: str, profile: str) -> bool:
@@ -83,6 +83,18 @@ def _uninstall_hooks(agent_type: str) -> bool:
     return False
 
 
+def _find_hook_command(entry: dict) -> str:
+    """Extract command string from a hook entry (handles nested format)."""
+    # Nested format: {"matcher": "", "hooks": [{"type": "command", "command": "..."}]}
+    for h in entry.get("hooks", []):
+        if isinstance(h, dict):
+            cmd = h.get("command", "")
+            if cmd:
+                return cmd
+    # Flat format fallback: {"command": "..."}
+    return entry.get("command", "")
+
+
 def _install_claude_code_hooks(profile: str) -> bool:
     """Add Stop hook to ~/.claude/settings.json for heartbeat sync."""
     settings_path = _HOME / ".claude" / "settings.json"
@@ -98,15 +110,19 @@ def _install_claude_code_hooks(profile: str) -> bool:
     stop_hooks = hooks.setdefault("Stop", [])
 
     # Check if already installed
-    for hook in stop_hooks:
-        cmd = hook.get("command", "") if isinstance(hook, dict) else ""
-        if _HOOK_MARKER in cmd:
+    for entry in stop_hooks:
+        if isinstance(entry, dict) and _HOOK_MARKER in _find_hook_command(entry):
             return False  # Already installed
 
     profile_flag = f" --profile {profile}" if profile != "default" else ""
     sync_cmd = f"deepvista{profile_flag} agents sync --type claude-code --status online"
 
-    stop_hooks.append({"command": sync_cmd})
+    stop_hooks.append(
+        {
+            "matcher": "",
+            "hooks": [{"type": "command", "command": sync_cmd}],
+        }
+    )
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(_json.dumps(settings, indent=2) + "\n", encoding="utf-8")
@@ -131,7 +147,7 @@ def _uninstall_claude_code_hooks() -> bool:
         entries = hooks[event]
         if not isinstance(entries, list):
             continue
-        filtered = [e for e in entries if _HOOK_MARKER not in (e.get("command", "") if isinstance(e, dict) else "")]
+        filtered = [e for e in entries if not (isinstance(e, dict) and _HOOK_MARKER in _find_hook_command(e))]
         if len(filtered) != len(entries):
             hooks[event] = filtered
             changed = True
