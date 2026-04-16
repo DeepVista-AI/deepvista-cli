@@ -16,7 +16,7 @@ from pathlib import Path
 import click
 
 from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.client.origin import build_origin
+from deepvista_cli.client.origin import build_origin, detect_agent_tool
 from deepvista_cli.commands import resolve_content
 from deepvista_cli.config import CONFIG_DIR
 from deepvista_cli.output.formatter import format_output, output_error
@@ -290,28 +290,13 @@ def _build_config_snapshot(agent_type: str) -> dict:
     return config
 
 
-def _detect_agent_type() -> str | None:
-    """Auto-detect which agent tool we're running inside based on env vars."""
-    if os.environ.get("CLAUDE_CODE"):
-        return "claude-code"
-    if os.environ.get("OPENCODE"):
-        return "opencode"
-    if os.environ.get("CURSOR_SESSION_ID") or os.environ.get("CURSOR_TRACE_ID"):
-        return "cursor"
-    if os.environ.get("WINDSURF_SESSION_ID"):
-        return "windsurf"
-    if os.environ.get("CLINE_TASK_ID"):
-        return "cline"
-    return None
-
-
 def _resolve_agent_id(ctx: click.Context, agent_id: str | None, agent_type: str | None) -> str:
     """Resolve agent ID from explicit arg, local storage, or auto-detection."""
     if agent_id:
         return agent_id
 
     # Try to load from local storage by type
-    resolved_type = agent_type or _detect_agent_type()
+    resolved_type = agent_type or detect_agent_tool()[0]
     if resolved_type:
         stored_id = _load_agent_id(resolved_type)
         if stored_id:
@@ -571,7 +556,7 @@ def agents_sync(
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
     resolved_id = _resolve_agent_id(ctx, agent_id, agent_type)
-    resolved_type = agent_type or _detect_agent_type() or "deepvista-cli"
+    resolved_type = agent_type or detect_agent_tool()[0]
 
     body: dict = {"sync_type": "manual"}
     if status:

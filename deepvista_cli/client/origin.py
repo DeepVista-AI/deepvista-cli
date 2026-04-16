@@ -126,7 +126,7 @@ def _detect_from_process_tree() -> tuple[str, str | None] | None:
 # ---------------------------------------------------------------------------
 
 
-def _detect_agent_tool() -> tuple[str, str | None]:
+def detect_agent_tool() -> tuple[str, str | None]:
     """Detect the AI agent driving the CLI.
 
     Strategy: check environment variables first (cheap, explicit), then fall
@@ -219,7 +219,7 @@ def build_origin() -> dict[str, str | bool]:
     Cached for the lifetime of the process — agent detection and machine
     info won't change mid-session.
     """
-    tool, tool_version = _detect_agent_tool()
+    tool, tool_version = detect_agent_tool()
     origin: dict[str, str | bool] = {
         "tool": tool,
         "machine": _machine_description(),
