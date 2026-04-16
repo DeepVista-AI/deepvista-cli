@@ -62,6 +62,86 @@ def _remove_agent_id(agent_type: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Hook installation — auto-install sync hooks into agent settings
+# ---------------------------------------------------------------------------
+
+_HOOK_MARKER = "deepvista agents sync"
+
+
+def _install_hooks(agent_type: str, profile: str) -> bool:
+    """Install heartbeat hooks into agent settings. Returns True if hooks were added."""
+    if agent_type == "claude-code":
+        return _install_claude_code_hooks(profile)
+    # Other agent types can be added here
+    return False
+
+
+def _uninstall_hooks(agent_type: str) -> bool:
+    """Remove DeepVista hooks from agent settings."""
+    if agent_type == "claude-code":
+        return _uninstall_claude_code_hooks()
+    return False
+
+
+def _install_claude_code_hooks(profile: str) -> bool:
+    """Add Stop hook to ~/.claude/settings.json for heartbeat sync."""
+    settings_path = _HOME / ".claude" / "settings.json"
+
+    settings: dict = {}
+    if settings_path.is_file():
+        try:
+            settings = _json.loads(settings_path.read_text(encoding="utf-8"))
+        except (_json.JSONDecodeError, OSError):
+            settings = {}
+
+    hooks = settings.setdefault("hooks", {})
+    stop_hooks = hooks.setdefault("Stop", [])
+
+    # Check if already installed
+    for hook in stop_hooks:
+        cmd = hook.get("command", "") if isinstance(hook, dict) else ""
+        if _HOOK_MARKER in cmd:
+            return False  # Already installed
+
+    profile_flag = f" --profile {profile}" if profile != "default" else ""
+    sync_cmd = f"deepvista{profile_flag} agents sync --type claude-code --status online"
+
+    stop_hooks.append({"command": sync_cmd})
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(_json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
+def _uninstall_claude_code_hooks() -> bool:
+    """Remove DeepVista hooks from ~/.claude/settings.json."""
+    settings_path = _HOME / ".claude" / "settings.json"
+    if not settings_path.is_file():
+        return False
+
+    try:
+        settings = _json.loads(settings_path.read_text(encoding="utf-8"))
+    except (_json.JSONDecodeError, OSError):
+        return False
+
+    hooks = settings.get("hooks", {})
+    changed = False
+
+    for event in list(hooks.keys()):
+        entries = hooks[event]
+        if not isinstance(entries, list):
+            continue
+        filtered = [e for e in entries if _HOOK_MARKER not in (e.get("command", "") if isinstance(e, dict) else "")]
+        if len(filtered) != len(entries):
+            hooks[event] = filtered
+            changed = True
+
+    if changed:
+        settings_path.write_text(_json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    return changed
+
+
+# ---------------------------------------------------------------------------
 # Environment scanning — fingerprint, skills, memory, MCP, permissions, hooks, git
 # ---------------------------------------------------------------------------
 
@@ -431,6 +511,11 @@ def agents_register(ctx: click.Context, name: str, agent_type: str) -> None:
     agent = data["agent"]
     _save_agent_id(agent_type, agent["id"])
 
+    # Auto-install heartbeat hooks
+    profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"
+    if _install_hooks(agent_type, profile):
+        click.echo(_json.dumps({"hooks": "installed Stop hook for heartbeat sync"}), err=True)
+
     _output(ctx, agent, title="Registered Agent")
 
 
@@ -548,7 +633,8 @@ def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | No
         output_error(1, "Delete failed", data.get("error", ""))
         return
 
-    # Also remove local agent ID file
+    # Remove local agent ID file + uninstall hooks
+    resolved_type = agent_type
     if agent_type:
         _remove_agent_id(agent_type)
     else:
@@ -557,10 +643,14 @@ def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | No
             try:
                 stored = _json.loads(path.read_text())
                 if stored.get("agent_id") == resolved_id:
+                    resolved_type = stored.get("agent_type")
                     path.unlink()
                     break
             except (_json.JSONDecodeError, KeyError):
                 continue
+
+    if resolved_type:
+        _uninstall_hooks(resolved_type)
 
     click.echo(_json.dumps({"success": True, "deleted": resolved_id}))
 
