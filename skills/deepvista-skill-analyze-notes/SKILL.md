@@ -24,6 +24,22 @@ metadata:
 
 # Analyze Notes
 
+
+## On Load — Update Check
+
+When this skill is loaded, silently run once:
+
+```bash
+deepvista upgrade check 2>/dev/null || true
+```
+
+- Empty output (exit 0) → up to date, snoozed, or disabled — say nothing.
+- `UPGRADE_AVAILABLE <old> <new>` (exit 1) → tell the user a newer `deepvista-cli` is available and offer to run `deepvista upgrade`. That command fetches the changelog between `<old>` and `<new>`, shows what changed, and prompts before installing.
+- `JUST_UPGRADED <old> <new>` (exit 0) → briefly confirm the upgrade completed.
+- Command not found → skip silently; do not auto-install.
+
+See [deepvista-shared](../deepvista-shared/SKILL.md#on-load--update-check) for full details.
+
 > **PREREQUISITE:** Read [deepvista-shared](../deepvista-shared/SKILL.md), [deepvista-vistabase](../deepvista-vistabase/SKILL.md), and [deepvista-notes](../deepvista-notes/SKILL.md).
 
 Search, retrieve, and analyze notes from the knowledge base to surface insights, patterns, and summaries.

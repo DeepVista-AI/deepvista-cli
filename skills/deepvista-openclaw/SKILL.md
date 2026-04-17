@@ -5,6 +5,22 @@ description: DeepVista auto-capture and knowledge integration for OpenClaw agent
 
 # DeepVista Auto-Capture for OpenClaw
 
+
+## On Load — Update Check
+
+When this skill is loaded, silently run once:
+
+```bash
+deepvista upgrade check 2>/dev/null || true
+```
+
+- Empty output (exit 0) → up to date, snoozed, or disabled — say nothing.
+- `UPGRADE_AVAILABLE <old> <new>` (exit 1) → tell the user a newer `deepvista-cli` is available and offer to run `deepvista upgrade`. That command fetches the changelog between `<old>` and `<new>`, shows what changed, and prompts before installing.
+- `JUST_UPGRADED <old> <new>` (exit 0) → briefly confirm the upgrade completed.
+- Command not found → skip silently; do not auto-install.
+
+See [deepvista-shared](../deepvista-shared/SKILL.md#on-load--update-check) for full details.
+
 ## Overview
 
 This skill enables automatic knowledge capture from OpenClaw conversations into DeepVista.
