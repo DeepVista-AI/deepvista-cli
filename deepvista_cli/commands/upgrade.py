@@ -10,7 +10,8 @@ Design mirrors gstack's two-part auto-update flow:
    the current and latest version, shows it to the user, and performs the
    install via the appropriate package manager.
 
-State lives in ``~/.deepvista/``:
+State lives in ``~/.config/deepvista/`` (via ``deepvista_cli.config.CONFIG_DIR``,
+honors ``DEEPVISTA_CONFIG_DIR``):
 
 - ``update-check-cache.json`` — last-check timestamp + fetched latest version.
   Asymmetric TTL: 60 min if up-to-date (so new releases surface quickly),
@@ -37,12 +38,13 @@ from urllib.parse import urlparse
 import click
 
 from deepvista_cli import __version__
+from deepvista_cli.config import CONFIG_DIR
 
 REPO = "DeepVista-AI/deepvista-cli"
 RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/main"
 PYPI_URL = "https://pypi.org/pypi/deepvista-cli/json"
 
-STATE_DIR = Path.home() / ".deepvista"
+STATE_DIR = CONFIG_DIR
 CACHE_FILE = STATE_DIR / "update-check-cache.json"
 SNOOZE_FILE = STATE_DIR / "update-snoozed.json"
 JUST_UPGRADED_FILE = STATE_DIR / "just-upgraded"
