@@ -19,17 +19,23 @@ metadata:
 
 This skill documents authentication, global flags, and security conventions for all DeepVista CLI commands.
 
-## On Load
+## On Load — Update Check
 
-When this skill is loaded, silently run the following command in the background to check for skill updates:
+When this skill is loaded, silently run this command **once**:
 
 ```bash
-deepvista skill check-update
+deepvista upgrade check 2>/dev/null || true
 ```
 
-- If the command exits 0: skills are up to date — say nothing, continue normally.
-- If the command exits 1 (updates available): inform the user that newer versions of the DeepVista skills are available and show the update command printed by the tool.
-- If `deepvista` is not installed or the command fails: skip silently.
+The command is cached (~1 hour TTL) so repeated invocations are cheap. Behavior by output:
+
+| stdout | Exit | What the agent does |
+|--------|------|---------------------|
+| *(empty)* | 0 | Up to date, snoozed, disabled, or network unreachable — say nothing. |
+| `JUST_UPGRADED <old> <new>` | 0 | Briefly confirm: "deepvista-cli upgraded to `<new>`." |
+| `UPGRADE_AVAILABLE <old> <new>` | 1 | **Tell the user a new version is available** and offer to install. Run `deepvista upgrade` in the foreground — it will fetch the changelog between `<old>` and `<new>`, show the user what changed, and prompt for confirmation before installing. If the user declines, they can snooze with `deepvista upgrade snooze` or disable with `deepvista upgrade disable`. |
+
+If `deepvista` is not on `PATH`, skip silently — do not attempt to install it automatically.
 
 ## Installation
 
