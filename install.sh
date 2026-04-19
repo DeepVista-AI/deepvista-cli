@@ -135,6 +135,68 @@ if [ -d "$OPENCLAW_WORKSPACE" ]; then
   fi
 fi
 
+# Skill interpretation rules block (written to each agent's global instructions file)
+read -r -d '' SKILL_RULES_BLOCK << 'EOF' || true
+
+<!-- deepvista-skill-rules -->
+## Skill Interpretation Rules
+
+When you load or invoke any skill, check its frontmatter for two fields: `type` and `execution`.
+
+### Handling `type`
+
+**`type: persona`**
+Do not invoke this as a command. Load it as background context that shapes how you
+behave for the rest of the session. Apply its tone, expertise, and decision patterns silently.
+
+**`type: tool`**
+Treat this as a discrete capability. Invoke it when the task calls for it and return
+its result. No special handling needed.
+
+**`type: workflow`**
+Treat this as a self-contained sequence of steps. Work through them in order. Do not
+mix steps from other skills into this sequence unless explicitly instructed.
+
+### Handling `execution`
+
+**`execution: stateless`**
+Run freely. Retry on failure. No confirmation needed.
+
+**`execution: stateful`**
+Before executing, stop and do two things:
+1. If the skill or its underlying command supports `--dry-run`, run that first and show the output.
+2. Summarize what you are about to do and what will change, then ask for confirmation before proceeding.
+
+Never skip this checkpoint for stateful skills, even if the task seems straightforward.
+
+### Fallback rules
+- If `type` is missing, use the information in the skill to guess its type.
+- If `execution` is missing, treat as `stateful` and apply the checkpoint.
+- If a workflow is stateful, treat all its steps as stateful unless they declare otherwise.
+<!-- /deepvista-skill-rules -->
+EOF
+
+install_skill_rules() {
+  local config_file="$1"
+  mkdir -p "$(dirname "$config_file")"
+  # Idempotent: skip if already installed
+  if [ -f "$config_file" ] && grep -q "deepvista-skill-rules" "$config_file" 2>/dev/null; then
+    return
+  fi
+  printf '%s\n' "$SKILL_RULES_BLOCK" >> "$config_file"
+  echo "    Skill interpretation rules injected in $config_file"
+}
+
+echo "==> Injecting skill interpretation rules..."
+
+[ -d "$HOME/.claude" ]   && install_skill_rules "$HOME/.claude/CLAUDE.md"
+[ -d "$HOME/.cursor" ]   && install_skill_rules "$HOME/.cursor/rules"
+[ -d "$HOME/.opencode" ] && install_skill_rules "$HOME/.opencode/AGENTS.md"
+
+if [ -d "$OPENCLAW_WORKSPACE" ]; then
+  install_skill_rules "$OPENCLAW_WORKSPACE/AGENTS.md"
+fi
+
 echo "==> Installing DeepVista auto-capture hook..."
 
 # Write hook script directly (embedded) so installation works without network access
