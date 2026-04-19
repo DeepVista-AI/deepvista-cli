@@ -63,12 +63,22 @@ def chat_get(ctx: click.Context, chat_id: str) -> None:
 
 @chat_group.command("delete")
 @click.argument("chat_id")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def chat_delete(ctx: click.Context, chat_id: str) -> None:
+def chat_delete(ctx: click.Context, chat_id: str, dry_run: bool) -> None:
     """Delete a chat session.
 
     > [!CAUTION] This is a destructive write command — confirm with the user before executing.
     """
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "delete chat session", "chat_id": chat_id},
+            ctx.obj.output_format,
+            entity_type="chat",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).delete(f"/chat_sessions/{chat_id}")
     format_output(data, ctx.obj.output_format, entity_type="chat", base_url=ctx.obj.auth_url)
 
@@ -82,8 +92,9 @@ def chat_delete(ctx: click.Context, chat_id: str) -> None:
 @click.argument("message")
 @click.option("--chat-id", default=None, help="Send to existing chat session.")
 @click.option("--new", "new_chat", is_flag=True, default=False, help="Force start a new conversation.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def chat_send(ctx: click.Context, message: str, chat_id: str | None, new_chat: bool) -> None:
+def chat_send(ctx: click.Context, message: str, chat_id: str | None, new_chat: bool, dry_run: bool) -> None:
     """Send a message to the DeepVista AI agent and stream the response.
 
     Output is NDJSON (one JSON object per line) — each line is an SSE event
@@ -95,7 +106,15 @@ def chat_send(ctx: click.Context, message: str, chat_id: str | None, new_chat: b
     body: dict = {"user_instruction": message}
     if chat_id and not new_chat:
         body["chat_id"] = chat_id
-    # If --new is set, we omit chat_id to create a new session
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "send message to DeepVista agent", "payload": body},
+            ctx.obj.output_format,
+            entity_type="chat",
+            base_url=ctx.obj.auth_url,
+        )
+        return
 
     for event in _client(ctx).stream_sse("/imagine", body):
         click.echo(json.dumps(event, default=str))

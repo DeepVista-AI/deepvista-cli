@@ -85,8 +85,9 @@ def skill_get(ctx: click.Context, skill_id: str) -> None:
 @skill_group.command("run")
 @click.argument("skill_id")
 @click.option("--input", "user_input", default=None, help="Context or instructions for the run.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def skill_run(ctx: click.Context, skill_id: str, user_input: str | None) -> None:
+def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, dry_run: bool) -> None:
     """Run a Skill — executes the workflow via the chat agent.
 
     > [!CAUTION] This is a write command — it creates a new Skill run and sends
@@ -102,6 +103,15 @@ def skill_run(ctx: click.Context, skill_id: str, user_input: str | None) -> None
     body: dict = {
         "user_instruction": f'<contextCard id="{skill_id}" cardType="vistabook"></contextCard> {instruction}',
     }
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "start Skill run", "skill_id": skill_id, "instruction": instruction},
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+        )
+        return
 
     for event in _client(ctx).stream_sse("/imagine", body):
         click.echo(json.dumps(event, default=str))
@@ -190,8 +200,9 @@ def skill_discover(ctx: click.Context, search: str | None, category: str | None,
 
 @skill_group.command("install")
 @click.argument("skill_id")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def skill_install(ctx: click.Context, skill_id: str) -> None:
+def skill_install(ctx: click.Context, skill_id: str, dry_run: bool) -> None:
     """Install a marketplace skill into your library.
 
     > [!CAUTION] This is a write command — it creates a new Skill in your
@@ -200,6 +211,15 @@ def skill_install(ctx: click.Context, skill_id: str) -> None:
     The skill_id must match an entry in the marketplace registry.
     Use `deepvista skill discover` to browse available skills.
     """
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "install marketplace skill", "skill_id": skill_id},
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).post("/install_marketplace_skill", {"skill_id": skill_id})
 
     if data.get("already_installed"):

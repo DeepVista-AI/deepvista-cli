@@ -25,8 +25,9 @@ def auth_group() -> None:
 
 @auth_group.command("login")
 @click.option("--code", default=None, help="One-time auth code from the browser.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def auth_login(ctx: click.Context, code: str | None) -> None:
+def auth_login(ctx: click.Context, code: str | None, dry_run: bool) -> None:
     """Login to DeepVista (adds account alongside existing ones).
 
     \b
@@ -42,6 +43,14 @@ def auth_login(ctx: click.Context, code: str | None) -> None:
     becomes active. Switch with: deepvista auth switch <email>
     """
     creds_path = credentials_path(ctx.obj.profile)
+
+    if dry_run:
+        method = "login with code" if code else "browser-based OAuth login"
+        format_output(
+            {"dry_run": True, "would": f"perform {method}", "credentials_path": str(creds_path)},
+            ctx.obj.output_format,
+        )
+        return
 
     if code:
         tokens = login_with_code(code, ctx.obj.auth_url, creds_path)
@@ -110,8 +119,9 @@ def auth_list(ctx: click.Context) -> None:
 
 @auth_group.command("switch")
 @click.argument("account")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def auth_switch(ctx: click.Context, account: str) -> None:
+def auth_switch(ctx: click.Context, account: str, dry_run: bool) -> None:
     """Switch the active account.
 
     \b
@@ -122,10 +132,21 @@ def auth_switch(ctx: click.Context, account: str) -> None:
       deepvista auth switch alice@example.com
     """
     creds_path = credentials_path(ctx.obj.profile)
+
+    if dry_run:
+        _active, accounts = load_all_accounts(creds_path)
+        if account not in accounts:
+            available = ", ".join(accounts.keys()) if accounts else "(none)"
+            raise click.ClickException(f"Account '{account}' not found. Available: {available}")
+        format_output(
+            {"dry_run": True, "would": "switch active account", "to": account},
+            ctx.obj.output_format,
+        )
+        return
+
     try:
         tokens = switch_active_account(account, creds_path)
     except KeyError:
-        # Show available accounts to help the user
         _active, accounts = load_all_accounts(creds_path)
         available = ", ".join(accounts.keys()) if accounts else "(none)"
         raise click.ClickException(f"Account '{account}' not found. Available: {available}")
@@ -137,8 +158,9 @@ def auth_switch(ctx: click.Context, account: str) -> None:
 
 @auth_group.command("remove")
 @click.argument("account")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def auth_remove(ctx: click.Context, account: str) -> None:
+def auth_remove(ctx: click.Context, account: str, dry_run: bool) -> None:
     """Remove a specific account from this profile.
 
     \b
@@ -149,6 +171,18 @@ def auth_remove(ctx: click.Context, account: str) -> None:
       deepvista auth remove old@example.com
     """
     creds_path = credentials_path(ctx.obj.profile)
+
+    if dry_run:
+        _active, accounts = load_all_accounts(creds_path)
+        if account not in accounts:
+            available = ", ".join(accounts.keys()) if accounts else "(none)"
+            raise click.ClickException(f"Account '{account}' not found. Available: {available}")
+        format_output(
+            {"dry_run": True, "would": "remove account", "account": account},
+            ctx.obj.output_format,
+        )
+        return
+
     if not remove_account(account, creds_path):
         _active, accounts = load_all_accounts(creds_path)
         available = ", ".join(accounts.keys()) if accounts else "(none)"
@@ -160,10 +194,20 @@ def auth_remove(ctx: click.Context, account: str) -> None:
 
 
 @auth_group.command("logout")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def auth_logout(ctx: click.Context) -> None:
+def auth_logout(ctx: click.Context, dry_run: bool) -> None:
     """Clear all stored credentials for this profile."""
-    delete_tokens(credentials_path(ctx.obj.profile))
+    creds_path = credentials_path(ctx.obj.profile)
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "delete all stored credentials", "credentials_path": str(creds_path)},
+            ctx.obj.output_format,
+        )
+        return
+
+    delete_tokens(creds_path)
     result = {"status": "logged_out"}
     format_output(result, ctx.obj.output_format)
     click.echo("  Logged out (all accounts removed).", err=True)

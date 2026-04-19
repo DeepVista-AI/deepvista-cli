@@ -76,9 +76,10 @@ def notes_get(ctx: click.Context, note_id: str) -> None:
     help="Read content from a file path. Use '-' for stdin. Overrides --content.",
 )
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def notes_create(
-    ctx: click.Context, title: str, description: str | None, content_file: str | None, tags: str | None
+    ctx: click.Context, title: str, description: str | None, content_file: str | None, tags: str | None, dry_run: bool
 ) -> None:
     """Create a new note.
 
@@ -94,6 +95,15 @@ def notes_create(
         except _json.JSONDecodeError:
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "create note", "payload": body},
+            ctx.obj.output_format,
+            entity_type="note",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).post("/create_context_card", body)
     format_output(data, ctx.obj.output_format, title="Created Note", entity_type="note", base_url=ctx.obj.auth_url)
 
@@ -108,6 +118,7 @@ def notes_create(
     help="Read content from a file path. Use '-' for stdin. Overrides --content.",
 )
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def notes_update(
     ctx: click.Context,
@@ -116,6 +127,7 @@ def notes_update(
     description: str | None,
     content_file: str | None,
     tags: str | None,
+    dry_run: bool,
 ) -> None:
     """Update a note.
 
@@ -133,6 +145,15 @@ def notes_update(
         except _json.JSONDecodeError:
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "update note", "payload": body},
+            ctx.obj.output_format,
+            entity_type="note",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).post("/update_context_card", body)
     format_output(
         data, ctx.obj.output_format, title=f"Updated Note: {note_id}", entity_type="note", base_url=ctx.obj.auth_url
@@ -141,12 +162,22 @@ def notes_update(
 
 @notes_group.command("delete")
 @click.argument("note_id")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def notes_delete(ctx: click.Context, note_id: str) -> None:
+def notes_delete(ctx: click.Context, note_id: str, dry_run: bool) -> None:
     """Delete a note.
 
     > [!CAUTION] This is a destructive write command — confirm with the user before executing.
     """
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "delete note", "note_id": note_id},
+            ctx.obj.output_format,
+            entity_type="note",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).delete(f"/context_cards/{note_id}", params={"card_type": "note"})
     format_output(data, ctx.obj.output_format, entity_type="note", base_url=ctx.obj.auth_url)
 
@@ -158,15 +189,15 @@ def notes_delete(ctx: click.Context, note_id: str) -> None:
 
 @notes_group.command("+quick")
 @click.argument("text")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def notes_quick(ctx: click.Context, text: str) -> None:
+def notes_quick(ctx: click.Context, text: str, dry_run: bool) -> None:
     """Quick-create a note from a single line of text.
 
     The first ~50 characters become the title; the full text is the content.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
-    # Derive title from first sentence or first 50 chars
     title = text[:50].split(".")[0].split("\n")[0].strip()
     if len(title) < len(text):
         title = title.rstrip(".") + "..."
@@ -177,5 +208,15 @@ def notes_quick(ctx: click.Context, text: str) -> None:
         "description": text,
         "enrich": True,
     }
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "create note", "payload": body},
+            ctx.obj.output_format,
+            entity_type="note",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).post("/create_context_card", body)
     format_output(data, ctx.obj.output_format, title="Quick Note", entity_type="note", base_url=ctx.obj.auth_url)

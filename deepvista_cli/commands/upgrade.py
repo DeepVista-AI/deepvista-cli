@@ -269,7 +269,8 @@ def check_subcommand(quiet: bool, no_cache: bool) -> None:
 @upgrade_command.command("install")
 @click.option("--yes", "-y", is_flag=True, help="Do not prompt — install immediately.")
 @click.option("--skip-skills", is_flag=True, help="Only upgrade the CLI; leave skills alone.")
-def install_subcommand(yes: bool, skip_skills: bool) -> None:
+@click.option("--dry-run", is_flag=True, help="Preview what would be installed without making any changes.")
+def install_subcommand(yes: bool, skip_skills: bool, dry_run: bool) -> None:
     """Interactive upgrade of the CLI and installed skills.
 
     Fetches the changelog between your current version and the latest,
@@ -295,6 +296,25 @@ def install_subcommand(yes: bool, skip_skills: bool) -> None:
     elif changelog is not None:
         click.echo(f"Release notes: https://github.com/{REPO}/releases\n")
 
+    if dry_run:
+        cmd = _pick_install_command()
+        import json as _json
+
+        click.echo(
+            _json.dumps(
+                {
+                    "dry_run": True,
+                    "would": "upgrade CLI",
+                    "from": __version__,
+                    "to": latest,
+                    "install_command": " ".join(cmd),
+                    "would_refresh_skills": not skip_skills,
+                },
+                indent=2,
+            )
+        )
+        return
+
     if not yes:
         choice = click.prompt(
             "Install now?",
@@ -315,7 +335,8 @@ def install_subcommand(yes: bool, skip_skills: bool) -> None:
 
 @upgrade_command.command("snooze")
 @click.option("--days", type=int, default=None, help="Snooze duration in days (default: escalating 1→2→7).")
-def snooze_subcommand(days: int | None) -> None:
+@click.option("--dry-run", is_flag=True, help="Preview what would happen without making any changes.")
+def snooze_subcommand(days: int | None, dry_run: bool) -> None:
     """Snooze the update nag for the current latest version."""
     cache = _load_cache() or {}
     latest = cache.get("latest") if cache.get("current") == __version__ else None
@@ -324,21 +345,52 @@ def snooze_subcommand(days: int | None) -> None:
     if latest is None or latest == __version__:
         click.echo("No update pending.")
         return
-    hours, until = _record_snooze(latest, hours=days * 24 if days else None)
-    click.echo(f"Snoozed {latest} for {hours}h (until {until.isoformat(timespec='minutes')}).")
+    hours = days * 24 if days else None
+    if dry_run:
+        snooze = _read_json(SNOOZE_FILE) or {}
+        level = snooze.get("level", 0) if snooze.get("version") == latest else 0
+        backoff = SNOOZE_BACKOFF_HOURS[min(level, len(SNOOZE_BACKOFF_HOURS) - 1)]
+        effective_hours = hours if hours is not None else backoff
+        click.echo(
+            json.dumps(
+                {"dry_run": True, "would": "snooze update", "version": latest, "for_hours": effective_hours},
+                indent=2,
+            )
+        )
+        return
+    actual_hours, until = _record_snooze(latest, hours=hours)
+    click.echo(f"Snoozed {latest} for {actual_hours}h (until {until.isoformat(timespec='minutes')}).")
 
 
 @upgrade_command.command("disable")
-def disable_subcommand() -> None:
+@click.option("--dry-run", is_flag=True, help="Preview what would happen without making any changes.")
+def disable_subcommand(dry_run: bool) -> None:
     """Disable update checks entirely. Re-enable with `deepvista upgrade enable`."""
+    if dry_run:
+        click.echo(
+            json.dumps(
+                {"dry_run": True, "would": "disable update checks", "flag_file": str(DISABLED_FILE)},
+                indent=2,
+            )
+        )
+        return
     _ensure_state_dir()
     DISABLED_FILE.touch()
     click.echo("Update checks disabled. Run `deepvista upgrade enable` to turn them back on.")
 
 
 @upgrade_command.command("enable")
-def enable_subcommand() -> None:
+@click.option("--dry-run", is_flag=True, help="Preview what would happen without making any changes.")
+def enable_subcommand(dry_run: bool) -> None:
     """Re-enable update checks."""
+    if dry_run:
+        click.echo(
+            json.dumps(
+                {"dry_run": True, "would": "enable update checks", "flag_file": str(DISABLED_FILE)},
+                indent=2,
+            )
+        )
+        return
     try:
         DISABLED_FILE.unlink()
     except FileNotFoundError:

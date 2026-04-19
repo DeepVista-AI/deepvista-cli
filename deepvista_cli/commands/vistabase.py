@@ -128,6 +128,7 @@ def vistabase_get(ctx: click.Context, card_id: str) -> None:
 )
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.option("--no-enrich", is_flag=True, default=False, help="Skip entity enrichment.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def vistabase_create(
     ctx: click.Context,
@@ -137,6 +138,7 @@ def vistabase_create(
     content_file: str | None,
     tags: str | None,
     no_enrich: bool,
+    dry_run: bool,
 ) -> None:
     """Create a new context card.
 
@@ -158,6 +160,15 @@ def vistabase_create(
         except _json.JSONDecodeError:
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "create card", "payload": body},
+            ctx.obj.output_format,
+            entity_type="vistabase",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).post("/create_context_card", body)
     format_output(data, ctx.obj.output_format, title="Created Card", entity_type="vistabase", base_url=ctx.obj.auth_url)
 
@@ -174,6 +185,7 @@ def vistabase_create(
 @click.option("--type", "card_type", type=click.Choice(CARD_TYPES, case_sensitive=False), default=None)
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.option("--status", "display_status", type=click.Choice(["pinned", "archived"]), default=None)
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def vistabase_update(
     ctx: click.Context,
@@ -184,6 +196,7 @@ def vistabase_update(
     card_type: str | None,
     tags: str | None,
     display_status: str | None,
+    dry_run: bool,
 ) -> None:
     """Update a context card.
 
@@ -207,6 +220,15 @@ def vistabase_update(
         except _json.JSONDecodeError:
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "update card", "payload": body},
+            ctx.obj.output_format,
+            entity_type="vistabase",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).post("/update_context_card", body)
     format_output(
         data,
@@ -220,12 +242,25 @@ def vistabase_update(
 @vistabase_group.command("delete")
 @click.argument("card_id")
 @click.option("--type", "card_type", default=None, help="Card type hint (optional, speeds up deletion).")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def vistabase_delete(ctx: click.Context, card_id: str, card_type: str | None) -> None:
+def vistabase_delete(ctx: click.Context, card_id: str, card_type: str | None, dry_run: bool) -> None:
     """Delete a context card.
 
     > [!CAUTION] This is a destructive write command — confirm with the user before executing.
     """
+    if dry_run:
+        payload: dict = {"card_id": card_id}
+        if card_type:
+            payload["card_type"] = card_type
+        format_output(
+            {"dry_run": True, "would": "delete card", "payload": payload},
+            ctx.obj.output_format,
+            entity_type="vistabase",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     params = {}
     if card_type:
         params["card_type"] = card_type
@@ -274,7 +309,6 @@ def vistabase_similar(ctx: click.Context, card_id: str, limit: int) -> None:
 
     Read-only — never modifies your knowledge base.
     """
-    # Fetch the card first to get its content for similarity search
     card = _client(ctx).post("/get_context_card", {"card_id": card_id})
     title = card.get("title", "")
     snippet = card.get("snippet", "")
@@ -285,7 +319,6 @@ def vistabase_similar(ctx: click.Context, card_id: str, limit: int) -> None:
 
     body: dict = {"query_text": query, "limit": limit}
     data = _client(ctx).post("/get_context_cards", body)
-    # Filter out the source card itself
     cards = [c for c in data.get("cards", []) if c.get("id") != card_id]
     result = {"source_card_id": card_id, "similar": cards, "count": len(cards)}
     format_output(
@@ -300,23 +333,43 @@ def vistabase_similar(ctx: click.Context, card_id: str, limit: int) -> None:
 
 @vistabase_group.command("+pin")
 @click.argument("card_id")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def vistabase_pin(ctx: click.Context, card_id: str) -> None:
+def vistabase_pin(ctx: click.Context, card_id: str, dry_run: bool) -> None:
     """Pin a context card.
 
     > [!CAUTION] This is a write command.
     """
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "pin card", "card_id": card_id},
+            ctx.obj.output_format,
+            entity_type="vistabase",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "pinned"})
     format_output(data, ctx.obj.output_format, entity_type="vistabase", base_url=ctx.obj.auth_url)
 
 
 @vistabase_group.command("+archive")
 @click.argument("card_id")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def vistabase_archive(ctx: click.Context, card_id: str) -> None:
+def vistabase_archive(ctx: click.Context, card_id: str, dry_run: bool) -> None:
     """Archive a context card.
 
     > [!CAUTION] This is a write command.
     """
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "archive card", "card_id": card_id},
+            ctx.obj.output_format,
+            entity_type="vistabase",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "archived"})
     format_output(data, ctx.obj.output_format, entity_type="vistabase", base_url=ctx.obj.auth_url)

@@ -500,15 +500,15 @@ def agents_group() -> None:
     ),
     help="Agent tool type.",
 )
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def agents_register(ctx: click.Context, name: str, agent_type: str) -> None:
+def agents_register(ctx: click.Context, name: str, agent_type: str, dry_run: bool) -> None:
     """Register a new agent and save its ID locally.
 
     Auto-reads soul from system files (CLAUDE.md, .cursorrules, etc.).
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
-    # Check if already registered locally
     existing_id = _load_agent_id(agent_type)
     if existing_id:
         msg = f"Agent type '{agent_type}' already registered locally "
@@ -517,6 +517,23 @@ def agents_register(ctx: click.Context, name: str, agent_type: str) -> None:
         return
 
     config = _build_config_snapshot(agent_type)
+
+    if dry_run:
+        profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"
+        _output(
+            ctx,
+            {
+                "dry_run": True,
+                "would": "register agent",
+                "name": name,
+                "agent_type": agent_type,
+                "would_install_hooks": _install_hooks.__doc__ and agent_type == "claude-code",
+                "config_snapshot": config,
+                "profile": profile,
+            },
+            title="Dry Run: Register Agent",
+        )
+        return
 
     data = _client(ctx).post("/agents", {"name": name, "agent_type": agent_type, "config": config})
 
@@ -603,6 +620,7 @@ def agents_get(ctx: click.Context, agent_id: str | None, agent_type: str | None)
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--name", default=None, help="New display name.")
 @click.option("--status", default=None, type=click.Choice(["online", "offline", "error"]), help="Set status.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def agents_update(
     ctx: click.Context,
@@ -610,6 +628,7 @@ def agents_update(
     agent_type: str | None,
     name: str | None,
     status: str | None,
+    dry_run: bool,
 ) -> None:
     """Update an agent's name or status. Soul is auto-read from system files.
 
@@ -633,6 +652,14 @@ def agents_update(
         output_error(3, "Nothing to update", "Provide --name or --status.")
         return
 
+    if dry_run:
+        _output(
+            ctx,
+            {"dry_run": True, "would": "update agent", "agent_id": resolved_id, "payload": body},
+            title="Dry Run: Update Agent",
+        )
+        return
+
     data = _client(ctx).patch(f"/agents/{resolved_id}", body)
     if not data.get("success"):
         output_error(1, "Update failed", data.get("error", ""))
@@ -648,13 +675,27 @@ def agents_update(
 @agents_group.command("delete")
 @click.argument("agent_id", required=False, default=None)
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | None) -> None:
+def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | None, dry_run: bool) -> None:
     """Delete an agent and remove its local registration.
 
     > [!CAUTION] This is a destructive write command — confirm with the user before executing.
     """
     resolved_id = _resolve_agent_id(ctx, agent_id, agent_type)
+
+    if dry_run:
+        _output(
+            ctx,
+            {
+                "dry_run": True,
+                "would": "delete agent and remove local registration",
+                "agent_id": resolved_id,
+                "would_uninstall_hooks": agent_type == "claude-code",
+            },
+            title="Dry Run: Delete Agent",
+        )
+        return
 
     data = _client(ctx).delete(f"/agents/{resolved_id}")
     if not data.get("success"):
@@ -693,6 +734,7 @@ def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | No
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--status", default=None, type=click.Choice(["online", "offline", "error"]))
 @click.option("--memory", default=None, help="Memory JSON to merge into config.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def agents_sync(
     ctx: click.Context,
@@ -700,6 +742,7 @@ def agents_sync(
     agent_type: str | None,
     status: str | None,
     memory: str | None,
+    dry_run: bool,
 ) -> None:
     """Heartbeat + push state to DeepVista. Updates last_heartbeat_at.
 
@@ -726,6 +769,14 @@ def agents_sync(
 
     if config_patch:
         body["config_patch"] = config_patch
+
+    if dry_run:
+        _output(
+            ctx,
+            {"dry_run": True, "would": "sync agent state", "agent_id": resolved_id, "payload": body},
+            title="Dry Run: Sync Agent",
+        )
+        return
 
     data = _client(ctx).post(f"/agents/{resolved_id}/sync", body)
     if not data.get("success"):
