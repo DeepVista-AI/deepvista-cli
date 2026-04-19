@@ -72,6 +72,28 @@ remove_autocapture "$HOME/.claude/CLAUDE.md"
 remove_autocapture "$HOME/.cursor/rules"
 remove_autocapture "$HOME/.opencode/AGENTS.md"
 
+echo "==> Removing DeepVista skill interpretation rules..."
+
+remove_skill_rules() {
+  local config_file="$1"
+  if [ ! -f "$config_file" ]; then return; fi
+  if ! grep -q "deepvista-skill-rules" "$config_file" 2>/dev/null; then return; fi
+  local tmp
+  tmp=$(mktemp)
+  awk '/<!-- deepvista-skill-rules -->/{skip=1} !skip{print} /<!-- \/deepvista-skill-rules -->/{skip=0}' \
+    "$config_file" > "$tmp"
+  mv "$tmp" "$config_file"
+  echo "    Removed skill rules block from $config_file"
+}
+
+remove_skill_rules "$HOME/.claude/CLAUDE.md"
+remove_skill_rules "$HOME/.cursor/rules"
+remove_skill_rules "$HOME/.opencode/AGENTS.md"
+
+OPENCLAW_WORKSPACE="$HOME/.openclaw/workspace"
+[ -d "$OPENCLAW_WORKSPACE" ] && remove_autocapture "$OPENCLAW_WORKSPACE/AGENTS.md"
+[ -d "$OPENCLAW_WORKSPACE" ] && remove_skill_rules "$OPENCLAW_WORKSPACE/AGENTS.md"
+
 # Remove Stop hook from Claude Code settings.json
 echo "==> Removing DeepVista auto-capture hook..."
 
