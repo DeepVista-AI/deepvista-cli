@@ -56,7 +56,7 @@ wheels = [
 
 [[package]]
 name = "deepvista-cli"
-version = "0.1.0a23"
+version = "0.1.0a26"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

@@ -86,8 +86,9 @@ def vistabook_get(ctx: click.Context, vistabook_id: str) -> None:
 @vistabook_group.command("+run")
 @click.argument("vistabook_id")
 @click.option("--input", "user_input", default=None, help="Context or instructions for the run.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def vistabook_run(ctx: click.Context, vistabook_id: str, user_input: str | None) -> None:
+def vistabook_run(ctx: click.Context, vistabook_id: str, user_input: str | None, dry_run: bool) -> None:
     """Start a VistaBook run — executes the workflow via the chat agent.
 
     > [!CAUTION] This is a write command — it creates a new VistaBook run and sends
@@ -99,12 +100,19 @@ def vistabook_run(ctx: click.Context, vistabook_id: str, user_input: str | None)
     if not _UUID_RE.match(vistabook_id):
         output_error(3, "Invalid vistabook ID", f"Expected UUID format, got: {vistabook_id!r}")
 
-    # Note: context_card_id triggers watch mode on /imagine, NOT chat processing.
-    # Pass the vistabook reference in user_instruction instead.
     instruction = user_input or "Run this vistabook"
     body: dict = {
         "user_instruction": f'<contextCard id="{vistabook_id}" cardType="vistabook"></contextCard> {instruction}',
     }
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "start VistaBook run", "vistabook_id": vistabook_id, "instruction": instruction},
+            ctx.obj.output_format,
+            entity_type="vistabook",
+            base_url=ctx.obj.auth_url,
+        )
+        return
 
     for event in _client(ctx).stream_sse("/imagine", body):
         click.echo(json.dumps(event, default=str))

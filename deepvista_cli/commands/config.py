@@ -17,21 +17,28 @@ def config_group() -> None:
 @click.argument("profile_name")
 @click.option("--api-url", required=True, help="Backend API URL for this profile.")
 @click.option("--auth-url", default=None, help="Frontend URL for login (default: https://app.deepvista.ai).")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def config_set(ctx: click.Context, profile_name: str, api_url: str, auth_url: str | None) -> None:
+def config_set(ctx: click.Context, profile_name: str, api_url: str, auth_url: str | None, dry_run: bool) -> None:
     """Create or update a profile.
 
     \b
     Example:
       deepvista config set local --api-url http://localhost:8080 --auth-url http://localhost:3000
     """
-    settings: dict = {"api_url": api_url}
+    payload: dict = {"api_url": api_url}
     if auth_url:
-        settings["auth_url"] = auth_url
-    set_profile(profile_name, settings)
-    output: dict = {"profile": profile_name, "api_url": api_url}
-    if auth_url:
-        output["auth_url"] = auth_url
+        payload["auth_url"] = auth_url
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "create or update profile", "profile": profile_name, "settings": payload},
+            ctx.obj.output_format,
+        )
+        return
+
+    set_profile(profile_name, payload)
+    output: dict = {"profile": profile_name, **payload}
     format_output(output, ctx.obj.output_format)
     click.echo(f"Profile '{profile_name}' saved.", err=True)
 
@@ -64,9 +71,21 @@ def config_show(ctx: click.Context, profile_name: str) -> None:
 
 @config_group.command("delete")
 @click.argument("profile_name")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def config_delete(ctx: click.Context, profile_name: str) -> None:
+def config_delete(ctx: click.Context, profile_name: str, dry_run: bool) -> None:
     """Delete a profile."""
+    if dry_run:
+        exists = get_profile(profile_name) is not None
+        if not exists:
+            click.echo(f"Profile '{profile_name}' not found.", err=True)
+            return
+        format_output(
+            {"dry_run": True, "would": "delete profile", "profile": profile_name},
+            ctx.obj.output_format,
+        )
+        return
+
     if delete_profile(profile_name):
         format_output({"deleted": profile_name}, ctx.obj.output_format)
     else:
