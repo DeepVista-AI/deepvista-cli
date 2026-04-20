@@ -110,9 +110,32 @@ jobs:
           PEP440_VERSION="${{ needs.build.outputs.version }}"
           SEMVER=$(echo "$PEP440_VERSION" | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+)a([0-9]+)/\1-alpha.\2/; s/([0-9]+\.[0-9]+\.[0-9]+)b([0-9]+)/\1-beta.\2/; s/([0-9]+\.[0-9]+\.[0-9]+)rc([0-9]+)/\1-rc.\2/')
           echo "tag=v$SEMVER" >> $GITHUB_OUTPUT
+          if [ "$PEP440_VERSION" = "$SEMVER" ]; then
+            echo "is_stable=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_stable=false" >> $GITHUB_OUTPUT
+          fi
           echo "PEP 440: $PEP440_VERSION -> semver tag: v$SEMVER"
 
-      - name: Publish to GitHub skills (gh skill publish)
+      - name: Publish to GitHub skills — pre-release (gh skill publish --tag)
+        # Pre-releases (alpha/beta/rc) need a new semver-aliased tag distinct from the
+        # PyPI PEP 440 tag (e.g. v0.1.0a27 -> v0.1.0-alpha.27), so gh skill publish
+        # creates both the tag and the release.
+        if: steps.semver.outputs.is_stable == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh skill publish --tag "${{ steps.semver.outputs.tag }}"
+
+      - name: Publish to GitHub skills — stable (validate + gh release create)
+        # Stable versions (e.g. 0.1.1) have PEP 440 == semver, so the PyPI tag
+        # IS the semver tag — gh skill publish would refuse to reuse it. Split
+        # validation from release creation.
+        if: steps.semver.outputs.is_stable == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh skill publish --dry-run
+          gh release create "${{ steps.semver.outputs.tag }}" \
+            --generate-notes \
+            --latest \
+            --title "${{ steps.semver.outputs.tag }}"
