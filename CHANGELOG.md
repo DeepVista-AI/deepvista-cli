@@ -8,6 +8,13 @@ users what's new between the version they have installed and the latest release.
 
 ## Unreleased
 
+## v0.1.1
+
+First non-alpha release. Graduates from `0.1.0aN` (PEP 440 alpha) to a plain
+semver. No `0.1.0` stable was ever published to PyPI — the jump is intentional
+to keep the PyPI version and the git `v0.1.0` artifact (which was tagged at the
+a24 commit and only exists on GitHub) from colliding.
+
 - Auto-update flow for the CLI and bundled skills, modeled after `gstack`
   (DV-378). Skills now run `deepvista upgrade check` when they load; if a newer
   version is on PyPI, the agent is instructed to tell the user and offer to
