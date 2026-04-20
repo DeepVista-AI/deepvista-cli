@@ -8,6 +8,8 @@ users what's new between the version they have installed and the latest release.
 
 ## Unreleased
 
+## v0.1.2
+
 ### Changed
 - **Skill pack collapsed to one consolidated `deepvista` skill** (DV-385, issue #75
   follow-up). Replaces the 12 top-level `deepvista-*` skills with a single
@@ -24,6 +26,9 @@ users what's new between the version they have installed and the latest release.
   `deepvista-skill-import-files`, `deepvista-skill-research-to-skill`,
   `deepvista-vistabase`, `deepvista-vistabase-card`). All content preserved under
   the consolidated skill.
+- `INSTALL_PROMPT.md` — unreferenced and drifting (still mentioned
+  `deepvista-vistabook` after the rename). The install flow is already documented
+  in `README.md` and `install.sh`.
 - Stale ClawHub and MIT license references from `README.md` and `CLAUDE.md` (license
   has been Apache-2.0 for a while; ClawHub publish was removed in #78).
 
