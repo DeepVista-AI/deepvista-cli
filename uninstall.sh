@@ -2,8 +2,13 @@
 set -e
 
 SKILLS=(
+  # Consolidated skill (current)
+  deepvista
+  # Legacy per-subcommand skills (pre-DV-385) — remove on uninstall too so
+  # users who skipped the upgrade still get a clean sweep.
   deepvista-shared
   deepvista-vistabase
+  deepvista-vistabase-card
   deepvista-notes
   deepvista-skill
   deepvista-chat
@@ -11,6 +16,8 @@ SKILLS=(
   deepvista-skill-research-to-skill
   deepvista-skill-export-knowledge
   deepvista-skill-analyze-notes
+  deepvista-skill-import-files
+  deepvista-openclaw
 )
 
 # Uninstall CLI

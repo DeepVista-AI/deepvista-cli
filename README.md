@@ -14,9 +14,9 @@
 [![PyPI](https://img.shields.io/pypi/v/deepvista-cli?color=5B5BD6)](https://pypi.org/project/deepvista-cli/)
 [![PyPI - Status](https://img.shields.io/pypi/status/deepvista-cli)](https://pypi.org/project/deepvista-cli/)
 [![PyPI Downloads](https://static.pepy.tech/badge/deepvista-cli/month)](https://pepy.tech/projects/deepvista-cli)
-[![License](https://img.shields.io/badge/license-MIT-5B5BD6)](https://opensource.org/licenses/MIT)
-[![ClawHub](https://img.shields.io/badge/ClawHub-deepvista-blue)](https://clawhub.ai/skills?q=deepvista)
+[![License](https://img.shields.io/badge/license-Apache%202.0-5B5BD6)](https://www.apache.org/licenses/LICENSE-2.0)
 [![skills.sh](https://img.shields.io/badge/skills.sh-DeepVista--AI-purple)](https://skills.sh/deepvista-ai/deepvista-cli)
+[![GitHub Skills](https://img.shields.io/badge/gh%20skill-DeepVista--AI%2Fdeepvista--cli-181717)](https://github.com/DeepVista-AI/deepvista-cli)
 
 </div>
 
@@ -88,15 +88,15 @@ That's it. Your knowledge base is now accessible from any terminal.
 curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash
 ```
 
-The script auto-detects your package manager (`uv`, `pipx`, or `pip`) and copies skills into your agent's skill directory (Claude Code, OpenCode, Cursor, etc.).
+The script auto-detects your package manager (`uv`, `pipx`, or `pip`) and copies the consolidated `deepvista` skill into your agent's skill directory (Claude Code, OpenCode, Cursor, OpenClaw). If you upgraded from an earlier release, it also sweeps out the 12 legacy `deepvista-*` skills so you don't end up with both.
+
+Prefer GitHub's CLI? `gh skill install DeepVista-AI/deepvista-cli` works too (GitHub CLI ≥ 2.90, preview).
 
 ### Get Started
 
 Open your agent and paste:
 
 ```
-Load skills: deepvista-shared deepvista-notes deepvista-vistabase
-
 Help me get started with DeepVista. Walk me through logging in.
 ```
 
@@ -119,19 +119,27 @@ The install script enables auto-capture in every detected agent — **no manual 
 
 Your agent silently saves facts, decisions, insights, and action items to your DeepVista knowledge base as you work. The install is idempotent — re-running won't duplicate anything.
 
-### Skills Reference
+### Skill Reference
 
-| Skill | What it teaches your agent |
+One skill, `deepvista`, with per-subcommand detail under `skills/deepvista/reference/`.
+
+| Reference file | What it covers |
 |-------|---------------------------|
-| `deepvista-shared` | Auth, profiles, global flags, security rules |
-| `deepvista-vistabase` | Knowledge cards — search, read, create, update |
-| `deepvista-notes` | Note capture and management |
-| `deepvista-vistabook` | Run structured AI skills/workflows |
-| `deepvista-chat` | Conversational AI agent |
-| `deepvista-persona-knowledge-worker` | Daily knowledge workflow patterns |
-| `deepvista-skill-research-to-skill` | Search → synthesize → run workflow |
-| `deepvista-skill-export-knowledge` | Turn your knowledge into installable skills |
-| `deepvista-skill-analyze-notes` | Analyze, summarize, and find patterns across notes |
+| `reference/shared.md` | Auth, profiles, global flags, exit codes, agent registration |
+| `reference/notes.md` | Note capture, CRUD, `+quick` |
+| `reference/vistabase-card.md` | Knowledge-base cards — create, search, pin, edit, grep |
+| `reference/vistabase.md` | Implicit memory — view and search |
+| `reference/memory.md` | Deprecated `deepvista memory` alias mapping |
+| `reference/chat.md` | Chat sessions and NDJSON stream format |
+| `reference/skill.md` | Structured Skill workflows — list, run, export, discover, install |
+| `reference/skill-analyze-notes.md` | Pattern: search → read → synthesize notes |
+| `reference/skill-research-to-skill.md` | Pattern: research the KB, then run a Skill |
+| `reference/skill-export-knowledge.md` | Export a Skill as a portable `SKILL.md` |
+| `reference/skill-import-files.md` | Bulk-import a folder as file cards |
+| `reference/persona-knowledge-worker.md` | Daily persona workflow loop |
+| `reference/openclaw.md` | Auto-capture rules for OpenClaw agents |
+
+The agent loads only the index at first; when a subcommand is needed, it reads the matching reference file on demand.
 
 ---
 
