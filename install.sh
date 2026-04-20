@@ -361,6 +361,5 @@ fi
 echo ""
 echo "DeepVista is ready. Open your AI agent and say:"
 echo ""
-echo '  Load skill: deepvista'
 echo '  Help me get started with DeepVista.'
 echo ""
