@@ -2,10 +2,12 @@
   <img src="https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/docs/assets/deepvista-banner.png" alt="DeepVista" width="600">
 </p>
 
-<h1 align="center">Your Second Brain, from the Terminal</h1>
+<h1 align="center">Turn Your Agents into a Self-Evolving Team</h1>
 
 <p align="center">
-  <strong>CLI for DeepVista — chat, notes, skills, and knowledge base from your terminal.<br>Designed for both humans and AI agents.</strong>
+  <strong>DeepVista CLI connects your coding agents to a shared knowledge base —<br>
+    so they don’t just execute, but learn, remember, and build on past work.
+  </strong>
 </p>
 
 <div align="center">
@@ -23,7 +25,7 @@
 <br>
 
 <p align="center">
-  ⭐ If this is useful, drop a star — it helps us grow!
+⭐ If this direction resonates, consider <b>starring the repo</b> — it helps more people discover it.
 </p>
 
 <br>
@@ -32,6 +34,27 @@
 <!-- <p align="center"><img src="docs/tui-demo.gif" alt="DeepVista TUI" width="700"></p> -->
 
 ---
+
+## Who this is for
+
+- Builders working with coding agents (Claude Code, Cursor, OpenCode)
+- People experimenting with agent workflows and skills
+- Anyone trying to turn scattered interactions into compounding knowledge
+
+## What this enables
+
+Modern coding agents are powerful — but each interaction is stateless and isolated.
+
+DeepVista changes that.
+
+- Agents **remember** past work
+- Agents **share context** through a common knowledge base
+- Agents **build on previous decisions and insights**
+
+Over time, this turns isolated executions into a:
+
+→ **a self-evolving team of agents that compound knowledge over time**
+
 
 ## Why DeepVista CLI?
 
@@ -43,6 +66,17 @@ Most knowledge tools trap your data in a GUI. DeepVista CLI gives you **full acc
 - 📋 **Run Skills** — execute structured AI workflows from the command line
 - 💬 **Chat** — talk to the DeepVista AI agent in your terminal
 - 🖥️ **Full TUI** — four-panel terminal UI for chat, notes, skills, and memory
+
+## Related Ideas
+
+This repo is part of a broader exploration of how agent skills are structured and executed.
+
+If you're interested in:
+- how different types of skills should be modeled
+- how to handle stateless vs stateful execution
+- how to make agent workflows more reliable
+
+→ Read more: https://go.deepvista.ai/agent-skills-2d
 
 ---
 
