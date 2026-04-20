@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://deepvista.ai/logo.svg" alt="DeepVista" width="120">
+  <img src="https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/docs/assets/deepvista-banner.png" alt="DeepVista" width="600">
 </p>
 
 <h1 align="center">Your Second Brain, from the Terminal</h1>
