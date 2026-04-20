@@ -14,7 +14,7 @@ on:
         options:
           - testpypi
           - pypi
-          - clawhub
+          - github-skills
           - all
 
 jobs:
@@ -80,41 +80,39 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-  publish-clawhub:
+  publish-github-skills:
+    # Creates a semver-tagged GitHub Release (e.g. v0.1.0-alpha.26 mirroring v0.1.0a26)
+    # so `gh skill install deepvista/deepvista-cli@v0.1.0-alpha.26` works.
+    # `gh skill publish --tag` validates skills before releasing, so no separate
+    # validate job is needed here — CI runs `gh skill publish --dry-run` on PRs.
     if: >
       github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && (github.event.inputs.target == 'clawhub' || github.event.inputs.target == 'all'))
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.target == 'github-skills' || github.event.inputs.target == 'all'))
     needs: build
     runs-on: ubuntu-latest
-    environment: clawhub
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install clawhub CLI
-        run: npm install -g clawhub
+      - name: Install gh >= 2.90 (gh skill requires it)
+        run: |
+          GH_VERSION=2.90.0
+          curl -sL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+            | sudo tar xz -C /usr/local --strip-components=1
+          gh --version
 
-      - name: Authenticate with ClawHub
-        run: clawhub login --token "${{ secrets.CLAWHUB_TOKEN }}" --no-browser
-
-      - name: Publish skills to ClawHub
+      - name: Compute semver tag
+        id: semver
         run: |
           PEP440_VERSION="${{ needs.build.outputs.version }}"
-
-          # Convert PEP 440 to semver: 0.1.0a15 -> 0.1.0-alpha.15, 0.1.0b3 -> 0.1.0-beta.3, 0.1.0rc1 -> 0.1.0-rc.1
           SEMVER=$(echo "$PEP440_VERSION" | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+)a([0-9]+)/\1-alpha.\2/; s/([0-9]+\.[0-9]+\.[0-9]+)b([0-9]+)/\1-beta.\2/; s/([0-9]+\.[0-9]+\.[0-9]+)rc([0-9]+)/\1-rc.\2/')
-          echo "PEP 440 version: $PEP440_VERSION -> Semver: $SEMVER"
+          echo "tag=v$SEMVER" >> $GITHUB_OUTPUT
+          echo "PEP 440: $PEP440_VERSION -> semver tag: v$SEMVER"
 
-          for skill_dir in skills/*/; do
-            skill_name=$(basename "$skill_dir")
-            echo "Publishing $skill_name v$SEMVER..."
-
-            clawhub publish "$skill_dir" \
-              --slug "$skill_name" \
-              --version "$SEMVER" \
-              --tags latest \
-              --changelog "Release v$SEMVER" \
-              || echo "  Warning: Failed to publish $skill_name (may already exist at this version)"
-          done
-
-          echo ""
-          echo "Skills published to: https://clawhub.ai/skills"
+      - name: Publish to GitHub skills (gh skill publish)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh skill publish --tag "${{ steps.semver.outputs.tag }}"

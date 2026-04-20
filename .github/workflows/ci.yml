@@ -32,3 +32,15 @@ jobs:
 
       - name: Dependency vulnerability check
         run: uv run --with pip-audit pip-audit
+
+      - name: Install gh >= 2.90 (gh skill requires it)
+        run: |
+          GH_VERSION=2.90.0
+          curl -sL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+            | sudo tar xz -C /usr/local --strip-components=1
+          gh --version
+
+      - name: Validate skills (gh skill publish --dry-run)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh skill publish --dry-run
