@@ -1,6 +1,7 @@
 # DeepVista Install Prompt
 
-Copy and paste the prompt below into any AI agent (Claude Code, OpenCode, Cursor, etc.) to configure DeepVista.
+Copy and paste the prompt below into any AI agent (Claude Code, OpenCode, Cursor,
+etc.) to configure DeepVista.
 
 ---
 
@@ -12,14 +13,23 @@ Run this once in your terminal:
 curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash
 ```
 
-This installs the `deepvista` CLI and all 9 skills for your agent — no Node or extra tools required.
+This installs the `deepvista` CLI and a single consolidated `deepvista` skill for
+your agent — no Node or extra tools required. The skill ships with an index
+(`SKILL.md`) plus one reference file per subcommand under `reference/`.
+
+Alternative install paths:
+
+```bash
+gh skill install DeepVista-AI/deepvista-cli       # GitHub CLI (preview)
+npx skills add DeepVista-AI/deepvista-cli         # skills.sh
+```
 
 ---
 
 ## Then: Paste This Prompt Into Your Agent
 
 ```
-Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-vistabook deepvista-chat deepvista-persona-knowledge-worker deepvista-skill-research-to-skill deepvista-skill-export-knowledge deepvista-skill-analyze-notes
+Load skill: deepvista
 
 Help me get started with DeepVista:
 
@@ -34,7 +44,9 @@ Help me get started with DeepVista:
 
 4. Once logged in, confirm with `deepvista auth status` and show me the result.
 
-5. Give me a quick summary of what I can do now — note capture, knowledge base search, VistaBook workflows, and note analysis.
+5. Give me a quick summary of what I can do now — note capture, knowledge base
+   search, Skill workflows, and note analysis. Point me at the right reference
+   file inside the skill for each.
 ```
 
 ---
@@ -43,15 +55,10 @@ Help me get started with DeepVista:
 
 | Skill | What it teaches your agent |
 |-------|---------------------------|
-| `deepvista-shared` | Auth, profiles, global flags, security rules |
-| `deepvista-vistabase` | Knowledge base — search, read, create, update cards |
-| `deepvista-notes` | Note capture and management |
-| `deepvista-vistabook` | Run structured AI workflows |
-| `deepvista-chat` | Conversational AI agent |
-| `deepvista-persona-knowledge-worker` | Daily knowledge workflow patterns |
-| `deepvista-skill-research-to-skill` | Search → synthesize → run workflow |
-| `deepvista-skill-export-knowledge` | Turn your knowledge into installable skills |
-| `deepvista-skill-analyze-notes` | Analyze, summarize, and find patterns across notes |
+| `deepvista` | Everything: auth, profiles, global flags, notes, cards, memory, chat, Skills, analyze/export/import, persona workflows, OpenClaw auto-capture |
+
+All subcommand detail lives under `skills/deepvista/reference/` — the agent loads
+the matching file on demand. Read the skill index for the full subcommand table.
 
 ---
 
@@ -61,32 +68,32 @@ Once installed and authenticated, try these:
 
 ### Capture a note
 ```
-Load skills: deepvista-shared deepvista-notes
+Load skill: deepvista
 
 Take a note: "Key insight from today's meeting — prioritize async workflows over sync for scale."
 ```
 
 ### Analyze your notes
 ```
-Load skills: deepvista-shared deepvista-notes deepvista-vistabase deepvista-skill-analyze-notes
+Load skill: deepvista
 
 Analyze my recent notes and tell me what themes keep coming up.
 ```
 
 ### Search your knowledge base
 ```
-Load skills: deepvista-shared deepvista-vistabase
+Load skill: deepvista
 
 Search my knowledge base for everything I've captured about product strategy.
 Show me the top 5 results.
 ```
 
-### Run a VistaBook workflow
+### Run a Skill workflow
 ```
-Load skills: deepvista-shared deepvista-vistabase deepvista-vistabook deepvista-skill-research-to-skill
+Load skill: deepvista
 
-I want to synthesize patterns from my knowledge base. Find my Research Synthesis VistaBook
-and run it — but show me what you find before running so I can confirm.
+I want to synthesize patterns from my knowledge base. Find my Research Synthesis
+Skill and run it — but show me what you find before running so I can confirm.
 ```
 
 ---
@@ -99,10 +106,18 @@ Run once to allow it globally:
 claude config set allowedPaths "~/.claude/skills" --global
 ```
 
-**Skills not found?**
+**Skill not found?**
 Re-run the install command:
 ```bash
-cd ~ && npx skills add DeepVista-AI/deepvista-cli --yes
+curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash
+```
+
+**Still seeing legacy `deepvista-*` skills?**
+The installer removes the 12 legacy skills on upgrade (see DV-385), but if they're
+still around, remove them manually:
+```bash
+rm -rf ~/.claude/skills/deepvista-*
+rm -rf ~/.agents/skills/deepvista-*
 ```
 
 **Auth issues?**

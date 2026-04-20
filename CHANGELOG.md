@@ -8,6 +8,26 @@ users what's new between the version they have installed and the latest release.
 
 ## Unreleased
 
+### Changed
+- **Skill pack collapsed to one consolidated `deepvista` skill** (DV-385, issue #75
+  follow-up). Replaces the 12 top-level `deepvista-*` skills with a single
+  `skills/deepvista/` directory: an index `SKILL.md` that covers every trigger
+  phrase, plus per-subcommand detail under `skills/deepvista/reference/*.md`
+  (13 files). Agents load the index first and pull the matching reference file on
+  demand. `install.sh` removes the legacy `deepvista-*` directories on upgrade so
+  users don't end up with both.
+
+### Removed
+- 12 legacy per-subcommand skill directories (`deepvista-chat`, `deepvista-notes`,
+  `deepvista-openclaw`, `deepvista-persona-knowledge-worker`, `deepvista-shared`,
+  `deepvista-skill`, `deepvista-skill-analyze-notes`, `deepvista-skill-export-knowledge`,
+  `deepvista-skill-import-files`, `deepvista-skill-research-to-skill`,
+  `deepvista-vistabase`, `deepvista-vistabase-card`). All content preserved under
+  the consolidated skill.
+- Stale ClawHub and MIT license references from `README.md` and `CLAUDE.md` (license
+  has been Apache-2.0 for a while; ClawHub publish was removed in #78).
+
+
 ## v0.1.1
 
 First non-alpha release. Graduates from `0.1.0aN` (PEP 440 alpha) to a plain

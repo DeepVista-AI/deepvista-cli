@@ -2,9 +2,17 @@
 set -e
 
 REPO="DeepVista-AI/deepvista-cli"
-SKILLS=(
+
+# Single consolidated skill (DV-385). Collapses the 12 legacy `deepvista-*`
+# skills into one `deepvista/` skill + reference files.
+SKILL="deepvista"
+
+# Legacy skill directories to remove on upgrade so users don't end up with
+# a mix of old and new.
+LEGACY_SKILLS=(
   deepvista-shared
   deepvista-vistabase
+  deepvista-vistabase-card
   deepvista-notes
   deepvista-skill
   deepvista-chat
@@ -12,6 +20,7 @@ SKILLS=(
   deepvista-skill-research-to-skill
   deepvista-skill-export-knowledge
   deepvista-skill-analyze-notes
+  deepvista-skill-import-files
   deepvista-openclaw
 )
 
@@ -63,27 +72,27 @@ trap 'rm -rf "$TMP"' EXIT
 if command -v git >/dev/null 2>&1; then
   git clone --depth 1 --quiet "https://github.com/$REPO.git" "$TMP/repo"
   SRC="$TMP/repo/skills"
-elif command -v curl >/dev/null 2>&1; then
-  # Download each skill's SKILL.md individually
-  SRC="$TMP/skills"
-  for skill in "${SKILLS[@]}"; do
-    mkdir -p "$SRC/$skill"
-    curl -sSL "https://raw.githubusercontent.com/$REPO/main/skills/$skill/SKILL.md" \
-      -o "$SRC/$skill/SKILL.md"
-  done
 else
-  echo "Error: git or curl required to install skills" >&2
+  echo "Error: git required to install skills (the consolidated skill has multiple reference files; piecewise curl is no longer supported)" >&2
   exit 1
 fi
 
 for dir in "${SKILL_DIRS[@]}"; do
   mkdir -p "$dir"
-  for skill in "${SKILLS[@]}"; do
-    # Remove stale file/dir to avoid "Not a directory" errors on re-install
-    rm -rf "${dir:?}/$skill"
-    cp -r "$SRC/$skill" "$dir/$skill"
+
+  # Remove the legacy per-subcommand skills so users upgrading don't end up
+  # with both the new consolidated skill and the old 12 entries.
+  for legacy in "${LEGACY_SKILLS[@]}"; do
+    if [ -e "$dir/$legacy" ]; then
+      rm -rf "${dir:?}/$legacy"
+      echo "    Removed legacy $dir/$legacy"
+    fi
   done
-  echo "    Skills installed to $dir"
+
+  # Install (or replace) the consolidated skill.
+  rm -rf "${dir:?}/$SKILL"
+  cp -r "$SRC/$SKILL" "$dir/$SKILL"
+  echo "    Skill installed to $dir/$SKILL"
 done
 
 # Auto-capture instruction block (written to each agent's global instructions file)
@@ -127,12 +136,6 @@ echo "==> Enabling DeepVista auto-capture..."
 OPENCLAW_WORKSPACE="$HOME/.openclaw/workspace"
 if [ -d "$OPENCLAW_WORKSPACE" ]; then
   install_autocapture "$OPENCLAW_WORKSPACE/AGENTS.md"
-  # Also copy the OpenClaw-specific skill to the workspace for reference
-  if [ -d "$SRC/deepvista-openclaw" ]; then
-    mkdir -p "$OPENCLAW_WORKSPACE/skills/deepvista-openclaw"
-    cp -r "$SRC/deepvista-openclaw/"* "$OPENCLAW_WORKSPACE/skills/deepvista-openclaw/"
-    echo "    OpenClaw skill installed to $OPENCLAW_WORKSPACE/skills/deepvista-openclaw"
-  fi
 fi
 
 # Skill interpretation rules block (written to each agent's global instructions file)
@@ -358,6 +361,6 @@ fi
 echo ""
 echo "DeepVista is ready. Open your AI agent and say:"
 echo ""
-echo '  Load skills: deepvista-shared deepvista-notes deepvista-vistabase'
+echo '  Load skill: deepvista'
 echo '  Help me get started with DeepVista.'
 echo ""

@@ -21,7 +21,9 @@ Fix all reported issues before committing — the pre-commit hook runs the same 
 
 ## After editing skill files
 
-Skills are published to [ClawHub](https://clawhub.ai). The version is read from `pyproject.toml` at publish time — do not add a `version` field to SKILL.md files.
+Skills are published as a GitHub Release (via `gh skill publish`) and auto-discovered by [skills.sh](https://skills.sh). The version is the git tag (PEP 440 → semver mirror, see the release workflow) — do not add a `version` field to SKILL.md files.
+
+Validate with `gh skill publish --dry-run` before committing — this is also the CI check. The repo ships a single consolidated `deepvista` skill at `skills/deepvista/` with per-subcommand detail under `skills/deepvista/reference/*.md` (DV-385). Do not re-introduce the 12 legacy `skills/deepvista-*/` directories.
 
 ## Pre-commit hooks summary
 
