@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-vistabase
 description: "DeepVista Vistabase: View and search implicit memory context automatically accumulated from Chat."
 metadata:

@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-skill-import-files
 description: |
   Skill: Import files from the current directory (recursively) as context cards in DeepVista.

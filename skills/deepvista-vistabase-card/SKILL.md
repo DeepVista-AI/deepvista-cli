@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-vistabase-card
 description: "DeepVista Card: Manage your knowledge cards — create, search, and organize context cards."
 metadata:
