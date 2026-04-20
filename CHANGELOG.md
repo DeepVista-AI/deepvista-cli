@@ -8,17 +8,6 @@ users what's new between the version they have installed and the latest release.
 
 ## Unreleased
 
-### Added
-- GitHub skills publishing via `gh skill publish` (issue #75). Release workflow
-  now creates a semver-tagged GitHub Release (e.g. `v0.1.0a27` → `v0.1.0-alpha.27`)
-  so skills install with `gh skill install deepvista/deepvista-cli@v0.1.0-alpha.27`.
-  Agent Skills spec compliance is validated on every PR via
-  `gh skill publish --dry-run` in CI.
-
-### Removed
-- ClawHub publish step from the release workflow.
-
-### Added
 - Auto-update flow for the CLI and bundled skills, modeled after `gstack`
   (DV-378). Skills now run `deepvista upgrade check` when they load; if a newer
   version is on PyPI, the agent is instructed to tell the user and offer to
@@ -35,11 +24,21 @@ users what's new between the version they have installed and the latest release.
   - `deepvista upgrade status` — show cached state.
 - `CHANGELOG.md` at the repo root — read by `upgrade install` to render
   release notes to users and agents.
-
-### Changed
 - Every shipped skill now has an `## On Load` preamble that runs
   `deepvista upgrade check` once per hour so agents can react to new releases
   without blocking on the network.
+
+## v0.1.0a27
+
+### Added
+- GitHub skills publishing via `gh skill publish` (issue #75). Release workflow
+  now creates a semver-tagged GitHub Release (e.g. `v0.1.0a27` → `v0.1.0-alpha.27`)
+  so skills install with `gh skill install deepvista/deepvista-cli@v0.1.0-alpha.27`.
+  Agent Skills spec compliance is validated on every PR via
+  `gh skill publish --dry-run` in CI.
+
+### Removed
+- ClawHub publish step from the release workflow.
 
 ## v0.1.0a23
 
