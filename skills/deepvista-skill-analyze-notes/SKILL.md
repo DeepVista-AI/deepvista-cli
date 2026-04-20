@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-skill-analyze-notes
 description: |
   Skill: Analyze, summarize, and find patterns across notes in your DeepVista knowledge base.

@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-persona-knowledge-worker
 description: "Persona: Knowledge worker daily workflow — check cards, process notes, run Skills."
 metadata:

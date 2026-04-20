@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-skill
 description: "DeepVista Skill: Manage structured executable workflows (Skills) and run them via the AI agent."
 metadata:

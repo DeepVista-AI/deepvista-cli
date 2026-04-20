@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-openclaw
 description: DeepVista auto-capture and knowledge integration for OpenClaw agents. Automatically saves notable user statements, decisions, and insights to DeepVista knowledge base. Use when the user shares facts about themselves, their work, decisions, or plans.
 ---

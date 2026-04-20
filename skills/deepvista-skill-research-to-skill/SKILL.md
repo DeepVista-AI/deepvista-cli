@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-skill-research-to-skill
 description: "Skill: Search your knowledge base, synthesize findings, and run a Skill workflow."
 metadata:

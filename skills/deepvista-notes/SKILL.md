@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-notes
 description: |
   DeepVista Notes: Create, read, update, and delete notes (explicit knowledge managed by the user).

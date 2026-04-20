@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-chat
 description: "DeepVista Chat: Send messages to the AI agent and manage chat sessions."
 metadata:

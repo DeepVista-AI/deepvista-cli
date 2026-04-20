@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-skill-export-knowledge
 description: "Skill: Export Skills as installable SKILL.md files for AI agents."
 metadata:

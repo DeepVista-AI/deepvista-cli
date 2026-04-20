@@ -1,4 +1,5 @@
 ---
+license: Apache-2.0
 name: deepvista-shared
 description: "DeepVista CLI: Authentication, global flags, and security conventions."
 metadata:
