@@ -97,8 +97,6 @@ Prefer GitHub's CLI? `gh skill install DeepVista-AI/deepvista-cli` works too (Gi
 Open your agent and paste:
 
 ```
-Load skill: deepvista
-
 Help me get started with DeepVista. Walk me through logging in.
 ```
 
