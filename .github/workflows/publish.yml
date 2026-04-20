@@ -97,10 +97,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure gh >= 2.90 (gh skill requires it)
+      - name: Install gh >= 2.90 (gh skill requires it)
         run: |
-          sudo apt-get update
-          sudo apt-get install --only-upgrade -y gh
+          GH_VERSION=2.90.0
+          curl -sL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+            | sudo tar xz -C /usr/local --strip-components=1
           gh --version
 
       - name: Compute semver tag
