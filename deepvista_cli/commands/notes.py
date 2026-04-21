@@ -2,6 +2,7 @@
 
 Notes are a special case of context cards with type="note".
 The +quick helper creates a note from a single text argument.
+The index command triggers entity extraction on notes not yet processed.
 """
 
 from __future__ import annotations
@@ -180,6 +181,68 @@ def notes_delete(ctx: click.Context, note_id: str, dry_run: bool) -> None:
 
     data = _client(ctx).delete(f"/context_cards/{note_id}", params={"card_type": "note"})
     format_output(data, ctx.obj.output_format, entity_type="note", base_url=ctx.obj.auth_url)
+
+
+# ---------------------------------------------------------------------------
+# index — trigger entity extraction on notes
+# ---------------------------------------------------------------------------
+
+
+@notes_group.command("index")
+@click.option("--limit", default=50, help="Max notes to re-index (default 50, max 500).")
+@click.option("--note-id", "note_ids", multiple=True, help="Index specific note(s) by ID. Repeatable.")
+@click.option(
+    "--all",
+    "include_enriched",
+    is_flag=True,
+    default=False,
+    help="Re-enrich every note up to --limit, not just those with a null embedding.",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@click.pass_context
+def notes_index(
+    ctx: click.Context,
+    limit: int,
+    note_ids: tuple[str, ...],
+    include_enriched: bool,
+    dry_run: bool,
+) -> None:
+    """Trigger entity extraction on notes that need processing.
+
+    Calls the server-side `/index_notes` route. By default, finds notes that
+    have never been enriched (null embedding) and enqueues the DeepVista
+    agent to extract entities, create graph relationships, and refresh
+    embeddings. Pass `--note-id` (repeatable) to target specific cards, or
+    `--all` to re-enrich everything up to `--limit`.
+
+    > [!CAUTION] This is a write command — it kicks off background agent runs
+    > that may create/update related cards. Confirm before executing.
+    """
+    body: dict = {
+        "card_type": "note",
+        "limit": limit,
+        "only_unenriched": not include_enriched,
+    }
+    if note_ids:
+        body["card_ids"] = list(note_ids)
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "POST /index_notes", "payload": body},
+            ctx.obj.output_format,
+            entity_type="note",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
+    data = _client(ctx).post("/index_notes", body)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title="Indexed Notes",
+        entity_type="note",
+        base_url=ctx.obj.auth_url,
+    )
 
 
 # ---------------------------------------------------------------------------

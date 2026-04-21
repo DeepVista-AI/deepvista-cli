@@ -4,15 +4,15 @@ name: deepvista
 description: |
   DeepVista CLI — knowledge base, notes, chat, skills, and memory from the terminal.
   One skill for the full `deepvista` CLI. Load when the user wants to: take a note, jot
-  this down, save / remember a fact, or list and edit notes; create, search, pin, archive,
-  edit, or grep knowledge-base cards of any type (person, topic, file, note, todo…);
-  view or semantic-search implicit memory ("vistabase" / "memory"); chat with the AI agent
-  or manage chat sessions; list, run, export, install, or discover Skills (structured
-  workflow checklists); research the knowledge base then run a Skill with synthesized
-  context; analyze / summarize / find patterns across notes; recursively import a local
-  folder as file cards; run a knowledge-worker daily loop (check pinned cards, capture,
-  run a Skill, ask for synthesis); or auto-capture notable facts without confirmation
-  (OpenClaw). Pick the matching reference file in `reference/` for the subcommand.
+  this down, save a fact, or list and edit notes; create, search, pin, archive, edit,
+  or grep knowledge-base cards of any type (person, topic, file, note, todo…); view or
+  semantic-search implicit memory ("vistabase" / "memory"); chat with the AI agent or
+  manage sessions; list, run, export, install, or discover Skills; research then run a
+  Skill with synthesized context; analyze / summarize notes; import a folder as file
+  cards; run a knowledge-worker daily loop; auto-capture facts (OpenClaw); periodically
+  lint the vistabase for duplicates / contradictions / stale claims / orphans / missing
+  refs / gaps; or re-index notes to trigger entity extraction. Pick the matching
+  reference file in `reference/` for the subcommand.
 metadata:
   openclaw:
     category: service
@@ -43,7 +43,8 @@ other reference file assumes you know it.
 | Subcommand | Use when | Reference |
 |---|---|---|
 | `deepvista auth` / `agents` / `config` / `upgrade` / `ui` | authenticating, registering an agent, switching profiles, checking for updates | [shared.md](reference/shared.md) |
-| `deepvista notes` | taking a note, jotting something down, listing / updating / deleting notes, quick-capture of a single-line fact | [notes.md](reference/notes.md) |
+| `deepvista notes` | taking a note, jotting something down, listing / updating / deleting notes, quick-capture of a single-line fact, re-indexing notes for entity extraction | [notes.md](reference/notes.md) |
+| `deepvista lint` | periodic LLM health check over the vistabase — duplicates, contradictions, stale claims, orphans, missing cross-references, data gaps | [lint.md](reference/lint.md) |
 | `deepvista card` | creating / searching / pinning / archiving / grepping knowledge base cards across any type (person, topic, file, note, todo, etc.) | [vistabase-card.md](reference/vistabase-card.md) |
 | `deepvista vistabase` (alias: `memory`) | viewing or semantic-searching implicit memory accumulated from chat | [vistabase.md](reference/vistabase.md) · [memory.md](reference/memory.md) |
 | `deepvista chat` | sending a message to the AI agent, listing / deleting chat sessions, continuing a conversation | [chat.md](reference/chat.md) |
