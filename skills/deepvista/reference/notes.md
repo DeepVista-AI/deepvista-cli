@@ -60,6 +60,28 @@ Same content rules as `create`. Only provided fields are changed.
 deepvista notes delete <note_id>
 ```
 
+### `index` — write
+
+> [!CAUTION] Queues the DeepVista agent to run entity extraction + graph
+> linking + embedding refresh on unprocessed notes. Confirm first.
+
+```bash
+deepvista notes index [--limit N] [--note-id ID]... [--all] [--dry-run]
+```
+
+| Flag | When |
+|---|---|
+| `--limit N` | Max notes to process (default 50, max 500, newest first) |
+| `--note-id ID` | Target specific note(s). Repeatable. Implies re-enrichment — the unenriched filter is dropped for explicit IDs, and `--all` is redundant. |
+| `--all` | Re-enrich every note up to `--limit`, not just those with a null embedding. Ignored when `--note-id` is set. |
+| `--dry-run` | Preview the request without calling the backend |
+
+Posts to the server-side `/index_notes` route, which enqueues one chat task
+per card using the same pipeline `create_context_card` uses. Use after
+bulk-importing notes, after a long offline period, or when entities appear
+missing from the graph. Pair with `deepvista lint --check missing-refs` to
+find concepts that still need their own card.
+
 ### `+quick` — write
 
 > [!CAUTION] Writes a new note. Confirm first (or skip confirmation if the agent is
