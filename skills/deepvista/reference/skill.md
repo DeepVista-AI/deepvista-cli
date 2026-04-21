@@ -20,6 +20,19 @@ deepvista skill get <skill_id>
 
 Returns the full Skill definition including every phase and step.
 
+### `create-from-note` — write
+
+> [!CAUTION] The agent creates skill cards grounded in a source note.
+> Confirm first (or pass `--yes` in batch scripts).
+
+```bash
+deepvista skill create-from-note <note_id> [--kind persona|workflow]... [--yes] [--dry-run]
+```
+
+Synthesizes one `persona` skill and/or one `workflow` skill from a source
+note (podcast, interview, book chapter, research summary). Full guide:
+[skill-create-from-note.md](skill-create-from-note.md).
+
 ### `run` — write
 
 > [!CAUTION] Starts a new Skill run and creates a chat session. Confirm first.
