@@ -65,25 +65,33 @@ clean as it grows. Two good cadences:
 ### Claude Code — background /loop
 
 ```bash
-# In a Claude Code session, kick off a self-pacing loop:
+# In a Claude Code session, kick off a self-pacing loop.
+# /loop without an explicit interval runs indefinitely — stop it with /stop.
 /loop deepvista lint --check duplicates
 ```
 
-Or schedule it persistently with the `schedule` skill:
+Or schedule it persistently with the `schedule` skill (survives session end):
 
 ```bash
 /schedule "every 4 hours" deepvista lint --check duplicates
-/schedule "weekly" deepvista lint --fix
+/schedule "weekly" deepvista lint --fix --yes
 ```
+
+`--fix` normally prompts for confirmation; scheduled runs must pass `--yes`
+to accept the write blast radius non-interactively.
 
 ### Cursor Agent — cron
 
-Cursor doesn't ship a native scheduler. Use system cron:
+Cursor doesn't ship a native scheduler. Use system cron. Log into the
+existing CLI config directory so logs live next to credentials and respect
+`DEEPVISTA_CONFIG_DIR`:
 
 ```cron
-# Every 4 hours: lint + re-index notes
-0 */4 * * *  deepvista lint --check duplicates >> ~/.deepvista/lint.log 2>&1
-15 */4 * * * deepvista notes index --limit 50 >> ~/.deepvista/index.log 2>&1
+# One-time setup: mkdir -p ~/.config/deepvista/logs
+#
+# Every 4 hours: lint + re-index notes.
+0 */4 * * *  deepvista lint --check duplicates >> ~/.config/deepvista/logs/lint.log 2>&1
+15 */4 * * * deepvista notes index --limit 50  >> ~/.config/deepvista/logs/index.log 2>&1
 ```
 
 ### Any agent — `at` / launchd / systemd

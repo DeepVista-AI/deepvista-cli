@@ -13,6 +13,7 @@ Streams the agent's response as NDJSON (same format as `chat +send`).
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import click
 
@@ -73,12 +74,22 @@ _REPORT_INSTRUCTION = (
 )
 
 
-def _build_prompt(checks: tuple[str, ...], fix: bool) -> str:
-    if "all" in checks or not checks:
-        selected = [k for k in _CHECK_INSTRUCTIONS if k != "all"]
-    else:
-        selected = list(checks)
+def _resolve_checks(checks: tuple[str, ...]) -> list[str]:
+    """Expand "all" to the full check set. "all" + others => all (with a warning)."""
+    if not checks or "all" in checks:
+        explicit = [c for c in checks if c not in ("all", "")]
+        if explicit:
+            click.echo(
+                f"warning: --check all supersedes {', '.join(explicit)}; running the full check set.",
+                err=True,
+            )
+        return [k for k in _CHECK_INSTRUCTIONS if k != "all"]
+    # Preserve caller order; de-dup while keeping first occurrence.
+    seen: set[str] = set()
+    return [c for c in checks if not (c in seen or seen.add(c))]
 
+
+def _build_prompt(selected: list[str], fix: bool) -> str:
     lines = [
         "Run an LLM health check over the vistabase. For each check below, "
         "use your search and graph tools to investigate, then produce a "
@@ -110,6 +121,14 @@ def _client(ctx: click.Context) -> DeepVistaClient:
     default=False,
     help="Let the agent apply fixes (merge duplicates, etc.) instead of only reporting.",
 )
+@click.option(
+    "--yes",
+    "-y",
+    "assume_yes",
+    is_flag=True,
+    default=False,
+    help="Skip the --fix confirmation prompt. Use only in scripts/cron.",
+)
 @click.option("--chat-id", default=None, help="Continue an existing lint session.")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview the prompt without calling the agent.")
 @click.pass_context
@@ -117,6 +136,7 @@ def lint_command(
     ctx: click.Context,
     checks: tuple[str, ...],
     fix: bool,
+    assume_yes: bool,
     chat_id: str | None,
     dry_run: bool,
 ) -> None:
@@ -129,8 +149,9 @@ def lint_command(
     > [!CAUTION] With `--fix`, this is a write command — the agent may merge,
     > update, or delete cards. Confirm with the user before executing.
     """
-    prompt = _build_prompt(checks, fix)
-    body: dict = {"user_instruction": prompt}
+    selected = _resolve_checks(checks)
+    prompt = _build_prompt(selected, fix)
+    body: dict[str, Any] = {"user_instruction": prompt}
     if chat_id:
         body["chat_id"] = chat_id
 
@@ -139,7 +160,7 @@ def lint_command(
             {
                 "dry_run": True,
                 "would": "send lint prompt to DeepVista agent",
-                "checks": list(checks),
+                "checks": selected,
                 "fix": fix,
                 "payload": body,
             },
@@ -149,5 +170,21 @@ def lint_command(
         )
         return
 
-    for event in _client(ctx).stream_sse("/imagine", body):
-        click.echo(json.dumps(event, default=str))
+    if fix and not assume_yes:
+        click.confirm(
+            "--fix lets the agent merge, update, and delete cards. Continue?",
+            abort=True,
+        )
+
+    try:
+        for event in _client(ctx).stream_sse("/imagine", body):
+            click.echo(json.dumps(event, default=str))
+    except (KeyboardInterrupt, click.Abort):
+        click.echo(json.dumps({"type": "interrupted", "message": "lint stream aborted by user"}), err=True)
+        raise
+    except Exception as exc:
+        click.echo(
+            json.dumps({"type": "error", "message": f"lint stream failed: {exc}"}),
+            err=True,
+        )
+        raise

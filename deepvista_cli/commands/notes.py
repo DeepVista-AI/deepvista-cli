@@ -8,6 +8,7 @@ The index command triggers entity extraction on notes not yet processed.
 from __future__ import annotations
 
 import json as _json
+from typing import Any
 
 import click
 
@@ -189,14 +190,22 @@ def notes_delete(ctx: click.Context, note_id: str, dry_run: bool) -> None:
 
 
 @notes_group.command("index")
-@click.option("--limit", default=50, help="Max notes to re-index (default 50, max 500).")
+@click.option(
+    "--limit",
+    type=click.IntRange(1, 500),
+    default=50,
+    help="Max notes to re-index (default 50, max 500).",
+)
 @click.option("--note-id", "note_ids", multiple=True, help="Index specific note(s) by ID. Repeatable.")
 @click.option(
     "--all",
     "include_enriched",
     is_flag=True,
     default=False,
-    help="Re-enrich every note up to --limit, not just those with a null embedding.",
+    help=(
+        "Re-enrich every note up to --limit, not just those with a null embedding. "
+        "Ignored when --note-id is set (explicit IDs always re-enrich)."
+    ),
 )
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
@@ -218,10 +227,12 @@ def notes_index(
     > [!CAUTION] This is a write command — it kicks off background agent runs
     > that may create/update related cards. Confirm before executing.
     """
-    body: dict = {
+    # Explicit IDs always bypass the unenriched filter — the user asked for those cards specifically.
+    only_unenriched = not include_enriched and not note_ids
+    body: dict[str, Any] = {
         "card_type": "note",
         "limit": limit,
-        "only_unenriched": not include_enriched,
+        "only_unenriched": only_unenriched,
     }
     if note_ids:
         body["card_ids"] = list(note_ids)

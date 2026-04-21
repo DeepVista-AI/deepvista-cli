@@ -72,8 +72,8 @@ deepvista notes index [--limit N] [--note-id ID]... [--all] [--dry-run]
 | Flag | When |
 |---|---|
 | `--limit N` | Max notes to process (default 50, max 500, newest first) |
-| `--note-id ID` | Target specific note(s). Repeatable. Bypasses unenriched filter. |
-| `--all` | Re-enrich every note up to `--limit`, not just those with a null embedding |
+| `--note-id ID` | Target specific note(s). Repeatable. Implies re-enrichment — the unenriched filter is dropped for explicit IDs, and `--all` is redundant. |
+| `--all` | Re-enrich every note up to `--limit`, not just those with a null embedding. Ignored when `--note-id` is set. |
 | `--dry-run` | Preview the request without calling the backend |
 
 Posts to the server-side `/index_notes` route, which enqueues one chat task
