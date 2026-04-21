@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 import click
 
@@ -18,6 +19,10 @@ from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.output.formatter import format_output, output_error
 
 SKILL_COLUMNS = ["id", "title", "display_status", "updated_at"]
+
+SKILL_KINDS = ("persona", "workflow")
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 
 def _client(ctx: click.Context) -> DeepVistaClient:
@@ -95,7 +100,6 @@ def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, dry_run
 
     Output is NDJSON (one JSON object per line) as the agent streams its response.
     """
-    _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
     if not _UUID_RE.match(skill_id):
         output_error(3, "Invalid skill ID", f"Expected UUID format, got: {skill_id!r}")
 
@@ -226,3 +230,147 @@ def skill_install(ctx: click.Context, skill_id: str, dry_run: bool) -> None:
         click.echo(json.dumps({"status": "already_installed", "card": data.get("card", {})}, indent=2, default=str))
     else:
         click.echo(json.dumps({"status": "installed", "card": data.get("card", {})}, indent=2, default=str))
+
+
+# ---------------------------------------------------------------------------
+# create-from-note — synthesize skills from a source note via the agent
+# ---------------------------------------------------------------------------
+
+
+_CREATE_FROM_NOTE_INSTRUCTIONS = {
+    "persona": (
+        "A **persona skill** named `persona-<interviewee-slug>` that captures the "
+        "interviewee's philosophy, voice, and decision-making lens. When loaded, "
+        "the agent should respond in their voice and apply their frameworks. "
+        "Include: who they are, core mental models drawn from the note, voice/"
+        "tone rules, and a 3-5 phase advising sequence using <accordion>/<nli> "
+        "shortcodes."
+    ),
+    "workflow": (
+        "A **workflow skill** named `workflow-<topic-slug>` that turns the "
+        "interviewee's frameworks or steps into an executable workflow. The user "
+        "provides inputs; the workflow classifies, recommends, and returns a "
+        "prioritized plan. Include: purpose, input schema, 4-6 phases using "
+        "<accordion>/<nli> shortcodes, cheat sheet, and output format template."
+    ),
+}
+
+
+def _build_create_from_note_prompt(note_id: str, kinds: tuple[str, ...]) -> str:
+    lines = [
+        f'Look up the note with id "{note_id}" using `read_context_card`. Read '
+        "its full content. From that note, generate the skill(s) listed below. "
+        "Ground every detail in the note — do not invent frameworks or advice "
+        "the note doesn't contain.",
+        "",
+        "Skills to generate:",
+    ]
+    for i, kind in enumerate(kinds, 1):
+        lines.append(f"{i}. {_CREATE_FROM_NOTE_INSTRUCTIONS[kind]}")
+    lines.append("")
+    lines.append(
+        "**You MUST persist each skill by calling `upsert_context_card` with "
+        '`card_type="skill"`.** Do not write the skill content to a local '
+        "file, do not paste it in the chat response, do not skip the tool "
+        "call. One `upsert_context_card` invocation per skill."
+    )
+    lines.append("")
+    lines.append(
+        "For each `upsert_context_card` call: set `title` to the skill name, "
+        "put the full SKILL.md body in `description`, add relevant `tags` "
+        "including the kind (`persona` or `workflow`), and link the source "
+        f'note via `related_context_card_ids=["{note_id}"]`. After each call, '
+        "confirm the returned card id in the chat response."
+    )
+    return "\n".join(lines)
+
+
+@skill_group.command("create-from-note")
+@click.argument("note_id")
+@click.option(
+    "--kind",
+    "kinds",
+    type=click.Choice(SKILL_KINDS, case_sensitive=False),
+    multiple=True,
+    default=SKILL_KINDS,
+    help="Which skill kinds to synthesize. Repeatable. Default: persona and workflow.",
+)
+@click.option("--chat-id", default=None, help="Continue an existing synthesis session.")
+@click.option(
+    "--yes",
+    "-y",
+    "assume_yes",
+    is_flag=True,
+    default=False,
+    help="Skip the write confirmation prompt. Use only in scripts/batch conversion.",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Preview the prompt without calling the agent.")
+@click.pass_context
+def skill_create_from_note(
+    ctx: click.Context,
+    note_id: str,
+    kinds: tuple[str, ...],
+    chat_id: str | None,
+    assume_yes: bool,
+    dry_run: bool,
+) -> None:
+    """Synthesize skill card(s) from a note via the DeepVista agent.
+
+    Reads the note identified by `note_id` and invokes the agent with a curated
+    prompt that produces one `persona` skill (interviewee's voice + frameworks)
+    and/or one `workflow` skill (executable steps), grounded in the note's
+    content. Each generated skill is stored as a context card of `type=skill`.
+
+    Designed for batch-converting podcast / interview notes into reusable
+    skills. Streams NDJSON identical to `chat +send` and `skill run`.
+
+    > [!CAUTION] This is a write command — the agent creates skill cards in
+    > the user's project. Confirm before executing.
+    """
+    if not _UUID_RE.match(note_id):
+        output_error(3, "Invalid note ID", f"Expected UUID format, got: {note_id!r}")
+
+    # Empty tuple shouldn't happen with default, but guard anyway.
+    selected = kinds or SKILL_KINDS
+    # De-dup while preserving order.
+    seen: set[str] = set()
+    selected = tuple(k for k in selected if not (k in seen or seen.add(k)))
+
+    prompt = _build_create_from_note_prompt(note_id, selected)
+    body: dict[str, Any] = {"user_instruction": prompt}
+    if chat_id:
+        body["chat_id"] = chat_id
+
+    if dry_run:
+        format_output(
+            {
+                "dry_run": True,
+                "would": "synthesize skills from note via DeepVista agent",
+                "note_id": note_id,
+                "kinds": list(selected),
+                "payload": body,
+            },
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
+    if not assume_yes:
+        click.confirm(
+            f"The agent will create {len(selected)} skill card(s) from note {note_id}. Continue?",
+            abort=True,
+        )
+
+    try:
+        for event in _client(ctx).stream_sse("/imagine", body):
+            click.echo(json.dumps(event, default=str))
+    except (KeyboardInterrupt, click.Abort):
+        click.echo(json.dumps({"type": "interrupted", "message": "skill synthesis aborted by user"}), err=True)
+        raise
+    except Exception as exc:
+        click.echo(
+            json.dumps({"type": "error", "message": f"skill synthesis stream failed: {exc}"}),
+            err=True,
+        )
+        raise
