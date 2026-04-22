@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from typing import Any
 
 import click
@@ -21,6 +22,14 @@ from deepvista_cli.output.formatter import format_output, output_error
 SKILL_COLUMNS = ["id", "title", "display_status", "updated_at"]
 
 SKILL_KINDS = ("persona", "workflow")
+
+# Cap applied when a selector returns a large set so a single synthesis run stays
+# within the agent's usable context. Overridable via --limit.
+_DEFAULT_MULTI_NOTE_LIMIT = 5
+
+# Upper cap when scanning `/get_context_cards` for tag filtering — tags are filtered
+# client-side since the list endpoint has no native tag filter.
+_TAG_SCAN_LIMIT = 200
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
@@ -256,15 +265,48 @@ _CREATE_FROM_NOTE_INSTRUCTIONS = {
 }
 
 
-def _build_create_from_note_prompt(note_id: str, kinds: tuple[str, ...]) -> str:
-    lines = [
-        f'Look up the note with id "{note_id}" using `read_context_card`. Read '
-        "its full content. From that note, generate the skill(s) listed below. "
-        "Ground every detail in the note — do not invent frameworks or advice "
-        "the note doesn't contain.",
-        "",
-        "Skills to generate:",
-    ]
+def _build_create_from_note_prompt(notes: list[tuple[str, str]], kinds: tuple[str, ...]) -> str:
+    """Build the synthesis prompt for 1..N source notes.
+
+    ``notes`` is a list of ``(note_id, title)`` tuples; ``title`` may be empty
+    when the caller couldn't resolve it cheaply. The prompt stays compatible
+    with the single-note wording when ``len(notes) == 1`` so existing agents
+    keep producing the same output shape.
+    """
+    if not notes:
+        raise ValueError("at least one note is required")
+
+    ids_json = json.dumps([nid for nid, _ in notes])
+
+    if len(notes) == 1:
+        note_id = notes[0][0]
+        lines = [
+            f'Look up the note with id "{note_id}" using `read_context_card`. Read '
+            "its full content. From that note, generate the skill(s) listed below. "
+            "Ground every detail in the note — do not invent frameworks or advice "
+            "the note doesn't contain.",
+        ]
+    else:
+        bullets = []
+        for nid, title in notes:
+            label = f'"{title}" ({nid})' if title else nid
+            bullets.append(f"- {label}")
+        lines = [
+            f"Look up each of the following {len(notes)} source notes using "
+            "`read_context_card` and read their full content:",
+            "",
+            *bullets,
+            "",
+            "From those notes **together**, generate the skill(s) listed below. "
+            "Ground every detail in the notes — do not invent frameworks or advice "
+            "they don't contain. When the notes agree, state the shared principle "
+            "and cite each note that supports it. When they disagree, surface the "
+            "tension explicitly and let the user pick. Prefer synthesis over "
+            "averaging: the goal is a skill that is stronger than any single note.",
+        ]
+
+    lines.append("")
+    lines.append("Skills to generate:")
     for i, kind in enumerate(kinds, 1):
         lines.append(f"{i}. {_CREATE_FROM_NOTE_INSTRUCTIONS[kind]}")
     lines.append("")
@@ -278,15 +320,203 @@ def _build_create_from_note_prompt(note_id: str, kinds: tuple[str, ...]) -> str:
     lines.append(
         "For each `upsert_context_card` call: set `title` to the skill name, "
         "put the full SKILL.md body in `description`, add relevant `tags` "
-        "including the kind (`persona` or `workflow`), and link the source "
-        f'note via `related_context_card_ids=["{note_id}"]`. After each call, '
+        "including the kind (`persona` or `workflow`), and link every source "
+        f"note via `related_context_card_ids={ids_json}`. After each call, "
         "confirm the returned card id in the chat response."
     )
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Selector resolution — turn flags into a concrete list of note IDs
+# ---------------------------------------------------------------------------
+
+
+def _read_ids_from_file(path: str) -> list[str]:
+    """Read one ID per line from a file. ``-`` means stdin."""
+    if path == "-":
+        raw = sys.stdin.read()
+    else:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                raw = fh.read()
+        except OSError as exc:
+            output_error(4, "Cannot read --from-file", str(exc))
+            return []  # unreachable; output_error exits
+
+    ids: list[str] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Tolerate `jq -r '.notes[].id'` style or whitespace-separated tokens.
+        ids.extend(tok for tok in line.split() if tok and not tok.startswith("#"))
+    return ids
+
+
+def _cards_to_pairs(cards: list[dict], *, skip_id: str | None = None) -> list[tuple[str, str]]:
+    """Extract ``(id, title)`` pairs from an API card list, dropping ``skip_id``."""
+    pairs: list[tuple[str, str]] = []
+    for card in cards:
+        cid = card.get("id")
+        if not cid or cid == skip_id:
+            continue
+        pairs.append((cid, card.get("title", "") or ""))
+    return pairs
+
+
+def _resolve_from_search(client: DeepVistaClient, query: str, limit: int) -> list[tuple[str, str]]:
+    body = {"query_text": query, "card_type": "note", "limit": limit}
+    data = client.post("/get_context_cards", body)
+    return _cards_to_pairs(data.get("cards", []))
+
+
+def _resolve_from_similar(client: DeepVistaClient, seed_id: str, limit: int) -> list[tuple[str, str]]:
+    """Find notes related to a seed card via hybrid search on its title + snippet.
+
+    Matches the behaviour of `card +similar` (card.py) so results feel consistent.
+    """
+    seed = client.post("/get_context_card", {"card_id": seed_id})
+    title = seed.get("title", "") or ""
+    snippet = seed.get("snippet", "") or ""
+    query = f"{title} {snippet}".strip()
+    if not query:
+        output_error(3, "Seed card has no content for similarity search", f"Card: {seed_id}")
+    # Ask for one extra so we can drop the seed itself and still satisfy --limit.
+    body = {"query_text": query, "card_type": "note", "limit": limit + 1}
+    data = client.post("/get_context_cards", body)
+    return _cards_to_pairs(data.get("cards", []), skip_id=seed_id)[:limit]
+
+
+def _resolve_from_tag(client: DeepVistaClient, tag: str, limit: int) -> list[tuple[str, str]]:
+    """Filter notes by tag (client-side — the list endpoint has no tag filter)."""
+    body = {"card_type": "note", "limit": _TAG_SCAN_LIMIT, "page_number": 1}
+    data = client.post("/get_context_cards", body)
+    matched = [c for c in data.get("cards", []) if tag in (c.get("tags") or [])]
+    return _cards_to_pairs(matched)[:limit]
+
+
+def _resolve_from_grep(client: DeepVistaClient, pattern: str, limit: int) -> list[tuple[str, str]]:
+    """Regex-match note content via `/grep_context_cards`."""
+    body = {
+        "pattern": pattern,
+        "case_insensitive": False,
+        "limit": limit,
+        "context_lines": 0,
+        "card_type": "note",
+    }
+    data = client.post("/grep_context_cards", body)
+    # The grep endpoint returns `matches` grouped by card; we only need ids+titles.
+    pairs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for match in data.get("matches", data.get("results", [])):
+        cid = match.get("card_id") or match.get("id")
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        pairs.append((cid, match.get("title", "") or ""))
+    return pairs[:limit]
+
+
+def _dedupe_pairs(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """De-duplicate while preserving first-seen order. Prefer non-empty titles."""
+    seen: dict[str, str] = {}
+    order: list[str] = []
+    for cid, title in pairs:
+        if cid not in seen:
+            seen[cid] = title
+            order.append(cid)
+        elif not seen[cid] and title:
+            seen[cid] = title
+    return [(cid, seen[cid]) for cid in order]
+
+
+def _resolve_note_ids(
+    client: DeepVistaClient | None,
+    *,
+    positional: tuple[str, ...],
+    extra: tuple[str, ...],
+    from_file: str | None,
+    from_search: str | None,
+    from_similar: str | None,
+    from_tag: str | None,
+    from_grep: str | None,
+    limit: int,
+) -> list[tuple[str, str]]:
+    """Merge every source of note IDs into a single ordered, capped list.
+
+    ``client`` may be ``None`` when the caller only supplies explicit IDs (tests
+    rely on this). Selectors that need the API will fail loudly if it's missing.
+    """
+    pairs: list[tuple[str, str]] = [(nid, "") for nid in positional]
+    pairs.extend((nid, "") for nid in extra)
+    if from_file is not None:
+        pairs.extend((nid, "") for nid in _read_ids_from_file(from_file))
+
+    def require_client() -> DeepVistaClient:
+        if client is None:
+            raise RuntimeError("API client is required for search/similar/tag/grep selectors")
+        return client
+
+    if from_search:
+        pairs.extend(_resolve_from_search(require_client(), from_search, limit))
+    if from_similar:
+        if not _UUID_RE.match(from_similar):
+            output_error(3, "Invalid --from-similar seed", f"Expected UUID, got: {from_similar!r}")
+        pairs.extend(_resolve_from_similar(require_client(), from_similar, limit))
+    if from_tag:
+        pairs.extend(_resolve_from_tag(require_client(), from_tag, limit))
+    if from_grep:
+        pairs.extend(_resolve_from_grep(require_client(), from_grep, limit))
+
+    pairs = _dedupe_pairs(pairs)
+    return pairs[:limit]
+
+
 @skill_group.command("create-from-note")
-@click.argument("note_id")
+@click.argument("note_ids_positional", metavar="[NOTE_ID]...", nargs=-1)
+@click.option(
+    "--note-id",
+    "note_id_flags",
+    multiple=True,
+    help="Source note by ID. Repeatable — pass multiple to synthesize across notes.",
+)
+@click.option(
+    "--from-file",
+    default=None,
+    metavar="PATH",
+    help="Read note IDs (one per line) from a file. Use '-' for stdin.",
+)
+@click.option(
+    "--from-search",
+    default=None,
+    metavar="QUERY",
+    help="Resolve source notes via hybrid search (same backend as `card +search`).",
+)
+@click.option(
+    "--from-similar",
+    default=None,
+    metavar="SEED_NOTE_ID",
+    help="Resolve source notes related to a seed note (graph-style neighbours).",
+)
+@click.option(
+    "--from-tag",
+    default=None,
+    metavar="TAG",
+    help="Resolve source notes whose tags list contains TAG.",
+)
+@click.option(
+    "--from-grep",
+    default=None,
+    metavar="REGEX",
+    help="Resolve source notes whose content matches a regex.",
+)
+@click.option(
+    "--limit",
+    type=click.IntRange(1, 25),
+    default=_DEFAULT_MULTI_NOTE_LIMIT,
+    help=f"Cap resolved source notes (default {_DEFAULT_MULTI_NOTE_LIMIT}, max 25).",
+)
 @click.option(
     "--kind",
     "kinds",
@@ -308,35 +538,69 @@ def _build_create_from_note_prompt(note_id: str, kinds: tuple[str, ...]) -> str:
 @click.pass_context
 def skill_create_from_note(
     ctx: click.Context,
-    note_id: str,
+    note_ids_positional: tuple[str, ...],
+    note_id_flags: tuple[str, ...],
+    from_file: str | None,
+    from_search: str | None,
+    from_similar: str | None,
+    from_tag: str | None,
+    from_grep: str | None,
+    limit: int,
     kinds: tuple[str, ...],
     chat_id: str | None,
     assume_yes: bool,
     dry_run: bool,
 ) -> None:
-    """Synthesize skill card(s) from a note via the DeepVista agent.
+    """Synthesize skill card(s) from one or more notes via the DeepVista agent.
 
-    Reads the note identified by `note_id` and invokes the agent with a curated
-    prompt that produces one `persona` skill (interviewee's voice + frameworks)
-    and/or one `workflow` skill (executable steps), grounded in the note's
-    content. Each generated skill is stored as a context card of `type=skill`.
+    Pass a single note UUID positionally for the original single-note behaviour,
+    or combine multiple notes via repeated positionals, `--note-id`, `--from-file`
+    (including stdin via `-`), `--from-search`, `--from-similar`, `--from-tag`,
+    and `--from-grep`. The agent produces one `persona` skill (voice + frameworks)
+    and/or one `workflow` skill (executable steps), grounded in the union of all
+    resolved notes and linked back to every source.
 
-    Designed for batch-converting podcast / interview notes into reusable
-    skills. Streams NDJSON identical to `chat +send` and `skill run`.
+    Streams NDJSON identical to `chat +send` and `skill run`.
 
     > [!CAUTION] This is a write command — the agent creates skill cards in
     > the user's project. Confirm before executing.
     """
-    if not _UUID_RE.match(note_id):
-        output_error(3, "Invalid note ID", f"Expected UUID format, got: {note_id!r}")
+    # Validate any directly-supplied IDs up front — cheap + gives a useful error.
+    for nid in (*note_ids_positional, *note_id_flags):
+        if not _UUID_RE.match(nid):
+            output_error(3, "Invalid note ID", f"Expected UUID format, got: {nid!r}")
 
-    # Empty tuple shouldn't happen with default, but guard anyway.
-    selected = kinds or SKILL_KINDS
-    # De-dup while preserving order.
-    seen: set[str] = set()
-    selected = tuple(k for k in selected if not (k in seen or seen.add(k)))
+    # Selectors that require API access skip in dry-run with no client yet? We still
+    # want to dry-run from real data to show the exact prompt the agent will see,
+    # so the client is always built lazily on first access.
+    selectors_used = any([from_file, from_search, from_similar, from_tag, from_grep])
+    api_needed = bool(from_search or from_similar or from_tag or from_grep)
 
-    prompt = _build_create_from_note_prompt(note_id, selected)
+    client = _client(ctx) if api_needed else None
+    resolved = _resolve_note_ids(
+        client,
+        positional=note_ids_positional,
+        extra=note_id_flags,
+        from_file=from_file,
+        from_search=from_search,
+        from_similar=from_similar,
+        from_tag=from_tag,
+        from_grep=from_grep,
+        limit=limit,
+    )
+
+    if not resolved:
+        hint = (
+            "pass a NOTE_ID or a selector (--note-id, --from-file, --from-search, "
+            "--from-similar, --from-tag, --from-grep)"
+        )
+        output_error(3, "No source notes resolved", hint if not selectors_used else "selectors returned zero notes")
+
+    # De-dup `--kind` while preserving order. Empty tuple shouldn't happen (has default).
+    seen_k: set[str] = set()
+    selected = tuple(k for k in (kinds or SKILL_KINDS) if not (k in seen_k or seen_k.add(k)))
+
+    prompt = _build_create_from_note_prompt(resolved, selected)
     body: dict[str, Any] = {"user_instruction": prompt}
     if chat_id:
         body["chat_id"] = chat_id
@@ -345,8 +609,9 @@ def skill_create_from_note(
         format_output(
             {
                 "dry_run": True,
-                "would": "synthesize skills from note via DeepVista agent",
-                "note_id": note_id,
+                "would": "synthesize skills from note(s) via DeepVista agent",
+                "note_ids": [nid for nid, _ in resolved],
+                "resolved_notes": [{"id": nid, "title": title} for nid, title in resolved],
                 "kinds": list(selected),
                 "payload": body,
             },
@@ -358,12 +623,16 @@ def skill_create_from_note(
 
     if not assume_yes:
         click.confirm(
-            f"The agent will create {len(selected)} skill card(s) from note {note_id}. Continue?",
+            (
+                f"The agent will create {len(selected)} skill card(s) synthesized from "
+                f"{len(resolved)} source note(s). Continue?"
+            ),
             abort=True,
         )
 
     try:
-        for event in _client(ctx).stream_sse("/imagine", body):
+        active_client = client or _client(ctx)
+        for event in active_client.stream_sse("/imagine", body):
             click.echo(json.dumps(event, default=str))
     except (KeyboardInterrupt, click.Abort):
         click.echo(json.dumps({"type": "interrupted", "message": "skill synthesis aborted by user"}), err=True)

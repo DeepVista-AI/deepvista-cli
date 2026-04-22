@@ -49,8 +49,13 @@ packages = ["deepvista_cli"]
 dev = [
     "pre-commit>=3.7",
     "pyright>=1.1",
+    "pytest>=8.0",
     "ruff>=0.4",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
 
 [tool.ruff]
 line-length = 120
