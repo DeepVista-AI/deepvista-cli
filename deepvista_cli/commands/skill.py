@@ -250,8 +250,16 @@ _CREATE_FROM_NOTE_INSTRUCTIONS = {
         "A **workflow skill** named `workflow-<topic-slug>` that turns the "
         "interviewee's frameworks or steps into an executable workflow. The user "
         "provides inputs; the workflow classifies, recommends, and returns a "
-        "prioritized plan. Include: purpose, input schema, 4-6 phases using "
-        "<accordion>/<nli> shortcodes, cheat sheet, and output format template."
+        "prioritized plan. Include: purpose, **a `## Workflow` section with a "
+        "`mermaid` flowchart diagram that visualises the decision graph — "
+        "ALWAYS open the fence with the `mermaid` info string (```mermaid) "
+        "and use `flowchart TD`**, input schema, 4-6 phases using "
+        "<accordion>/<nli> shortcodes, cheat sheet, and output format template. "
+        "In the mermaid block, assign an ID to each edge using v11 syntax "
+        "(`A e1@--> B`) and turn on animation on the happy-path edges with "
+        "`e1@{ animation: slow }` so the diagram visibly flows. Keep the "
+        "diagram under ~15 nodes — split into multiple diagrams if the "
+        "workflow is larger."
     ),
 }
 
