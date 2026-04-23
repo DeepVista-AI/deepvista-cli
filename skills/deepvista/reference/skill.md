@@ -6,6 +6,26 @@ Skill run so you can continue it like a regular conversation.
 
 ## Commands
 
+### `+catalog` — read-only (agent startup)
+
+```bash
+deepvista skill +catalog [--limit N]
+```
+
+Returns a compact list of every installed Skill — just `id`, `title`, and `snippet`.
+**Call this at the start of any conversation** to load the user's full Skill library
+into context so you can suggest or run the right Skill without the user having to
+name it explicitly.
+
+```json
+{
+  "catalog": [
+    {"id": "uuid-…", "title": "Weekly Review", "snippet": "Summarise the week…"},
+    {"id": "uuid-…", "title": "Hiring pipeline", "snippet": "Screen → interview…"}
+  ]
+}
+```
+
 ### `list` — read-only
 
 ```bash
@@ -81,6 +101,7 @@ deepvista skill install <skill_id>
 ## Examples
 
 ```bash
+deepvista skill +catalog                           # load all Skills at startup
 deepvista skill list
 deepvista skill run vb_abc123 --input "Focus on Q4 objectives"
 deepvista skill status chat_xyz789

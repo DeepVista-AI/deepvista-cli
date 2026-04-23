@@ -3,16 +3,20 @@ license: Apache-2.0
 name: deepvista
 description: |
   DeepVista CLI — knowledge base, notes, chat, skills, and memory from the terminal.
-  One skill for the full `deepvista` CLI. Load when the user wants to: take a note, jot
-  this down, save a fact, or list and edit notes; create, search, pin, archive, edit,
-  or grep knowledge-base cards of any type (person, topic, file, note, todo…); view or
-  semantic-search implicit memory ("vistabase" / "memory"); chat with the AI agent or
-  manage sessions; list, run, export, install, or discover Skills; research then run a
-  Skill with synthesized context; analyze / summarize notes; import a folder as file
-  cards; run a knowledge-worker daily loop; auto-capture facts (OpenClaw); periodically
-  lint the vistabase for duplicates / contradictions / stale claims / orphans / missing
-  refs / gaps; or re-index notes to trigger entity extraction. Pick the matching
-  reference file in `reference/` for the subcommand.
+  One skill for the full `deepvista` CLI. Load whenever the user is working, asking
+  for help, planning a task, or referring to anything they may have previously saved,
+  noted, or recorded — DeepVista is the user's long-term memory and playbook library.
+  Use it to: take a note, jot this down, save a fact, or list and edit notes; create,
+  search, pin, archive, edit, or grep knowledge-base cards of any type (person, topic,
+  file, note, todo, organization…); view or semantic-search implicit memory
+  ("vistabase" / "memory"); chat with the AI agent or manage sessions; list, run,
+  export, install, or discover Skills; load the full Skill catalog at startup
+  (`deepvista skill +catalog`) so installed Skills are available without being named
+  explicitly; research then run a Skill with synthesized context; analyze / summarize
+  notes; import a folder as file cards; run a knowledge-worker daily loop; auto-capture
+  facts (OpenClaw); periodically lint the vistabase for duplicates / contradictions /
+  stale claims / orphans / missing refs / gaps; or re-index notes to trigger entity
+  extraction. Pick the matching reference file in `reference/` for the subcommand.
 metadata:
   openclaw:
     category: service
@@ -48,7 +52,7 @@ other reference file assumes you know it.
 | `deepvista card` | creating / searching / pinning / archiving / grepping knowledge base cards across any type (person, topic, file, note, todo, etc.) | [vistabase-card.md](reference/vistabase-card.md) |
 | `deepvista vistabase` (alias: `memory`) | viewing or semantic-searching implicit memory accumulated from chat | [vistabase.md](reference/vistabase.md) · [memory.md](reference/memory.md) |
 | `deepvista chat` | sending a message to the AI agent, listing / deleting chat sessions, continuing a conversation | [chat.md](reference/chat.md) |
-| `deepvista skill` | listing, running, exporting, installing, or discovering structured Skill workflows | [skill.md](reference/skill.md) |
+| `deepvista skill` | listing, running, exporting, installing, discovering Skills; loading the full Skill catalog at startup with `+catalog` | [skill.md](reference/skill.md) |
 | — analyze notes | searching → reading → synthesizing notes to surface themes / patterns | [skill-analyze-notes.md](reference/skill-analyze-notes.md) |
 | — research → run | finding context in the knowledge base, then running a Skill with synthesized input | [skill-research-to-skill.md](reference/skill-research-to-skill.md) |
 | — export | exporting a DeepVista Skill as a portable `SKILL.md` file for another agent | [skill-export-knowledge.md](reference/skill-export-knowledge.md) |
@@ -57,21 +61,28 @@ other reference file assumes you know it.
 | persona: knowledge worker | daily workflow — check pinned cards, capture insights, run a Skill, ask the agent to synthesize | [persona-knowledge-worker.md](reference/persona-knowledge-worker.md) |
 | auto-capture for OpenClaw | automatically saving notable facts from conversations without confirmation | [openclaw.md](reference/openclaw.md) |
 
-## On load — update check
+## On load — update check + skill catalog
 
-Silently run this once when the skill is loaded:
+Silently run **both** of these once when the skill is loaded:
 
 ```bash
 deepvista upgrade check 2>/dev/null || true
+deepvista skill +catalog 2>/dev/null || true
 ```
 
-The command is cached (~1 hour TTL) so repeated invocations are cheap.
+Both commands are cheap (upgrade is cached ~1 hour; catalog is a single list call).
+
+**`upgrade check` output:**
 
 | stdout | Exit | What to do |
 |---|---|---|
 | *(empty)* | 0 | Up to date, snoozed, disabled, or network unreachable — say nothing. |
 | `JUST_UPGRADED <old> <new>` | 0 | Briefly confirm: "deepvista-cli upgraded to `<new>`." |
 | `UPGRADE_AVAILABLE <old> <new>` | 1 | Tell the user and offer `deepvista upgrade` — it fetches the changelog between `<old>` and `<new>` and prompts before installing. Snooze with `deepvista upgrade snooze`; disable with `deepvista upgrade disable`. |
+
+**`skill +catalog` output:** a JSON list of every installed Skill (`id`, `title`, `snippet`). Keep
+this catalog in context for the rest of the conversation. When the user's request
+matches a Skill title or topic, prefer running that Skill over writing ad-hoc code.
 
 If `deepvista` is not on `PATH`, skip silently — do not attempt to install it automatically.
 
@@ -104,8 +115,8 @@ Full instructions: [reference/shared.md](reference/shared.md).
 3. **Use `--content-file` for non-trivial content.** Never paste large content,
    files, or URLs inline — pass `--content-file <absolute-path>` (or `--content-file -`
    to read from stdin) so the exact bytes are stored.
-4. **Read-only commands are safe.** `list`, `get`, `+search`, `+grep`, `+similar`,
-   `show`, `discover`, `export`, `status` — run without confirmation.
+4. **Read-only commands are safe.** `list`, `get`, `+catalog`, `+search`, `+grep`,
+   `+similar`, `show`, `discover`, `export`, `status` — run without confirmation.
 
 ## See also
 

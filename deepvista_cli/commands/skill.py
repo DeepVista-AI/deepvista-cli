@@ -68,6 +68,47 @@ def skill_list(ctx: click.Context, limit: int, page_number: int) -> None:
     )
 
 
+@skill_group.command("+catalog")
+@click.option("--limit", default=50, help="Max skills to return (default 50).")
+@click.pass_context
+def skill_catalog(ctx: click.Context, limit: int) -> None:
+    """List all Skills as compact catalog entries (id · title · snippet).
+
+    Designed to be called by agents at startup so that all installed Skills
+    are available in context without the user having to mention them explicitly.
+    Each entry includes only the fields needed for an agent to decide whether
+    a Skill is relevant: ``id``, ``title``, and a short ``snippet``.
+
+    Read-only — never modifies your Skills.
+    """
+    data = _client(ctx).post(
+        "/get_context_cards",
+        {
+            "card_type": "vistabook",
+            "limit": limit,
+            "page_number": 1,
+        },
+    )
+    cards = data.get("cards", [])
+    catalog = [
+        {
+            "id": c.get("id", ""),
+            "title": c.get("title", ""),
+            "snippet": c.get("snippet", ""),
+        }
+        for c in cards
+    ]
+    result = {"catalog": catalog, "count": len(catalog), "has_more": data.get("has_more", False)}
+    format_output(
+        result,
+        ctx.obj.output_format,
+        columns=["id", "title", "snippet"],
+        title="Skill Catalog",
+        entity_type="skill",
+        base_url=ctx.obj.auth_url,
+    )
+
+
 @skill_group.command("get")
 @click.argument("skill_id")
 @click.pass_context
