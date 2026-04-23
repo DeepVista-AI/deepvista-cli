@@ -50,13 +50,19 @@ try:
             if role != "user" or not content_raw:
                 continue
             if isinstance(content_raw, str):
-                last_text = content_raw
+                if content_raw.strip():
+                    last_text = content_raw
             elif isinstance(content_raw, list):
                 parts = [
-                    b.get("text", "") if isinstance(b, dict) and b.get("type") == "text" else ""
+                    b.get("text", "")
                     for b in content_raw
+                    if isinstance(b, dict) and b.get("type") == "text"
                 ]
-                last_text = " ".join(p for p in parts if p).strip()
+                text = " ".join(p for p in parts if p).strip()
+                # Skip tool_result / empty entries so they don't wipe a real
+                # user message that came earlier in the transcript.
+                if text:
+                    last_text = text
 except Exception:
     pass
 
@@ -69,10 +75,11 @@ PYEOF
 [ -z "$LAST_USER" ] || [ "${#LAST_USER}" -lt 20 ] && exit 0
 
 # Only save messages that contain factual statements about the user, their work,
-# decisions, or plans — skip pure questions and commands
+# decisions, or plans — skip pure questions and commands. Word-boundaries
+# (\b) prevent substring false positives like "your" matching "our ".
 LOWER=$(printf '%s' "$LAST_USER" | tr '[:upper:]' '[:lower:]')
 printf '%s' "$LOWER" | grep -qE \
-  "(i am|i'm |we are|we're |my |our |i have|we have|i don't|i do not|i like|i love|i hate|i prefer|decided|planning|going to|working on|we built|i built|the tool|the product|the company|we('re| are) building|i want to|we want to|it is |it's )" \
+  "\b(i am|i'm|we are|we're|my|our|i have|we have|i don't|i do not|i like|i love|i hate|i prefer|decided|planning|going to|working on|we built|i built|the tool|the product|the company|we('re| are) building|i want to|we want to|it is|it's|this is|here is|here's|note:)\b" \
   || exit 0
 
 # Save to DeepVista in background — non-blocking so Claude isn't delayed
