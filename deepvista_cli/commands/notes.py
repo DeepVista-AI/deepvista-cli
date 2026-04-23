@@ -291,8 +291,8 @@ def _find_session_note(client: DeepVistaClient, session_id: str) -> dict[str, An
 @click.option("--session-id", required=True, help="Agent session ID (Claude Code session_id).")
 @click.option("--transcript", required=True, help="Path to the transcript JSONL.")
 @click.option("--cwd", required=True, help="Project working directory the session is running in.")
-@click.option("--agent", default=sn.DEFAULT_AGENT, help=f"Agent type (default: {sn.DEFAULT_AGENT}).")
-@click.option("--agent-version", default=None, help="Agent version string.")
+@click.option("--agent", default=None, help="Agent type. Auto-detected from env/process-tree when omitted.")
+@click.option("--agent-version", default=None, help="Agent version string. Auto-detected when omitted.")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def notes_session_init(
@@ -300,7 +300,7 @@ def notes_session_init(
     session_id: str,
     transcript: str,
     cwd: str,
-    agent: str,
+    agent: str | None,
     agent_version: str | None,
     dry_run: bool,
 ) -> None:
@@ -310,6 +310,11 @@ def notes_session_init(
 
     > [!CAUTION] This is a write command (creates a note on first call).
     """
+    if agent is None:
+        detected_agent, detected_version = detect_agent_tool()
+        agent = detected_agent
+        if agent_version is None:
+            agent_version = detected_version
     state = sn.load_state(session_id)
     note_id = state.get("note_id")
     if not note_id:
