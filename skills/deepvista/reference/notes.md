@@ -82,6 +82,110 @@ bulk-importing notes, after a long offline period, or when entities appear
 missing from the graph. Pair with `deepvista lint --check missing-refs` to
 find concepts that still need their own card.
 
+### `session-init` — write
+
+> [!CAUTION] Creates a rolling note on first call per `session-id`. Meant
+> for agent SessionStart hooks; confirm before running by hand.
+
+```bash
+deepvista notes session-init \
+  --session-id <id> \
+  --transcript <path> \
+  --cwd <dir> \
+  [--agent claude-code] [--agent-version X.Y.Z] [--dry-run]
+```
+
+Idempotent. Looks up an existing session note by `cc-session:<id>` tag; if
+none, creates one with seeded frontmatter (agent, project_dir, git branch/commit,
+started_at, status=active). Caches the resolved `note_id` at
+`$XDG_STATE_HOME/deepvista/sessions/<session-id>.json` so every subsequent
+`session-tick` is a single HTTP call.
+
+### `session-tick` — write
+
+> [!CAUTION] Appends a new turn block and bumps the note's version.
+
+```bash
+deepvista notes session-tick \
+  --session-id <id> \
+  --transcript <path> \
+  [--dry-run]
+```
+
+Parses the transcript JSONL, extracts turns newer than `last_turn_index`
+from the cache, renders a heuristic summary per turn (first ~400 chars of
+user/assistant + tool counts + files touched), prepends it inside
+`## Turns`, and updates `turn_count` / `version` / `updated_at` in the
+frontmatter. Body capped at ~50 KB — oldest turns are dropped first.
+
+### `session-finalize` — write
+
+> [!CAUTION] Flips status to `complete` and queues enrichment.
+
+```bash
+deepvista notes session-finalize \
+  --session-id <id> \
+  [--transcript <path>] \
+  [--no-enrich] [--dry-run]
+```
+
+Marks the frontmatter `status: complete` and calls `/index_notes` on the
+session note. Pass `--transcript` to flush any remaining turns first.
+
+### `history` — read-only
+
+```bash
+deepvista notes history <note_id> [--limit N]
+```
+
+List prior versions of a note (newest first). Returns `version`, `reason`,
+`changed_by`, `created_at`. Backed by `/get_context_card_history`.
+
+### `diff` — read-only
+
+```bash
+deepvista notes diff <note_id> <from_version> <to_version>
+```
+
+Unified diff between two versions of a note. In `--format table` mode the
+diff is printed directly; in `--format json` it is returned under `.diff`.
+
+### `restore` — write (reversible)
+
+> [!CAUTION] Rolls the note back. Current state is captured as a new
+> version first so restore itself is reversible.
+
+```bash
+deepvista notes restore <note_id> <version> [--yes] [--dry-run]
+```
+
+Backed by `/restore_context_card_version`. The server's UPDATE trigger
+captures the pre-restore state, so you can always `restore` again to the
+prior `version`.
+
+### Hook installation (Claude Code)
+
+```json
+// ~/.claude/settings.json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "$DEEPVISTA_HOME/hooks/deepvista-session-start.sh" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "$DEEPVISTA_HOME/hooks/deepvista-session-turn.sh" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "$DEEPVISTA_HOME/hooks/deepvista-session-end.sh" }] }
+    ]
+  }
+}
+```
+
+Every script is non-blocking (`&` background) so Claude Code latency is
+unaffected. Scripts silently no-op if `deepvista` is not on `PATH` or
+auth is missing.
+
 ### `+quick` — write
 
 > [!CAUTION] Writes a new note. Confirm first (or skip confirmation if the agent is

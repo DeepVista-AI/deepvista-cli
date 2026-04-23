@@ -8,6 +8,26 @@ users what's new between the version they have installed and the latest release.
 
 ## Unreleased
 
+### Added
+- **Session-scoped conversation notes** (DV-449 M1/M2). One rolling DeepVista
+  note per Claude Code session, updated every conversation turn with
+  heuristic per-turn summaries. Frontmatter records agent, project dir, git
+  branch/commit, turn count, and version. New subcommands:
+  `deepvista notes session-init` (idempotent create-or-get by session_id),
+  `session-tick` (append newest turn, bump version), `session-finalize`
+  (mark complete, queue enrichment). Three shell hooks for Claude Code:
+  `hooks/deepvista-session-{start,turn,end}.sh` — non-blocking, silent
+  fallback when the CLI is missing.
+- **Version history for notes** (DV-449 M2). `deepvista notes history`
+  lists prior versions, `notes diff <id> <a> <b>` shows a unified diff,
+  `notes restore <id> <version>` rolls back (itself reversible). Backed by
+  the server-side `context_card_versions` audit table that captures every
+  note update via trigger.
+- **Session-note lookup uses server-side `tag_contains`** instead of
+  client-side scan of recent notes — O(1) resolution of
+  `cc-session:<session_id>` tag via the existing `/get_context_cards`
+  filter.
+
 ## v0.1.2
 
 ### Changed
