@@ -632,10 +632,12 @@ def notes_quick(ctx: click.Context, text: str, dry_run: bool) -> None:
     if len(title) < len(text):
         title = title.rstrip(".") + "..."
 
+    agent, _ = detect_agent_tool()
     body = {
         "card_type": "note",
         "title": title,
         "description": text,
+        "tags": [f"{sn.AGENT_TAG_PREFIX}{agent}"],
         "enrich": True,
     }
 
