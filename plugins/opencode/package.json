@@ -1,0 +1,14 @@
+{
+  "name": "@deepvista/opencode-plugin",
+  "version": "0.1.0",
+  "description": "opencode plugin that syncs the DeepVista remote skill catalog on session start.",
+  "author": "DeepVista AI",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "index.js",
+  "homepage": "https://cli.deepvista.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DeepVista-AI/deepvista-cli"
+  }
+}

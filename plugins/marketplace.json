@@ -1,0 +1,12 @@
+{
+  "name": "deepvista",
+  "description": "DeepVista agent plugins — remote skill catalog sync for Claude Code and opencode.",
+  "homepage": "https://cli.deepvista.ai",
+  "plugins": [
+    {
+      "name": "deepvista",
+      "source": "./claude-code",
+      "description": "Auto-sync the DeepVista remote skill catalog to ~/.claude/skills/ on SessionStart."
+    }
+  ]
+}

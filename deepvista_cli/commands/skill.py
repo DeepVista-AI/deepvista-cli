@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 import click
 
+from deepvista_cli import skill_catalog
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.output.formatter import format_output, output_error
 
@@ -166,6 +168,137 @@ def skill_export(ctx: click.Context, skill_id: str, export_format: str) -> None:
     format_output(
         data, ctx.obj.output_format, title=f"Export: {skill_id}", entity_type="skill", base_url=ctx.obj.auth_url
     )
+
+
+# ---------------------------------------------------------------------------
+# Catalog: remote-managed skills distributed as thin SKILL.md stubs
+# ---------------------------------------------------------------------------
+
+
+@skill_group.command("sync")
+@click.option(
+    "--target",
+    type=click.Path(file_okay=False, resolve_path=True),
+    default=None,
+    help=("Skills directory to write stubs into. Default: ~/.claude/skills (also read by opencode, Cursor, Codex)."),
+)
+@click.option(
+    "--prefix",
+    default=skill_catalog.DEFAULT_STUB_PREFIX,
+    show_default=True,
+    help="Namespace prefix for stub dir names (keeps user-authored skills untouched).",
+)
+@click.option(
+    "--limit",
+    type=click.IntRange(1, 200),
+    default=skill_catalog.DEFAULT_LIMIT,
+    show_default=True,
+    help="Cap number of skills fetched. Honors server-side ordering (pinned → recent).",
+)
+@click.option(
+    "--throttle-min",
+    type=int,
+    default=skill_catalog.DEFAULT_THROTTLE_MIN,
+    show_default=True,
+    help="Skip sync if last successful sync was newer than N minutes.",
+)
+@click.option("--force", is_flag=True, default=False, help="Ignore the throttle and sync now.")
+@click.option("--dry-run", is_flag=True, default=False, help="Compute diff, print summary, exit without writing.")
+@click.option("--quiet", is_flag=True, default=False, help="Suppress stdout; communicate via exit code only.")
+@click.pass_context
+def skill_sync(
+    ctx: click.Context,
+    target: str | None,
+    prefix: str,
+    limit: int,
+    throttle_min: int,
+    force: bool,
+    dry_run: bool,
+    quiet: bool,
+) -> None:
+    """Sync thin DeepVista catalog stubs into an agent skills directory.
+
+    Each stub is a minimal ``SKILL.md`` — frontmatter plus a lazy-load
+    directive. The real skill body is fetched at invocation time via
+    ``deepvista skill load <id>``. Re-runs are idempotent and throttled.
+
+    Read/write — writes stub files but never calls remote write endpoints.
+    Safe to wire into a SessionStart hook (it exits 0 on any network failure
+    and previous sync state remains usable).
+    """
+    target_path = Path(target) if target else skill_catalog.DEFAULT_TARGET_DIR
+
+    try:
+        result = skill_catalog.sync_catalog(
+            _client(ctx),
+            target=target_path,
+            prefix=prefix,
+            limit=limit,
+            throttle_min=throttle_min,
+            force=force,
+            dry_run=dry_run,
+        )
+    # Same SystemExit rationale as `skill load`: a hook must never fail the
+    # session, so we swallow auth/API/network errors raised as sys.exit too.
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
+        if not quiet:
+            click.echo(json.dumps({"error": {"code": 1, "message": f"sync failed: {exc}"}}), err=True)
+        sys.exit(0)
+
+    if quiet:
+        return
+
+    format_output(result, ctx.obj.output_format, title="Skill catalog sync", entity_type="skill")
+
+
+@skill_group.command("load")
+@click.argument("skill_id")
+@click.option("--no-cache", is_flag=True, default=False, help="Bypass the on-disk body cache.")
+@click.option(
+    "--ttl",
+    type=int,
+    default=skill_catalog.DEFAULT_BODY_CACHE_TTL_SEC,
+    show_default=True,
+    help="Body cache TTL in seconds.",
+)
+@click.pass_context
+def skill_load(ctx: click.Context, skill_id: str, no_cache: bool, ttl: int) -> None:
+    """Print the full SKILL.md body for a catalog skill.
+
+    Called by stub SKILL.md bodies at invocation time (`` !`deepvista skill
+    load <id>` ``). The output replaces the preprocessor placeholder so the
+    invoking agent receives the real instructions.
+
+    Read-only. Output is raw Markdown on stdout — global ``--format`` is
+    deliberately ignored so shell preprocessing works regardless of profile.
+    """
+    if not _UUID_RE.match(skill_id):
+        output_error(3, "Invalid skill ID", f"Expected UUID format, got: {skill_id!r}")
+
+    try:
+        body = skill_catalog.load_skill_body(
+            _client(ctx),
+            skill_id,
+            use_cache=not no_cache,
+            ttl_sec=ttl,
+        )
+    # Catch SystemExit too — the HTTP client calls sys.exit on API/auth
+    # errors, but at skill-invocation time we'd rather return a readable
+    # error body than bubble a raw exit code into the agent's context.
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
+        reason = "API error" if isinstance(exc, SystemExit) else str(exc) or type(exc).__name__
+        click.echo(
+            "---\n"
+            'name: "deepvista-skill-load-error"\n'
+            'description: "DeepVista skill body could not be loaded."\n'
+            "---\n\n"
+            f"# Could not load skill `{skill_id}`\n\n"
+            f"Reason: {reason}\n\n"
+            "Fix: run `deepvista auth status` and `deepvista skill sync --force`, then retry.\n"
+        )
+        sys.exit(0)
+
+    click.echo(body)
 
 
 # ---------------------------------------------------------------------------
