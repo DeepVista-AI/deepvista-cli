@@ -1,4 +1,5 @@
-# Catalog stubs are written here by the session.created hook at runtime.
-# Keep the prefix ignored so plugin updates can't delete them; track the
-# dir itself via this .gitignore.
+# Catalog stubs (`dv-*/`) are written here at runtime by the
+# `session.created` hook, and are re-fetched on every session start — so a
+# plugin update that wipes them is self-healing. We still ignore the prefix
+# so stubs do not show up as local modifications or clutter plugin PR diffs.
 dv-*/

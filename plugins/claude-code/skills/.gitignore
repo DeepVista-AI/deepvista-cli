@@ -1,5 +1,7 @@
-# Catalog stubs are written here by the SessionStart hook at runtime.
-# Marketplace `git pull` auto-updates must not delete them, so we ignore
-# only the stub-name prefix. Any skill the plugin itself ships in the
-# future (non-prefixed) will be tracked normally.
+# Catalog stubs (`dv-*/`) are written here at runtime by the SessionStart
+# hook, and are re-fetched on every session start — so a marketplace
+# `git pull` that wipes them is self-healing. We still ignore the prefix
+# so stubs do not show up as local modifications, do not appear in diffs
+# of plugin PRs, and survive the brief window between `git pull` finishing
+# and the hook writing them back.
 dv-*/
