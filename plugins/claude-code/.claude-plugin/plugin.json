@@ -1,8 +1,12 @@
 {
   "name": "deepvista",
-  "version": "0.1.0",
-  "description": "Remote-managed skill catalog from DeepVista. Auto-syncs thin stubs into ~/.claude/skills/ on session start; full bodies are lazy-loaded at invocation time.",
-  "author": "DeepVista AI",
+  "version": "0.1.4",
+  "description": "Remote-managed skill catalog from DeepVista. Auto-syncs thin stubs into the plugin's skills dir on SessionStart; full bodies are lazy-loaded at invocation time.",
+  "author": {
+    "name": "DeepVista AI",
+    "url": "https://deepvista.ai",
+    "email": "crew@deepvista.ai"
+  },
   "homepage": "https://cli.deepvista.ai",
   "repository": "https://github.com/DeepVista-AI/deepvista-cli"
 }

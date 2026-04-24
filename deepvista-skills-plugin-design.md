@@ -119,9 +119,9 @@ Why a comment fallback: for agents that don't process `` !`cmd` `` preprocessing
 deepvista-plugin/
 ├── plugin.json
 ├── hooks/
-│   └── hooks.json           # SessionStart → scripts/sync.sh
+│   └── hooks.json           # SessionStart → scripts/sync-catalog.sh
 ├── scripts/
-│   └── sync.sh              # wraps `deepvista skill sync --stubs`
+│   └── sync-catalog.sh              # wraps `deepvista skill sync --stubs`
 ├── commands/
 │   └── refresh-skills.md    # /refresh-skills slash command
 └── README.md
@@ -148,7 +148,7 @@ deepvista-plugin/
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/sync-catalog.sh"
           }
         ]
       }
@@ -157,14 +157,14 @@ deepvista-plugin/
 }
 ```
 
-`scripts/sync.sh`:
+`scripts/sync-catalog.sh`:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 STUB_DIR="$HOME/.claude/skills/deepvista-catalog"
-LOG_FILE="$HOME/.deepvista/logs/sync.log"
+LOG_FILE="$HOME/.config/deepvista/logs/sync.log"
 MAX_AGE_MINUTES=60
 
 mkdir -p "$STUB_DIR" "$(dirname "$LOG_FILE")"
@@ -202,7 +202,7 @@ exit 0
 description: Force resync of the DeepVista catalog (stubs only)
 ---
 
-Run `${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh` but force a sync even if throttled
+Run `${CLAUDE_PLUGIN_ROOT}/scripts/sync-catalog.sh` but force a sync even if throttled
 (`DEEPVISTA_FORCE_SYNC=1`). Report the number of added / updated / removed stubs.
 Tell the user the catalog is now live in the current session (live change
 detection picks up new SKILL.md files immediately).
@@ -251,7 +251,7 @@ Extend existing init (if present) or add:
 
 1. User starts `claude`.
 2. Plugin manifests load. Skill registry scans `~/.claude/skills/` (picks up existing catalog + base manpage) and `${CLAUDE_PLUGIN_ROOT}/skills/` (empty — plugin ships no skills of its own).
-3. `SessionStart` hooks fire. `scripts/sync.sh` → `deepvista skill sync --stubs`.
+3. `SessionStart` hooks fire. `scripts/sync-catalog.sh` → `deepvista skill sync --stubs`.
 4. Sync writes/updates/removes stub dirs under `~/.claude/skills/deepvista-catalog/`.
 5. **Live change detection** picks up the new stubs in the current session — no restart, no one-session lag.
 6. User invokes a catalog skill by name.
@@ -261,8 +261,8 @@ Extend existing init (if present) or add:
 
 | Failure | Behaviour |
 |---|---|
-| Network down at SessionStart | `sync.sh` exits 0; previous sync's stubs still live. |
-| `deepvista` CLI not on PATH | `sync.sh` logs, exits 0. Layer 1 manpage (if already installed) still works. |
+| Network down at SessionStart | `sync-catalog.sh` exits 0; previous sync's stubs still live. |
+| `deepvista` CLI not on PATH | `sync-catalog.sh` logs, exits 0. Layer 1 manpage (if already installed) still works. |
 | User not authenticated | CLI writes empty catalog, logs auth hint. `/refresh-skills` after `deepvista auth login` recovers. |
 | Corrupt / partial SKILL.md | Claude Code skips invalid entries; other stubs load. Sync recomputes on next run. |
 | Server removed a skill | Sync deletes the stub dir. Live change detection removes it from registry. |
@@ -273,7 +273,7 @@ Extend existing init (if present) or add:
 
 - Default throttle: 60 min since last `.last_sync` timestamp. Tunable via env (`DEEPVISTA_SYNC_THROTTLE_MIN`).
 - Forced sync bypasses throttle (`DEEPVISTA_FORCE_SYNC=1` or `/refresh-skills`).
-- Body cache (for `skill load`) TTL: 5 min. Stored at `~/.deepvista/cache/bodies/<hash>.md`.
+- Body cache (for `skill load`) TTL: 5 min. Stored at `~/.config/deepvista/cache/bodies/<hash>.md`.
 - No hot-reload of the skill registry itself is needed — live change detection handles it.
 
 ## Cross-agent compatibility
@@ -291,13 +291,13 @@ Extend existing init (if present) or add:
 ## Distribution
 
 - **Local dev:** clone → `/plugin install /path/to/deepvista-plugin`
-- **Marketplace:** publish to `DeepVista-AI/deepvista-cli` (manifest at `plugins/.claude-plugin/marketplace.json`); users install via `/plugin marketplace add DeepVista-AI/deepvista-cli` then `/plugin install deepvista@deepvista-ai`
+- **Marketplace:** publish to `DeepVista-AI/deepvista-cli` (manifest at `.claude-plugin/marketplace.json`); users install via `/plugin marketplace add DeepVista-AI/deepvista-cli` then `/plugin install deepvista@deepvista-ai`
 - **CLI manpage skill + CLI itself:** `uv pip install deepvista-cli` (or PyPI `pip install`), then `deepvista init` installs Layer 1.
 - **opencode plugin:** parallel repo `DeepVista-AI/deepvista-opencode` or directory `plugins/opencode/` in this repo.
 
 ## Security
 
-- `sync.sh` writes only inside `~/.claude/skills/deepvista-catalog/` and `~/.deepvista/`.
+- `sync-catalog.sh` writes only inside `~/.claude/skills/deepvista-catalog/` and `~/.config/deepvista/`.
 - Catalog fetched over HTTPS via existing DeepVista auth (Bearer JWT, `X-DeepVista-Origin` metadata).
 - Lazy-loaded bodies flow through the same auth. Body cache is keyed by skill ID + content hash.
 - No arbitrary code execution beyond what any skill body declares — the trust boundary is exactly "DeepVista server is trusted to ship skill bodies," which is identical to any plugin skill trust model.
@@ -321,7 +321,7 @@ Phase 1 — CLI plumbing (blocks everything else)
 - [ ] Tests: sync diff logic, stub format, load cache.
 
 Phase 2 — Claude Code plugin
-- [ ] `plugins/claude-code/` dir in this repo with `plugin.json`, `hooks/hooks.json`, `scripts/sync.sh`, `commands/refresh-skills.md`.
+- [ ] `plugins/claude-code/` dir in this repo with `plugin.json`, `hooks/hooks.json`, `scripts/sync-catalog.sh`, `commands/refresh-skills.md`.
 - [ ] Marketplace manifest.
 - [ ] Smoke test: fresh machine → `/plugin install` → stubs appear in `/skills`.
 

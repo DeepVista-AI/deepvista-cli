@@ -1,24 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-SKILLS=(
-  # Consolidated skill (current)
-  deepvista
-  # Legacy per-subcommand skills (pre-DV-385) — remove on uninstall too so
-  # users who skipped the upgrade still get a clean sweep.
-  deepvista-shared
-  deepvista-vistabase
-  deepvista-vistabase-card
-  deepvista-notes
-  deepvista-skill
-  deepvista-chat
-  deepvista-persona-knowledge-worker
-  deepvista-skill-research-to-skill
-  deepvista-skill-export-knowledge
-  deepvista-skill-analyze-notes
-  deepvista-skill-import-files
-  deepvista-openclaw
-)
+SKILL="deepvista"
 
 # Uninstall CLI
 echo "==> Uninstalling deepvista CLI..."
@@ -48,13 +31,11 @@ if [ ${#SKILL_DIRS[@]} -eq 0 ]; then
   echo "    No agent skill directories found — nothing to remove"
 else
   for dir in "${SKILL_DIRS[@]}"; do
-    for skill in "${SKILLS[@]}"; do
-      target="$dir/$skill"
-      if [ -d "$target" ]; then
-        rm -rf "$target"
-        echo "    Removed $target"
-      fi
-    done
+    target="$dir/$SKILL"
+    if [ -d "$target" ]; then
+      rm -rf "$target"
+      echo "    Removed $target"
+    fi
   done
 fi
 

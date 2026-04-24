@@ -8,7 +8,7 @@ report what changed.
 Run:
 
 ```bash
-DEEPVISTA_FORCE_SYNC=1 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh
+DEEPVISTA_FORCE_SYNC=1 ${CLAUDE_PLUGIN_ROOT}/scripts/sync-catalog.sh
 deepvista skill sync --target "${CLAUDE_PLUGIN_ROOT}/skills" --force --dry-run
 ```
 

@@ -11,9 +11,11 @@ lifecycle so the remote skill catalog stays fresh with zero user action.
 | Codex CLI | — | n/a | Use cron or shell init (see below) |
 | Any agent | — | n/a | Use `deepvista skill sync` from shell init |
 
-All plugins write stubs to `~/.claude/skills/` because opencode (v1.0.190+),
-Cursor (v2.4+), and Codex all read that directory for cross-agent
-compatibility. One write reaches every agent.
+Each plugin writes stubs into its own plugin skills dir (Claude Code:
+`${CLAUDE_PLUGIN_ROOT}/skills/`, opencode: the plugin module's `skills/`),
+so stubs surface as plugin-managed rather than user-owned. Agents without a
+plugin (Cursor, Codex, generic) rely on the shell/cron fallback below, which
+uses `deepvista skill sync` with a target you choose.
 
 ## No-plugin fallback (Cursor, Codex, generic)
 
@@ -45,7 +47,7 @@ command -v deepvista >/dev/null 2>&1 && \
          deepvista skill sync
                   │
                   ▼
-      ~/.claude/skills/dv-<name>/SKILL.md      ← thin stub, frontmatter only
+      <plugin-skills-dir>/dv-<name>/SKILL.md   ← thin stub, frontmatter only
                   │
   agent reads ◄───┘
                   │

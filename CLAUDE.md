@@ -45,13 +45,18 @@ The `main` branch is protected. Follow this workflow:
    # Edit pyproject.toml: version = "X.Y.Z"
    uv lock                              # regenerate uv.lock so it matches
    git add pyproject.toml uv.lock
+   git commit -m "release: vX.Y.Z"      # pre-commit will bump plugin.json and abort
+   git add plugins/claude-code/.claude-plugin/plugin.json
    git commit -m "release: vX.Y.Z"
    git push -u origin release/vX.Y.Z
    ```
 
-   Both `pyproject.toml` **and** `uv.lock` must be staged — `uv.lock` pins the
-   project's own version, and CI's `uv sync --frozen` tolerates self-version
-   drift but contributors will hit a lockfile mismatch if it's skipped.
+   `uv.lock` must be staged because `uv lock` pins the project's own version
+   (CI's `uv sync --frozen` tolerates self-version drift but contributors will
+   hit a lockfile mismatch if it's skipped). The `plugin-version-sync` pre-commit
+   hook auto-bumps `plugins/claude-code/.claude-plugin/plugin.json` on the first
+   commit attempt — stage it and re-run `git commit`. CI enforces the same
+   invariant with `--check`.
 
 2. **Create PR and merge**
    ```bash

@@ -19,6 +19,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-5B5BD6)](https://www.apache.org/licenses/LICENSE-2.0)
 [![skills.sh](https://img.shields.io/badge/skills.sh-DeepVista--AI-purple)](https://skills.sh/deepvista-ai/deepvista-cli)
 [![GitHub Skills](https://img.shields.io/badge/gh%20skill-DeepVista--AI%2Fdeepvista--cli-181717)](https://github.com/DeepVista-AI/deepvista-cli)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-plugin-D97757?logo=anthropic)](https://docs.claude.com/en/docs/claude-code/plugins)
 
 </div>
 
@@ -343,6 +344,24 @@ uv tool install 'deepvista-cli[ui]'
 pip install git+https://github.com/DeepVista-AI/deepvista-cli.git
 uv tool install git+https://github.com/DeepVista-AI/deepvista-cli.git
 ```
+
+### As a Claude Code plugin
+
+The plugin is additive on top of the CLI — it wires the DeepVista skill catalog
+into Claude Code on every `SessionStart`. Install in this order:
+
+```bash
+# 1. Install the CLI (required — the plugin calls it)
+uv tool install deepvista-cli    # or: pip install deepvista-cli
+deepvista auth login
+
+# 2. Then, inside Claude Code:
+#    /plugin marketplace add DeepVista-AI/deepvista-cli
+#    /plugin install deepvista@deepvista-ai
+```
+
+Without the CLI on `PATH`, the plugin's SessionStart hook exits silently —
+you'll see no errors but no skills either.
 
 ### For development
 

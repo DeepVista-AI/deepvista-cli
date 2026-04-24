@@ -16,7 +16,7 @@ set -u
 
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:$PATH"
 
-LOG_DIR="$HOME/.deepvista/logs"
+LOG_DIR="$HOME/.config/deepvista/logs"
 LOG_FILE="$LOG_DIR/catalog-sync.log"
 mkdir -p "$LOG_DIR"
 

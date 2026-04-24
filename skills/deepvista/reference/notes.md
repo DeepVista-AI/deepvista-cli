@@ -165,18 +165,32 @@ prior `version`.
 
 ### Hook installation (Claude Code)
 
+Install the DeepVista Claude Code plugin — it registers all three hooks
+(`SessionStart`, `Stop`, `SessionEnd`) automatically:
+
+```
+/plugin marketplace add DeepVista-AI/deepvista-cli
+/plugin install deepvista@deepvista-ai
+```
+
+The plugin ships the canonical scripts at
+`${CLAUDE_PLUGIN_ROOT}/hooks/deepvista-session-{start,turn,end}.sh`.
+
+Manual install (non-plugin users): copy the scripts from
+`plugins/claude-code/hooks/` in the repo into `~/.claude/hooks/` and
+reference them in `~/.claude/settings.json`:
+
 ```json
-// ~/.claude/settings.json
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "$DEEPVISTA_HOME/hooks/deepvista-session-start.sh" }] }
+      { "hooks": [{ "type": "command", "command": "$HOME/.claude/hooks/deepvista-session-start.sh" }] }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "$DEEPVISTA_HOME/hooks/deepvista-session-turn.sh" }] }
+      { "hooks": [{ "type": "command", "command": "$HOME/.claude/hooks/deepvista-session-turn.sh" }] }
     ],
     "SessionEnd": [
-      { "hooks": [{ "type": "command", "command": "$DEEPVISTA_HOME/hooks/deepvista-session-end.sh" }] }
+      { "hooks": [{ "type": "command", "command": "$HOME/.claude/hooks/deepvista-session-end.sh" }] }
     ]
   }
 }
