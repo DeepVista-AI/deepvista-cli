@@ -291,7 +291,7 @@ Extend existing init (if present) or add:
 ## Distribution
 
 - **Local dev:** clone → `/plugin install /path/to/deepvista-plugin`
-- **Marketplace:** publish to `DeepVista-AI/deepvista-marketplace`; users install via `/plugin install deepvista@deepvista-marketplace`
+- **Marketplace:** publish to `DeepVista-AI/deepvista-cli` (manifest at `plugins/.claude-plugin/marketplace.json`); users install via `/plugin marketplace add DeepVista-AI/deepvista-cli` then `/plugin install deepvista@deepvista-ai`
 - **CLI manpage skill + CLI itself:** `uv pip install deepvista-cli` (or PyPI `pip install`), then `deepvista init` installs Layer 1.
 - **opencode plugin:** parallel repo `DeepVista-AI/deepvista-opencode` or directory `plugins/opencode/` in this repo.
 

@@ -36,7 +36,8 @@ Local development:
 From the marketplace:
 
 ```
-/plugin install deepvista@deepvista-marketplace
+/plugin marketplace add /path/to/deepvista-cli/plugins
+/plugin install deepvista@deepvista-ai
 ```
 
 ## Commands

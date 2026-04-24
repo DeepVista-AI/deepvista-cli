@@ -1,6 +1,6 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "deepvista",
+  "name": "deepvista-ai",
   "description": "DeepVista agent plugins — remote skill catalog sync for Claude Code.",
   "owner": {
     "name": "DeepVista AI",
