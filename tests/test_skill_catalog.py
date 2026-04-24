@@ -143,6 +143,28 @@ def test_compute_plan_add_update_remove(tmp_path: Path):
     assert set(plan.to_remove) == {"dv-old-one", "dv-rename-me"}
 
 
+def test_compute_plan_disambiguates_duplicate_titles(tmp_path: Path):
+    """Two server skills with the same title must land in distinct dirs."""
+    target = tmp_path / "skills"
+    target.mkdir()
+
+    server = [
+        _meta("11111111-1111-1111-1111-111111111111", "Workflow Foo"),
+        _meta("22222222-2222-2222-2222-222222222222", "Workflow Foo"),  # same title
+    ]
+    plan = skill_catalog.compute_plan(server, target=target, prefix="dv-", state={})
+
+    first = plan.dir_names["11111111-1111-1111-1111-111111111111"]
+    second = plan.dir_names["22222222-2222-2222-2222-222222222222"]
+    assert first == "dv-workflow-foo"
+    assert second != first
+    assert second.startswith("dv-workflow-foo-")
+
+    skill_catalog.apply_plan(plan, target=target, prefix="dv-")
+    assert (target / first / "SKILL.md").exists()
+    assert (target / second / "SKILL.md").exists()
+
+
 def test_compute_plan_unchanged(tmp_path: Path):
     target = tmp_path / "skills"
     target.mkdir()

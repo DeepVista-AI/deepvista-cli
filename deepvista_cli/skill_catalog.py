@@ -88,6 +88,9 @@ class SyncPlan:
     to_update: list[SkillMeta] = field(default_factory=list)
     to_remove: list[str] = field(default_factory=list)  # prefixed dir names
     unchanged: int = 0
+    # Maps server id → resolved dir name (handles duplicate-title collisions).
+    # Populated by ``compute_plan`` and consumed by ``apply_plan``.
+    dir_names: dict[str, str] = field(default_factory=dict)
 
     def is_empty(self) -> bool:
         return not (self.to_add or self.to_update or self.to_remove)
@@ -239,6 +242,26 @@ def _read_existing_hash(stub_path: Path) -> str | None:
         return None
 
 
+def _resolve_dir_names(server_skills: list[SkillMeta], prefix: str) -> dict[str, str]:
+    """Map server skill id → stub dir name, disambiguating duplicate titles.
+
+    Server data occasionally contains two skills with identical titles (e.g.
+    a fork or a server-side duplicate). Without disambiguation they'd collide
+    into the same dir and one would overwrite the other. On collision we
+    append a short ID suffix to the loser's slug.
+    """
+    resolved: dict[str, str] = {}
+    used: set[str] = set()
+    for meta in server_skills:
+        base = stub_dir_name(meta, prefix=prefix)
+        candidate = base
+        if candidate in used:
+            candidate = f"{base}-{meta.id[:6]}"
+        used.add(candidate)
+        resolved[meta.id] = candidate
+    return resolved
+
+
 def compute_plan(
     server_skills: list[SkillMeta],
     *,
@@ -262,8 +285,11 @@ def compute_plan(
         entry["id"]: entry for entry in state.get("stubs", []) if entry.get("id")
     }
 
+    dir_names = _resolve_dir_names(server_skills, prefix)
+    plan.dir_names = dir_names
+
     for meta in server_skills:
-        dir_name = stub_dir_name(meta, prefix=prefix)
+        dir_name = dir_names[meta.id]
         stub_path = target / dir_name / "SKILL.md"
         desired = build_stub_markdown(meta, prefix=prefix)
         desired_hash = stub_content_hash(desired)
@@ -306,7 +332,10 @@ def apply_plan(
     new_stubs: list[dict[str, Any]] = []
 
     for meta in plan.to_add + plan.to_update:
-        dir_name = stub_dir_name(meta, prefix=prefix)
+        # Prefer the dir name resolved by compute_plan (which handles
+        # duplicate-title collisions). Fall back to the deterministic
+        # slug when a caller hand-builds a plan without running diff.
+        dir_name = plan.dir_names.get(meta.id) or stub_dir_name(meta, prefix=prefix)
         stub_dir = target / dir_name
         stub_dir.mkdir(parents=True, exist_ok=True)
         content = build_stub_markdown(meta, prefix=prefix)
@@ -367,10 +396,15 @@ def _fetch_server_skills(
     *,
     limit: int,
 ) -> list[SkillMeta]:
-    """Pull up to ``limit`` skills from the server via /get_context_cards."""
+    """Pull up to ``limit`` skills from the server via /get_context_cards.
+
+    Queries `card_type="skill"` — the current name for user-installed and
+    synthesized skill cards. The legacy `vistabook` type is kept for
+    back-compat in other commands but is empty on modern accounts.
+    """
     data = client.post(
         "/get_context_cards",
-        {"card_type": "vistabook", "limit": limit, "page_number": 1},
+        {"card_type": "skill", "limit": limit, "page_number": 1},
     )
     cards = data.get("cards") or []
     return [SkillMeta.from_card(card) for card in cards if card.get("id")]
@@ -502,7 +536,7 @@ def load_skill_body(
         except OSError:
             pass  # fall through to refetch
 
-    data = client.post("/get_context_card", {"card_id": skill_id, "card_type": "vistabook"})
+    data = client.post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
     card = data.get("card") or data
     rendered = _render_skill_body_markdown(card)
 
