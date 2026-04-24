@@ -1,0 +1,4 @@
+# Catalog stubs are written here by the session.created hook at runtime.
+# Keep the prefix ignored so plugin updates can't delete them; track the
+# dir itself via this .gitignore.
+dv-*/

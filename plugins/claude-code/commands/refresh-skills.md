@@ -9,12 +9,13 @@ Run:
 
 ```bash
 DEEPVISTA_FORCE_SYNC=1 ${CLAUDE_PLUGIN_ROOT}/scripts/sync.sh
-deepvista skill sync --force --dry-run
+deepvista skill sync --target "${CLAUDE_PLUGIN_ROOT}/skills" --force --dry-run
 ```
 
 Report the added / updated / removed skills to the user. Claude Code's live
-change detection picks up new stubs in the current session — the user does
-not need to restart.
+change detection picks up new stubs under `${CLAUDE_PLUGIN_ROOT}/skills/` in
+the current session — they appear in `/skills` immediately as "locked by
+plugin".
 
 If the first command prints "deepvista CLI not on PATH", tell the user to
 install the DeepVista CLI (`uv tool install deepvista-cli`) and authenticate

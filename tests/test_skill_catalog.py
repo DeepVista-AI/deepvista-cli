@@ -330,6 +330,64 @@ def test_sync_catalog_dry_run_does_not_write(tmp_path: Path):
     assert not state_path.exists()
 
 
+def test_sync_catalog_migrates_stubs_on_target_change(tmp_path: Path):
+    """Switching --target should clean stubs from the old target."""
+    state_path = tmp_path / "state.json"
+    target_a = tmp_path / "old" / "skills"
+    target_b = tmp_path / "new" / "skills"
+
+    fake1 = FakeClient()
+    _enqueue_list(fake1, [{"id": "id-a", "title": "Alpha", "description": ""}])
+    skill_catalog.sync_catalog(fake1, target=target_a, prefix="dv-", state_path=state_path, throttle_min=0)
+    assert (target_a / "dv-alpha" / "SKILL.md").exists()
+
+    fake2 = FakeClient()
+    _enqueue_list(fake2, [{"id": "id-a", "title": "Alpha", "description": ""}])
+    result = skill_catalog.sync_catalog(fake2, target=target_b, prefix="dv-", state_path=state_path, throttle_min=0)
+
+    assert (target_b / "dv-alpha" / "SKILL.md").exists()
+    # Old location cleaned up, reported in result.
+    assert not (target_a / "dv-alpha").exists()
+    assert result.get("migrated_from") == str(target_a)
+    assert "dv-alpha" in result.get("migrated_stubs_removed", [])
+
+
+def test_sync_catalog_reconciles_when_stubs_wiped(tmp_path: Path):
+    """A wiped target must trigger a sync even when within throttle window."""
+    state_path = tmp_path / "state.json"
+    target = tmp_path / "skills"
+
+    fake1 = FakeClient()
+    _enqueue_list(
+        fake1,
+        [
+            {"id": "id-a", "title": "Alpha", "description": ""},
+            {"id": "id-b", "title": "Bravo", "description": ""},
+        ],
+    )
+    skill_catalog.sync_catalog(fake1, target=target, prefix="dv-", state_path=state_path, throttle_min=0)
+
+    # Simulate external wipe (e.g. marketplace auto-update).
+    import shutil as _sh
+
+    _sh.rmtree(target)
+
+    fake2 = FakeClient()
+    _enqueue_list(
+        fake2,
+        [
+            {"id": "id-a", "title": "Alpha", "description": ""},
+            {"id": "id-b", "title": "Bravo", "description": ""},
+        ],
+    )
+    # Throttle is long, but reconcile must bypass it.
+    result = skill_catalog.sync_catalog(fake2, target=target, prefix="dv-", state_path=state_path, throttle_min=60)
+
+    assert result.get("ok") is True
+    assert (target / "dv-alpha" / "SKILL.md").exists()
+    assert (target / "dv-bravo" / "SKILL.md").exists()
+
+
 def test_sync_catalog_removes_server_deleted_stubs(tmp_path: Path):
     state_path = tmp_path / "state.json"
     target = tmp_path / "skills"

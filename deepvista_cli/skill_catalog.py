@@ -325,10 +325,19 @@ def apply_plan(
     *,
     target: Path,
     prefix: str,
+    all_server_skills: list[SkillMeta] | None = None,
 ) -> dict[str, Any]:
-    """Apply adds/updates/removes. Returns the new `stubs` state list."""
+    """Apply adds/updates/removes. Returns the new ``stubs`` state list.
+
+    ``all_server_skills`` should be the full server-side catalog so that state
+    tracks every stub currently on disk, not just the delta from this sync.
+    Without it, state drifts: unchanged stubs get forgotten and a later
+    target-switch can't clean them up. Falls back to just the plan's adds +
+    updates for callers that only have the diff on hand (tests).
+    """
     target.mkdir(parents=True, exist_ok=True)
 
+    touched: set[str] = set()
     new_stubs: list[dict[str, Any]] = []
 
     for meta in plan.to_add + plan.to_update:
@@ -346,6 +355,28 @@ def apply_plan(
                 "dir_name": dir_name,
                 "title": meta.title,
                 "content_hash": stub_content_hash(content),
+                "updated_at": meta.updated_at,
+            }
+        )
+        touched.add(meta.id)
+
+    # Record entries for unchanged stubs too so state reflects everything
+    # currently on disk — required for correct migration on target change.
+    for meta in all_server_skills or []:
+        if meta.id in touched:
+            continue
+        dir_name = plan.dir_names.get(meta.id) or stub_dir_name(meta, prefix=prefix)
+        stub_path = target / dir_name / "SKILL.md"
+        try:
+            existing_hash = stub_content_hash(stub_path.read_text(encoding="utf-8"))
+        except OSError:
+            continue  # expected file missing — will be added next sync
+        new_stubs.append(
+            {
+                "id": meta.id,
+                "dir_name": dir_name,
+                "title": meta.title,
+                "content_hash": existing_hash,
                 "updated_at": meta.updated_at,
             }
         )
@@ -391,6 +422,47 @@ def _throttled(state: dict[str, Any], throttle_min: int) -> bool:
     return age_min < throttle_min
 
 
+def _catalog_stubs_missing(target: Path, prefix: str, state: dict[str, Any]) -> bool:
+    """True if state expects stubs on disk but the target is empty of them.
+
+    Triggers a re-sync even when throttled — handles cases where an external
+    process wiped the target dir (plugin marketplace update, manual cleanup,
+    user switched machines, etc.) so the catalog recovers on the next run.
+    """
+    expected = state.get("stubs") or []
+    if not expected:
+        return False
+    try:
+        actual = [p for p in target.iterdir() if p.is_dir() and p.name.startswith(prefix)]
+    except OSError:
+        return True  # target missing entirely
+    return len(actual) < len(expected) // 2  # >50% missing → treat as wiped
+
+
+def _cleanup_old_target(
+    old_target: Path,
+    prefix: str,
+    previous_stubs: list[dict[str, Any]],
+) -> list[str]:
+    """Remove catalog stubs from a previous target when the target changes.
+
+    Only deletes dirs that carry our marker, using the same safety check as
+    ``apply_plan``. Returns the list of dir names that were actually removed
+    (for reporting).
+    """
+    removed: list[str] = []
+    for entry in previous_stubs:
+        dir_name = entry.get("dir_name")
+        if not dir_name:
+            continue
+        stub_dir = old_target / dir_name
+        if not stub_dir.exists() or not _is_safe_catalog_dir(stub_dir, prefix):
+            continue
+        shutil.rmtree(stub_dir, ignore_errors=True)
+        removed.append(dir_name)
+    return removed
+
+
 def _fetch_server_skills(
     client: _CatalogClient,
     *,
@@ -429,7 +501,17 @@ def sync_catalog(
     """
     state = load_state(state_path)
 
-    if not force and _throttled(state, throttle_min):
+    # Detect a target change since the last sync — e.g. user switched from
+    # `~/.claude/skills/` to `${CLAUDE_PLUGIN_ROOT}/skills/`. We clean up the
+    # stubs we own in the old location so the catalog doesn't double-register.
+    old_target_str = state.get("target")
+    target_changed = old_target_str is not None and Path(old_target_str) != target
+
+    # Bypass the throttle if stubs are missing from the target (e.g. marketplace
+    # auto-update wiped the plugin dir, or user switched targets).
+    reconcile_needed = target_changed or _catalog_stubs_missing(target, prefix, state)
+
+    if not force and not reconcile_needed and _throttled(state, throttle_min):
         return {
             "skipped": "throttled",
             "last_sync_epoch": state.get("last_sync_epoch"),
@@ -453,7 +535,11 @@ def sync_catalog(
             "summary": plan.summary(),
         }
 
-    new_state_fragment = apply_plan(plan, target=target, prefix=prefix)
+    migrated: list[str] = []
+    if target_changed and old_target_str:
+        migrated = _cleanup_old_target(Path(old_target_str), prefix, state.get("stubs") or [])
+
+    new_state_fragment = apply_plan(plan, target=target, prefix=prefix, all_server_skills=server_skills)
 
     state.update(new_state_fragment)
     state["last_sync_epoch"] = int(time.time())
@@ -462,12 +548,16 @@ def sync_catalog(
     state["limit"] = limit
     save_state(state, state_path)
 
-    return {
+    result: dict[str, Any] = {
         "ok": True,
         "target": str(target),
         "prefix": prefix,
         "summary": plan.summary(),
     }
+    if migrated:
+        result["migrated_from"] = old_target_str
+        result["migrated_stubs_removed"] = migrated
+    return result
 
 
 # ---------------------------------------------------------------------------

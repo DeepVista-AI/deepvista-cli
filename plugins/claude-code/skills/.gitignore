@@ -1,0 +1,5 @@
+# Catalog stubs are written here by the SessionStart hook at runtime.
+# Marketplace `git pull` auto-updates must not delete them, so we ignore
+# only the stub-name prefix. Any skill the plugin itself ships in the
+# future (non-prefixed) will be tracked normally.
+dv-*/
