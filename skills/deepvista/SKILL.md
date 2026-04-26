@@ -48,7 +48,7 @@ other reference file assumes you know it.
 | `deepvista card` | creating / searching / pinning / archiving / grepping knowledge base cards across any type (person, topic, file, note, todo, etc.) | [vistabase-card.md](reference/vistabase-card.md) |
 | `deepvista vistabase` (alias: `memory`) | viewing or semantic-searching implicit memory accumulated from chat | [vistabase.md](reference/vistabase.md) · [memory.md](reference/memory.md) |
 | `deepvista chat` | sending a message to the AI agent, listing / deleting chat sessions, continuing a conversation | [chat.md](reference/chat.md) |
-| `deepvista skill` | listing, running, exporting, installing, or discovering structured Skill workflows | [skill.md](reference/skill.md) |
+| `deepvista skill` | listing, running, exporting, installing, discovering, or **catalog-syncing** (`sync` / `load`) structured Skill workflows | [skill.md](reference/skill.md) |
 | — analyze notes | searching → reading → synthesizing notes to surface themes / patterns | [skill-analyze-notes.md](reference/skill-analyze-notes.md) |
 | — research → run | finding context in the knowledge base, then running a Skill with synthesized input | [skill-research-to-skill.md](reference/skill-research-to-skill.md) |
 | — export | exporting a DeepVista Skill as a portable `SKILL.md` file for another agent | [skill-export-knowledge.md](reference/skill-export-knowledge.md) |

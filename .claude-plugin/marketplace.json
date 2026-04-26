@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "deepvista-ai",
+  "description": "DeepVista agent plugins — remote skill catalog sync for Claude Code.",
+  "owner": {
+    "name": "DeepVista AI",
+    "url": "https://deepvista.ai",
+    "email": "crew@deepvista.ai"
+  },
+  "plugins": [
+    {
+      "name": "deepvista",
+      "source": "./plugins/claude-code",
+      "description": "Auto-sync the DeepVista remote skill catalog into the plugin's skills dir on SessionStart.",
+      "category": "productivity"
+    }
+  ]
+}

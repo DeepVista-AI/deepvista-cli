@@ -78,6 +78,33 @@ Browse the marketplace of public skills.
 deepvista skill install <skill_id>
 ```
 
+### `sync` — catalog sync (safe, throttled)
+
+```bash
+deepvista skill sync [--target DIR] [--prefix dv-] [--limit N]
+                     [--throttle-min N] [--force] [--dry-run] [--quiet]
+```
+
+Writes thin `SKILL.md` stubs into an agent skills directory (default
+`~/.claude/skills/`, which opencode / Cursor / Codex also read). Each stub
+is frontmatter plus `` !`deepvista skill load <id>` `` — the real body is
+fetched at skill-invocation time, not at sync time.
+
+Idempotent. Adds / updates / removes stubs to match the server catalog.
+Only touches dirs carrying the `x-deepvista-catalog` marker — user-authored
+skills are never overwritten. Safe inside a SessionStart hook: always exits
+0 even on auth or network errors.
+
+### `load` — print full SKILL.md body (lazy fetch)
+
+```bash
+deepvista skill load <skill_id> [--no-cache] [--ttl N]
+```
+
+Prints the full SKILL.md body for one catalog skill to stdout. Called by
+stubs at invocation time. On error, prints a readable error body (not a
+traceback) so agents don't blow up. 5-minute on-disk body cache by default.
+
 ## Examples
 
 ```bash
@@ -87,7 +114,19 @@ deepvista skill status chat_xyz789
 deepvista skill export vb_abc123 --format skill
 deepvista skill discover --category persona
 deepvista skill install persona-researcher
+deepvista skill sync --dry-run --throttle-min 0
+deepvista skill load 11111111-1111-1111-1111-111111111111
 ```
+
+## Plugin install
+
+For auto-sync on every session:
+
+- **Claude Code**: `/plugin install /path/to/deepvista-cli/plugins/claude-code`
+- **opencode**: drop `plugins/opencode/` into `~/.config/opencode/plugins/deepvista/`
+- **Cursor / Codex / other**: add `deepvista skill sync --quiet` to a cron or shell init
+
+See [plugins/README.md](../../plugins/README.md) for full install recipes.
 
 ## Continuing a run
 
