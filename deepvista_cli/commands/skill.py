@@ -1,8 +1,7 @@
-"""deepvista skill — list, get, run, status, export.
+"""deepvista skill — list, get, run, status.
 
-Skills (formerly Recipes / VistaBooks) are structured checklist workflows stored as
-context cards (type=vistabook). Skill Runs are execution instances (type=vistabook_run)
-linked via a master chat session.
+Skills are structured checklist workflows stored as context cards (type=skill).
+Skill Runs are execution instances (type=skill_run) linked via a master chat session.
 
 Five resources: card · skill · vistabase · chat
 """
@@ -62,7 +61,7 @@ def skill_list(ctx: click.Context, limit: int, page_number: int) -> None:
     data = _client(ctx).post(
         "/get_context_cards",
         {
-            "card_type": "vistabook",
+            "card_type": "skill",
             "limit": limit,
             "page_number": page_number,
         },
@@ -87,7 +86,7 @@ def skill_get(ctx: click.Context, skill_id: str) -> None:
 
     Read-only — never modifies the Skill.
     """
-    data = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "vistabook"})
+    data = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
     format_output(
         data, ctx.obj.output_format, title=f"Skill: {skill_id}", entity_type="skill", base_url=ctx.obj.auth_url
     )
@@ -116,7 +115,7 @@ def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, dry_run
 
     instruction = user_input or "Run this skill"
     body: dict = {
-        "user_instruction": f'<contextCard id="{skill_id}" cardType="vistabook"></contextCard> {instruction}',
+        "user_instruction": f'<contextCard id="{skill_id}" cardType="skill"></contextCard> {instruction}',
     }
 
     if dry_run:
@@ -151,23 +150,6 @@ def skill_status(ctx: click.Context, run_id: str) -> None:
         "created_at": session.get("created_at", ""),
     }
     format_output(result, ctx.obj.output_format, title=f"Run: {run_id}", entity_type="chat", base_url=ctx.obj.auth_url)
-
-
-@skill_group.command("export")
-@click.argument("skill_id")
-@click.option(
-    "--format", "export_format", type=click.Choice(["skill"]), default="skill", help="Export format (default: skill)."
-)
-@click.pass_context
-def skill_export(ctx: click.Context, skill_id: str, export_format: str) -> None:
-    """Export a Skill as a SKILL.md file for use in AI agents.
-
-    Read-only — generates output but does not modify the Skill.
-    """
-    data = _client(ctx).post("/export_vistabook_to_skill", {"card_ids": [skill_id]})
-    format_output(
-        data, ctx.obj.output_format, title=f"Export: {skill_id}", entity_type="skill", base_url=ctx.obj.auth_url
-    )
 
 
 # ---------------------------------------------------------------------------

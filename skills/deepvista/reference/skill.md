@@ -1,6 +1,6 @@
 # Skill — structured workflows
 
-A Skill (formerly "recipe" / "vistabook") is a multi-step checklist the agent works
+A Skill is a multi-step checklist the agent works
 through phase by phase. `deepvista skill run` creates a chat session linked to the
 Skill run so you can continue it like a regular conversation.
 
@@ -52,16 +52,6 @@ deepvista skill status <run_chat_id>
 
 Returns run state: `running`, `awaiting_input`, `completed`, `failed`, `paused`.
 
-### `export` — read-only
-
-```bash
-deepvista skill export <skill_id> --format skill
-```
-
-Generates a portable `SKILL.md` file. Pipe the output to
-`~/.agents/skills/<name>/SKILL.md` to install in another agent. Full workflow:
-[skill-export-knowledge.md](skill-export-knowledge.md).
-
 ### `discover` — read-only
 
 ```bash
@@ -109,9 +99,8 @@ traceback) so agents don't blow up. 5-minute on-disk body cache by default.
 
 ```bash
 deepvista skill list
-deepvista skill run vb_abc123 --input "Focus on Q4 objectives"
-deepvista skill status chat_xyz789
-deepvista skill export vb_abc123 --format skill
+deepvista skill run <skill_id> --input "Focus on Q4 objectives"
+deepvista skill status <run_chat_id>
 deepvista skill discover --category persona
 deepvista skill install persona-researcher
 deepvista skill sync --dry-run --throttle-min 0
@@ -146,7 +135,5 @@ Show the app URL: `https://app.deepvista.ai/skills/<id>`.
   synthesizes notes
 - [skill-research-to-skill.md](skill-research-to-skill.md) — pattern for running a
   Skill with curated knowledge-base context as `--input`
-- [skill-export-knowledge.md](skill-export-knowledge.md) — turn a Skill into a
-  portable `SKILL.md`
 - [skill-import-files.md](skill-import-files.md) — bulk-import files as cards so a
   Skill can search them

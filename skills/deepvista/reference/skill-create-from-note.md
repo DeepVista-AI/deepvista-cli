@@ -127,14 +127,12 @@ will see) and the full `user_instruction` — inspect before spending tokens.
 
 Generated skills land with `status=unconfirmed`. Inspect each with
 [`deepvista card get <card_id>`](vistabase-card.md) and verify the SKILL.md
-body before running or exporting. See
-[skill-export-knowledge.md](skill-export-knowledge.md) for turning a stored
-skill into a portable `SKILL.md` file.
+body before running.
 
 ## See also
 
 - [notes.md](notes.md) — capturing the source notes (`deepvista notes create`
   with `--content-file`) and re-indexing.
-- [skill.md](skill.md) — listing, running, exporting the generated skills.
+- [skill.md](skill.md) — listing and running the generated skills.
 - [skill-research-to-skill.md](skill-research-to-skill.md) — broader pattern
   (search → synthesize → run) when the source material spans multiple cards.

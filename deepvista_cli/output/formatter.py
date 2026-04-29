@@ -28,7 +28,6 @@ URL_PATTERNS = {
     "card": "/vistabase/{id}",
     "note": "/notes/{id}",
     "skill": "/skills/{id}",
-    "vistabook": "/skills/{id}",
     "chat": "/chat/{id}",
     "person": "/vistabase/{id}?contextType=person",
     "organization": "/vistabase/{id}?contextType=organization",
@@ -38,7 +37,7 @@ URL_PATTERNS = {
 
 # Known entity keys in API responses (singular for wrapped, plural for lists).
 # Entity type matches the key name except where overridden below.
-ENTITY_KEYS = ("card", "note", "skill", "vistabook", "session")
+ENTITY_KEYS = ("card", "note", "skill", "session")
 _KEY_TYPE_OVERRIDES = {"session": "chat"}
 GENERIC_LIST_KEYS = ("results", "similar")
 
@@ -48,7 +47,7 @@ def generate_url(entity_id: str, entity_type: str = "card", base_url: str = DEFA
 
     Args:
         entity_id: The UUID of the entity
-        entity_type: Type of entity (card, note, skill, vistabook, chat, person, organization, topic, keypoint)
+        entity_type: Type of entity (card, note, skill, chat, person, organization, topic, keypoint)
         base_url: Base URL of the web app (defaults to https://app.deepvista.ai)
 
     Returns:

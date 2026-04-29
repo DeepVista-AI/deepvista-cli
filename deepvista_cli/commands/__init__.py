@@ -1,4 +1,4 @@
-"""CLI command groups — auth, vistabase, vistabook, notes, chat."""
+"""CLI command groups — auth, vistabase, skill, notes, chat."""
 
 from __future__ import annotations
 

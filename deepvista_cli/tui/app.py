@@ -275,7 +275,7 @@ class SkillsPanel(Container):
     def load_skills(self) -> None:
         client = _TUIClient(self._config)
         try:
-            data = client.post("/get_context_cards", {"card_type": "vistabook", "limit": 50, "page_number": 1})
+            data = client.post("/get_context_cards", {"card_type": "skill", "limit": 50, "page_number": 1})
             self._skills = data.get("cards", [])
         except BaseException as e:
             self._skills = []
@@ -329,7 +329,7 @@ class SkillsPanel(Container):
         client = _TUIClient(self._config)
         lines: list[str] = []
         try:
-            tag = f'<contextCard id="{skill_id}" cardType="vistabook"></contextCard>'
+            tag = f'<contextCard id="{skill_id}" cardType="skill"></contextCard>'
             body = {"user_instruction": f"{tag} Run this skill"}
             for event in client.stream_sse("/imagine", body):
                 text = event.get("text", event.get("content", ""))

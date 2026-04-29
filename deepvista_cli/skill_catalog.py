@@ -470,9 +470,8 @@ def _fetch_server_skills(
 ) -> list[SkillMeta]:
     """Pull up to ``limit`` skills from the server via /get_context_cards.
 
-    Queries `card_type="skill"` — the current name for user-installed and
-    synthesized skill cards. The legacy `vistabook` type is kept for
-    back-compat in other commands but is empty on modern accounts.
+    Queries `card_type="skill"` — the canonical type for user-installed and
+    synthesized skill cards.
     """
     data = client.post(
         "/get_context_cards",
