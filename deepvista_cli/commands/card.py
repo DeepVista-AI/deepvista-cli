@@ -29,8 +29,8 @@ CARD_TYPES = [
     "keypoint",
     "file",
     "note",
-    "vistabook",
-    "vistabook_run",
+    "skill",
+    "skill_run",
 ]
 
 CARD_COLUMNS = ["id", "type", "title", "display_status", "updated_at"]

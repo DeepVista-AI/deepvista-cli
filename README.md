@@ -166,10 +166,9 @@ One skill, `deepvista`, with per-subcommand detail under `skills/deepvista/refer
 | `reference/vistabase.md` | Implicit memory — view and search |
 | `reference/memory.md` | Deprecated `deepvista memory` alias mapping |
 | `reference/chat.md` | Chat sessions and NDJSON stream format |
-| `reference/skill.md` | Structured Skill workflows — list, run, export, discover, install |
+| `reference/skill.md` | Structured Skill workflows — list, run, discover, install |
 | `reference/skill-analyze-notes.md` | Pattern: search → read → synthesize notes |
 | `reference/skill-research-to-skill.md` | Pattern: research the KB, then run a Skill |
-| `reference/skill-export-knowledge.md` | Export a Skill as a portable `SKILL.md` |
 | `reference/skill-import-files.md` | Bulk-import a folder as file cards |
 | `reference/persona-knowledge-worker.md` | Daily persona workflow loop |
 | `reference/openclaw.md` | Auto-capture rules for OpenClaw agents |
@@ -283,7 +282,6 @@ deepvista skill list [--limit N]
 deepvista skill get <skill_id>
 deepvista skill run <skill_id> [--input "context"]     # streams NDJSON
 deepvista skill status <run_chat_id>
-deepvista skill export <skill_id> --format skill
 ```
 
 ### vistabase — Implicit context

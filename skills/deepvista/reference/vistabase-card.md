@@ -2,7 +2,7 @@
 
 `deepvista card` is the full-featured interface to your knowledge base. Every entry
 is a card; types include `person`, `organization`, `message`, `todo`, `topic`,
-`keypoint`, `file`, `note`, `vistabook`, `vistabook_run`.
+`keypoint`, `file`, `note`, `skill`, `skill_run`.
 
 `deepvista notes` is a thin convenience wrapper over `card --type note`. Use
 [notes.md](notes.md) for note-only ergonomics; use this for everything else.
