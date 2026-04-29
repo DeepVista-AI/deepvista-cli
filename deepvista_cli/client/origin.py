@@ -32,6 +32,10 @@ def _detect_from_env() -> tuple[str, str | None] | None:
 
     Returns ``(tool_name, tool_version)`` or ``None`` if nothing matched.
     """
+    # OpenClaw: sets OPENCLAW_CLI=1
+    if os.environ.get("OPENCLAW_CLI"):
+        return ("openclaw", os.environ.get("OPENCLAW_SERVICE_VERSION"))
+
     # Claude Code: sets CLAUDECODE=1, version embedded in CLAUDE_CODE_EXECPATH
     if os.environ.get("CLAUDECODE") == "1":
         version = None
@@ -80,6 +84,7 @@ def _detect_from_env() -> tuple[str, str | None] | None:
 _PROCESS_HINTS: dict[str, str] = {
     "claude": "claude-code",
     "opencode": "opencode",
+    "openclaw": "openclaw",
     "cursor": "cursor",
     "windsurf": "windsurf",
     "cline": "cline",
