@@ -361,39 +361,84 @@ def skill_install(ctx: click.Context, skill_id: str, dry_run: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
+_FRONTMATTER_REQUIREMENT = (
+    "**The SKILL.md body you put in `description` MUST start with a valid YAML "
+    "frontmatter block — three dashes, the keys below, three dashes — before "
+    "anything else. No prose, no heading, no blank line before the opening "
+    "`---`. A skill without frontmatter is a broken skill and will be rejected.**\n"
+    "\n"
+    "Required frontmatter keys:\n"
+    "- `name` — the skill slug (matches the `title` you pass to `upsert_context_card`)\n"
+    "- `description` — one sentence (≤ 200 chars) describing when to load this skill\n"
+    "- `type` — exactly `persona` or `workflow` (matches the kind being generated)\n"
+    "- `execution` — `stateless` for personas, `stateful` for workflows\n"
+    "\n"
+    "Exact template (copy the structure, fill in the values):\n"
+    "\n"
+    "```\n"
+    "---\n"
+    "name: <skill-slug>\n"
+    'description: "<one-sentence trigger — when should the agent load this?>"\n'
+    "type: <persona|workflow>\n"
+    "execution: <stateless|stateful>\n"
+    "---\n"
+    "\n"
+    "# <Title>\n"
+    "...\n"
+    "```\n"
+)
+
 _CREATE_FROM_NOTE_INSTRUCTIONS = {
     "persona": (
         "A **persona skill** named `persona-<interviewee-slug>` that captures the "
         "interviewee's philosophy, voice, and decision-making lens. When loaded, "
         "the agent should respond in their voice and apply their frameworks. "
-        "Include: who they are, core mental models drawn from the note, voice/"
-        "tone rules, and a 3-5 phase advising sequence using <accordion>/<nli> "
-        "shortcodes."
+        "Frontmatter: `type: persona`, `execution: stateless`. Body sections (in "
+        "this order, all required): `## Purpose` (one-paragraph who-they-are), "
+        "`## Core mental models` (3-6 bullets drawn from the note, each citing "
+        "the note), `## Voice & tone` (do/don't list), `## Advising sequence` "
+        "(3-5 phases the persona walks the user through, using <accordion>/<nli> "
+        "shortcodes)."
     ),
     "workflow": (
         "A **workflow skill** named `workflow-<topic-slug>` that turns the "
         "interviewee's frameworks or steps into an executable workflow. The user "
         "provides inputs; the workflow classifies, recommends, and returns a "
-        "prioritized plan. Include: purpose, **a `## Workflow` section with a "
-        "`mermaid` flowchart diagram that visualises the decision graph — "
-        "ALWAYS open the fence with the `mermaid` info string (```mermaid) "
-        "and use `flowchart TD`**, input schema, 4-6 phases using "
-        "<accordion>/<nli> shortcodes, cheat sheet, and output format template. "
-        "**Mermaid animation is REQUIRED, not optional.** For every edge in "
-        "the flowchart, give it an ID using mermaid v11 syntax "
-        "(`A e1@--> B`, `B e2@--> C`, …) and turn animation on with "
-        "`e1@{ animation: slow }` for happy-path edges and "
-        "`e1@{ animation: fast }` for tight loops. Every edge must have an "
-        "ID and every ID must have an animation directive — a static "
-        "diagram is a rendering bug, not an acceptable output. "
-        "**Node-label rules (critical for rendering): every node label must "
-        "be a single short line, ≤ 30 characters. Do NOT use `<br/>`, "
-        "`\\n`, `<b>`, `<i>`, or any HTML tags inside `[ ... ]`, `( ... )`, "
-        "or `{ ... }`. If you need a sub-description, chain a second node "
-        "below instead of stuffing two lines into one node — mermaid's "
-        "HTML-label sizing clips wrapped text and multi-line content will "
-        "render cut off.** Keep the diagram under ~15 nodes — split into "
-        "multiple diagrams if the workflow is larger."
+        "prioritized plan. Frontmatter: `type: workflow`, `execution: stateful`.\n"
+        "\n"
+        "Body sections — emit them in this exact order, all required:\n"
+        "1. `## Purpose` — one paragraph: what this workflow does, for whom, "
+        "when to load it.\n"
+        "2. `## Inputs` — the input schema the user must provide "
+        "(bullet list of fields, each with a one-line description).\n"
+        "3. `## Workflow` — a single `mermaid` flowchart that visualises "
+        "the decision graph. **The `## Workflow` section without a "
+        "rendered mermaid diagram is a rejected output.**\n"
+        "4. `## Phases` — 4-6 phases broken out using `<accordion>` / "
+        "`<nli>` shortcodes, one accordion per phase, each phase "
+        "containing the steps, decisions, and exit criteria.\n"
+        "5. `## Cheat sheet` — a compact table or bullet list the user "
+        "can scan during execution.\n"
+        "6. `## Output format` — a template the agent fills in at the end "
+        "of the run (markdown skeleton with placeholders).\n"
+        "\n"
+        "Mermaid rules for the `## Workflow` diagram:\n"
+        "- Open the fence with the `mermaid` info string (```` ```mermaid ````) "
+        "and use `flowchart TD`.\n"
+        "- **Mermaid animation is REQUIRED, not optional.** Every edge gets "
+        "an ID using mermaid v11 syntax (`A e1@--> B`, `B e2@--> C`, …) and "
+        "an animation directive: `e1@{ animation: slow }` for happy-path "
+        "edges, `e1@{ animation: fast }` for tight loops. Every edge must "
+        "have an ID; every ID must have an animation directive. A static "
+        "diagram is a rendering bug, not an acceptable output.\n"
+        "- **Node-label rules (critical for rendering): every node label "
+        "must be a single short line, ≤ 30 characters. Do NOT use "
+        "`<br/>`, `\\n`, `<b>`, `<i>`, or any HTML tags inside `[ ... ]`, "
+        "`( ... )`, or `{ ... }`.** If you need a sub-description, chain a "
+        "second node below instead of stuffing two lines into one node — "
+        "mermaid's HTML-label sizing clips wrapped text.\n"
+        "- Keep the diagram under ~15 nodes — split into multiple diagrams "
+        "if the workflow is larger."
     ),
 }
 
@@ -443,6 +488,8 @@ def _build_create_from_note_prompt(notes: list[tuple[str, str]], kinds: tuple[st
     for i, kind in enumerate(kinds, 1):
         lines.append(f"{i}. {_CREATE_FROM_NOTE_INSTRUCTIONS[kind]}")
     lines.append("")
+    lines.append(_FRONTMATTER_REQUIREMENT)
+    lines.append("")
     lines.append(
         "**You MUST persist each skill by calling `upsert_context_card` with "
         '`card_type="skill"`.** Do not write the skill content to a local '
@@ -451,10 +498,14 @@ def _build_create_from_note_prompt(notes: list[tuple[str, str]], kinds: tuple[st
     )
     lines.append("")
     lines.append(
-        "For each `upsert_context_card` call: set `title` to the skill name, "
-        "put the full SKILL.md body in `description`, add relevant `tags` "
-        "including the kind (`persona` or `workflow`), and link every source "
-        f"note via `related_context_card_ids={ids_json}`. After each call, "
+        "For each `upsert_context_card` call: set `title` to the skill name "
+        "(matching the frontmatter `name`); put the full SKILL.md body — "
+        "**starting with the YAML frontmatter block** — in `description`; "
+        "add relevant `tags` including the kind (`persona` or `workflow`); "
+        f"and link every source note via "
+        f"`related_context_card_ids={ids_json}`. Before calling, verify the "
+        "first three characters of `description` are exactly `---` — if not, "
+        "you forgot the frontmatter and must regenerate. After each call, "
         "confirm the returned card id in the chat response."
     )
     return "\n".join(lines)
