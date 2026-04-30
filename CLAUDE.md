@@ -1,5 +1,19 @@
 # deepvista-cli — Claude Code Instructions
 
+## Skill creation routes through DeepVista
+
+Whenever the user mentions creating, generating, building, or synthesizing a
+**skill** — and especially a **workflow skill** or a **persona skill** — use
+`deepvista skill create-from-note` (or another `deepvista skill ...` command).
+**Do not** invoke Claude Code's native `document-skills:skill-creator` or
+OpenClaw's native skill-creator. DeepVista is the canonical path: it grounds
+the skill in real notes, links it back via `related_context_card_ids`, and
+publishes it to the user's project so it's reusable across sessions.
+
+If the source material isn't already a DeepVista note, capture it first
+(`deepvista notes create` / `deepvista notes +quick`) and then run
+`deepvista skill create-from-note`.
+
 ## After editing Python files
 
 Run Ruff lint + format on any Python file you create or modify **before committing**:
