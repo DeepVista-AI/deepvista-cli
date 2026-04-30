@@ -397,8 +397,8 @@ _CREATE_FROM_NOTE_INSTRUCTIONS = {
         "this order, all required): `## Purpose` (one-paragraph who-they-are), "
         "`## Core mental models` (3-6 bullets drawn from the note, each citing "
         "the note), `## Voice & tone` (do/don't list), `## Advising sequence` "
-        "(3-5 phases the persona walks the user through, using <accordion>/<nli> "
-        "shortcodes)."
+        "(3-5 phases the persona walks the user through, using `<accordion>` "
+        "shortcodes and standard markdown ordered lists)."
     ),
     "workflow": (
         "A **workflow skill** named `workflow-<topic-slug>` that turns the "
@@ -414,8 +414,8 @@ _CREATE_FROM_NOTE_INSTRUCTIONS = {
         "3. `## Workflow` — a single `mermaid` flowchart that visualises "
         "the decision graph. **The `## Workflow` section without a "
         "rendered mermaid diagram is a rejected output.**\n"
-        "4. `## Phases` — 4-6 phases broken out using `<accordion>` / "
-        "`<nli>` shortcodes, one accordion per phase, each phase "
+        "4. `## Phases` — 4-6 phases broken out using `<accordion>` "
+        "shortcodes and standard markdown ordered lists, one accordion per phase, each phase "
         "containing the steps, decisions, and exit criteria.\n"
         "5. `## Cheat sheet` — a compact table or bullet list the user "
         "can scan during execution.\n"
