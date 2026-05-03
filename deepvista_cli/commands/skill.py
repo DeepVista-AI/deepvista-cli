@@ -502,8 +502,14 @@ def _build_create_from_note_prompt(notes: list[tuple[str, str]], kinds: tuple[st
     )
     lines.append("")
     lines.append(
-        "For each `upsert_context_card` call: set `title` to the skill name "
-        "(matching the frontmatter `name`); put the full SKILL.md body — "
+        "For each `upsert_context_card` call: set `title` to a human-readable "
+        "display name — convert the skill slug to a natural phrase by replacing "
+        "hyphens with spaces and capitalising the first letter of each word "
+        '(e.g. `workflow-b2b-positioning` → "B2B Positioning Workflow", '
+        '`persona-april-dunford` → "April Dunford Persona"). '
+        "The frontmatter `name` field keeps the slug; only the `title` argument "
+        "to `upsert_context_card` uses the human-readable form. "
+        "Put the full SKILL.md body — "
         "**starting with the YAML frontmatter block** — in `description`; "
         "add relevant `tags` including the kind (`persona` or `workflow`); "
         f"and link every source note via "
