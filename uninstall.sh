@@ -128,5 +128,42 @@ if [ -f "$HOOK_SCRIPT" ]; then
   echo "    Removed $HOOK_SCRIPT"
 fi
 
+echo "==> Removing DeepVista skill-trigger hook..."
+
+remove_skill_trigger_hook() {
+  local settings_file="$1"
+  [ ! -f "$settings_file" ] && return
+  grep -q "deepvista-skill-trigger" "$settings_file" 2>/dev/null || return
+
+  python3 - "$settings_file" <<'PYEOF'
+import sys, json
+
+settings_path = sys.argv[1]
+try:
+    with open(settings_path) as f:
+        cfg = json.load(f)
+except Exception:
+    sys.exit(0)
+
+hooks = cfg.get("hooks", {})
+usp_list = hooks.get("UserPromptSubmit", [])
+hooks["UserPromptSubmit"] = [
+    entry for entry in usp_list
+    if not any("deepvista-skill-trigger" in h.get("command", "") for h in entry.get("hooks", []))
+]
+if not hooks["UserPromptSubmit"]:
+    del hooks["UserPromptSubmit"]
+if not hooks:
+    cfg.pop("hooks", None)
+
+with open(settings_path, "w") as f:
+    json.dump(cfg, f, indent=2)
+PYEOF
+
+  echo "    Removed skill-trigger hook from $settings_file"
+}
+
+remove_skill_trigger_hook "$HOME/.claude/settings.json"
+
 echo ""
 echo "DeepVista has been uninstalled."
