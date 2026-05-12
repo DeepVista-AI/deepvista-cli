@@ -361,164 +361,33 @@ def skill_install(ctx: click.Context, skill_id: str, dry_run: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
-_FRONTMATTER_REQUIREMENT = (
-    "**The SKILL.md body you put in `description` MUST start with a valid YAML "
-    "frontmatter block — three dashes, the keys below, three dashes — before "
-    "anything else. No prose, no heading, no blank line before the opening "
-    "`---`. A skill without frontmatter is a broken skill and will be rejected.**\n"
-    "\n"
-    "Required frontmatter keys:\n"
-    "- `name` — the skill slug (matches the `title` you pass to `upsert_context_card`)\n"
-    "- `description` — one sentence (≤ 200 chars) describing when to load this skill\n"
-    "- `type` — exactly `persona` or `workflow` (matches the kind being generated)\n"
-    "- `execution` — `stateless` for personas, `stateful` for workflows\n"
-    "\n"
-    "Exact template (copy the structure, fill in the values):\n"
-    "\n"
-    "```\n"
-    "---\n"
-    "name: <skill-slug>\n"
-    'description: "<one-sentence trigger — when should the agent load this?>"\n'
-    "type: <persona|workflow>\n"
-    "execution: <stateless|stateful>\n"
-    "---\n"
-    "\n"
-    "# <Title>\n"
-    "...\n"
-    "```\n"
-)
+def _build_create_from_note_instruction(notes: list[tuple[str, str]], kinds: tuple[str, ...]) -> str:
+    """Build a thin user instruction that lets the server-side skills do the work.
 
-_CREATE_FROM_NOTE_INSTRUCTIONS = {
-    "persona": (
-        "A **persona skill** named `persona-<interviewee-slug>` that captures the "
-        "interviewee's philosophy, voice, and decision-making lens. When loaded, "
-        "the agent should respond in their voice and apply their frameworks. "
-        "Frontmatter: `type: persona`, `execution: stateless`. Body sections (in "
-        "this order, all required): `## Purpose` (one-paragraph who-they-are), "
-        "`## Core mental models` (3-6 bullets drawn from the note, each citing "
-        "the note), `## Voice & tone` (do/don't list), `## Advising sequence` "
-        "(3-5 phases the persona walks the user through, using `<accordion>` "
-        "shortcodes and standard markdown ordered lists)."
-    ),
-    "workflow": (
-        "A **workflow skill** named `workflow-<topic-slug>` that turns the "
-        "interviewee's frameworks or steps into an executable workflow. The user "
-        "provides inputs; the workflow classifies, recommends, and returns a "
-        "prioritized plan. Frontmatter: `type: workflow`, `execution: stateful`.\n"
-        "\n"
-        "Body sections — emit them in this exact order, all required:\n"
-        "1. `## Purpose` — one paragraph: what this workflow does, for whom, "
-        "when to load it.\n"
-        "2. `## Inputs` — the input schema the user must provide "
-        "(bullet list of fields, each with a one-line description).\n"
-        "3. `## Workflow` — a single `mermaid` flowchart that visualises "
-        "the decision graph. **The `## Workflow` section without a "
-        "rendered mermaid diagram is a rejected output.**\n"
-        "4. `## Phases` — 4-6 phases broken out using `<accordion>` "
-        "shortcodes and standard markdown ordered lists, one accordion per phase, each phase "
-        "containing the steps, decisions, and exit criteria. "
-        "**Each accordion phase MUST correspond one-to-one with a non-terminal node in "
-        "the `## Workflow` mermaid diagram — use the exact same label text. "
-        "The number of accordions must equal the number of non-terminal mermaid nodes. "
-        "A mismatch between diagram nodes and phases is a rejected output.**\n"
-        "5. `## Cheat sheet` — a compact table or bullet list the user "
-        "can scan during execution.\n"
-        "6. `## Output format` — a template the agent fills in at the end "
-        "of the run (markdown skeleton with placeholders).\n"
-        "\n"
-        "Mermaid rules for the `## Workflow` diagram:\n"
-        "- Open the fence with the `mermaid` info string (```` ```mermaid ````) "
-        "and use `flowchart TD`.\n"
-        "- **Mermaid animation is REQUIRED, not optional.** Every edge gets "
-        "an ID using mermaid v11 syntax (`A e1@--> B`, `B e2@--> C`, …) and "
-        "an animation directive: `e1@{ animation: slow }` for happy-path "
-        "edges, `e1@{ animation: fast }` for tight loops. Every edge must "
-        "have an ID; every ID must have an animation directive. A static "
-        "diagram is a rendering bug, not an acceptable output.\n"
-        "- **Node-label rules (critical for rendering): every node label "
-        "must be a single short line, ≤ 30 characters. Do NOT use "
-        "`<br/>`, `\\n`, `<b>`, `<i>`, or any HTML tags inside `[ ... ]`, "
-        "`( ... )`, or `{ ... }`.** If you need a sub-description, chain a "
-        "second node below instead of stuffing two lines into one node — "
-        "mermaid's HTML-label sizing clips wrapped text.\n"
-        "- Keep the diagram under ~15 nodes — split into multiple diagrams "
-        "if the workflow is larger."
-    ),
-}
-
-
-def _build_create_from_note_prompt(notes: list[tuple[str, str]], kinds: tuple[str, ...]) -> str:
-    """Build the synthesis prompt for 1..N source notes.
-
-    ``notes`` is a list of ``(note_id, title)`` tuples; ``title`` may be empty
-    when the caller couldn't resolve it cheaply. The prompt stays compatible
-    with the single-note wording when ``len(notes) == 1`` so existing agents
-    keep producing the same output shape.
+    Emits `<contextCard>` chips for each source note followed by a short trigger
+    phrase. The chat agent's intent router matches the phrase against the
+    `description` of `deepvista-make-persona-skill` / `deepvista-make-workflow-skill`
+    and loads the appropriate SKILL.md — that's where the full prompt, frontmatter
+    rules, mermaid requirements, and `upsert_context_card` instructions now live.
     """
     if not notes:
         raise ValueError("at least one note is required")
 
-    ids_json = json.dumps([nid for nid, _ in notes])
+    chips = " ".join(f'<contextCard id="{nid}" cardType="note">{title or "Note"}</contextCard>' for nid, title in notes)
 
-    if len(notes) == 1:
-        note_id = notes[0][0]
-        lines = [
-            f'Look up the note with id "{note_id}" using `read_context_card`. Read '
-            "its full content. From that note, generate the skill(s) listed below. "
-            "Ground every detail in the note — do not invent frameworks or advice "
-            "the note doesn't contain.",
-        ]
+    wants_persona = "persona" in kinds
+    wants_workflow = "workflow" in kinds
+    plural = len(notes) > 1
+    source_phrase = "these notes" if plural else "this note"
+
+    if wants_persona and wants_workflow:
+        trigger = f"Create a persona skill and a workflow skill from {source_phrase}."
+    elif wants_persona:
+        trigger = f"Create a persona skill from {source_phrase}."
     else:
-        bullets = []
-        for nid, title in notes:
-            label = f'"{title}" ({nid})' if title else nid
-            bullets.append(f"- {label}")
-        lines = [
-            f"Look up each of the following {len(notes)} source notes using "
-            "`read_context_card` and read their full content:",
-            "",
-            *bullets,
-            "",
-            "From those notes **together**, generate the skill(s) listed below. "
-            "Ground every detail in the notes — do not invent frameworks or advice "
-            "they don't contain. When the notes agree, state the shared principle "
-            "and cite each note that supports it. When they disagree, surface the "
-            "tension explicitly and let the user pick. Prefer synthesis over "
-            "averaging: the goal is a skill that is stronger than any single note.",
-        ]
+        trigger = f"Create a workflow skill from {source_phrase}."
 
-    lines.append("")
-    lines.append("Skills to generate:")
-    for i, kind in enumerate(kinds, 1):
-        lines.append(f"{i}. {_CREATE_FROM_NOTE_INSTRUCTIONS[kind]}")
-    lines.append("")
-    lines.append(_FRONTMATTER_REQUIREMENT)
-    lines.append("")
-    lines.append(
-        "**You MUST persist each skill by calling `upsert_context_card` with "
-        '`card_type="skill"`.** Do not write the skill content to a local '
-        "file, do not paste it in the chat response, do not skip the tool "
-        "call. One `upsert_context_card` invocation per skill."
-    )
-    lines.append("")
-    lines.append(
-        "For each `upsert_context_card` call: set `title` to a human-readable "
-        "display name — convert the skill slug to a natural phrase by replacing "
-        "hyphens with spaces and capitalising the first letter of each word "
-        '(e.g. `workflow-b2b-positioning` → "B2B Positioning Workflow", '
-        '`persona-april-dunford` → "April Dunford Persona"). '
-        "The frontmatter `name` field keeps the slug; only the `title` argument "
-        "to `upsert_context_card` uses the human-readable form. "
-        "Put the full SKILL.md body — "
-        "**starting with the YAML frontmatter block** — in `description`; "
-        "add relevant `tags` including the kind (`persona` or `workflow`); "
-        f"and link every source note via "
-        f"`related_context_card_ids={ids_json}`. Before calling, verify the "
-        "first three characters of `description` are exactly `---` — if not, "
-        "you forgot the frontmatter and must regenerate. After each call, "
-        "confirm the returned card id in the chat response."
-    )
-    return "\n".join(lines)
+    return f"{chips} {trigger}"
 
 
 # ---------------------------------------------------------------------------
@@ -754,6 +623,12 @@ def skill_create_from_note(
     and/or one `workflow` skill (executable steps), grounded in the union of all
     resolved notes and linked back to every source.
 
+    The actual synthesis prompt lives server-side in
+    `deepvista-make-persona-skill` / `deepvista-make-workflow-skill`. This
+    command sends only `<contextCard>` chips plus a short trigger phrase so the
+    chat agent picks the right skill and runs it — keeping prompt logic on the
+    server as the single source of truth (DV-585).
+
     Streams NDJSON identical to `chat +send` and `skill run`.
 
     > [!CAUTION] This is a write command — the agent creates skill cards in
@@ -794,8 +669,8 @@ def skill_create_from_note(
     seen_k: set[str] = set()
     selected = tuple(k for k in (kinds or SKILL_KINDS) if not (k in seen_k or seen_k.add(k)))
 
-    prompt = _build_create_from_note_prompt(resolved, selected)
-    body: dict[str, Any] = {"user_instruction": prompt}
+    instruction = _build_create_from_note_instruction(resolved, selected)
+    body: dict[str, Any] = {"user_instruction": instruction}
     if chat_id:
         body["chat_id"] = chat_id
 
