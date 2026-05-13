@@ -8,6 +8,18 @@ users what's new between the version they have installed and the latest release.
 
 ## Unreleased
 
+### Changed
+- **`skill create-from-note` delegates prompt to the server** (DV-585). The
+  ~150-line synthesis prompt previously embedded in
+  `deepvista_cli/commands/skill.py` is gone; the CLI now emits only
+  `<contextCard>` chips plus a short trigger phrase
+  (`"Create a persona skill and a workflow skill from this note."`). The chat
+  agent matches the phrase against the existing server-side
+  `deepvista-make-persona-skill` / `deepvista-make-workflow-skill` SKILL.md
+  files, which are now the single source of truth for frontmatter rules,
+  mermaid requirements, and `upsert_context_card` instructions. Same UX, no
+  more drift between client and server prompts.
+
 ### Added
 - **Session-scoped conversation notes** (DV-449 M1/M2). One rolling DeepVista
   note per Claude Code session, updated every conversation turn with
