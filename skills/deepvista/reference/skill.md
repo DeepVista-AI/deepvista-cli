@@ -35,14 +35,41 @@ note (podcast, interview, book chapter, research summary). Full guide:
 
 ### `run` — write
 
-> [!CAUTION] Starts a new Skill run and creates a chat session. Confirm first.
+> [!CAUTION] Acquires the parent Skill card's run lock and either prints a host run packet or starts a DeepVista chat session. Confirm first.
 
 ```bash
-deepvista skill run <skill_id> [--input "context text"]
+deepvista skill run <skill_id> [--mode host|deepvista|auto] [--input "context text"]
 ```
 
-Output is **NDJSON** — same format as [chat.md](chat.md). The very first event
-contains the `run_chat_id` you'll need for `status` and continuation.
+Three modes, picked with `--mode` (default `host`):
+
+- **`host`** *(default)* — the CLI does **not** call `/imagine`. It prints a JSON header (`type: "skill_run_packet"`, skill_id, active phase, per-phase routing, user_input) followed by the workflow's SKILL.md body and the host-mode runtime contract. The host agent (Claude Code / OpenClaw / Cursor) drives the run itself via the [`phase`](#phase--mutate-an-in-progress-run-write) and [`complete`](#complete--release-the-run-lock-write) shims below. Use this when the workflow needs tools the host has (Bash, Edit, MCPs, your repo state).
+- **`deepvista`** — legacy behaviour: POSTs to `/imagine` and streams NDJSON from the DeepVista server agent, which drives the workflow end-to-end. Use this for KB-internal workflows (research, synthesis, card updates) where the server's tools are sufficient.
+- **`auto`** — inspects each phase's `tool_plan` and routes per phase. Phases whose plan is entirely server-side tools (`chat_cypher_search`, `upsert_context_card`, …) get a `"deepvista"` route in the packet; the rest stay `"host"`. The host agent follows the table.
+
+### `phase` — mutate an in-progress run (write)
+
+Used by host agents driving the workflow themselves after `skill run --mode host`. Each command parses the skill card, mutates accordion + mermaid markers, and writes via `/update_context_card`.
+
+```bash
+deepvista skill phase open <skill_id> "Phase N: <title>"
+deepvista skill phase done <skill_id> "Phase N: <title>" [--artifact-card-id ID]... [--next-phase "Phase N+1: …"]
+deepvista skill phase pause <skill_id> --reason "<short sentence>"
+deepvista skill phase run-on-deepvista <skill_id> "Phase N: <title>" [--input "..."]
+```
+
+- `open` marks the accordion `open="true"` and the mermaid node `:::dvActive`.
+- `done` marks `checked="true"` / `:::dvDone` and optionally embeds artifact `<contextCardBlock>`s. Pass `--next-phase` to open the next phase in the same write.
+- `pause` does **not** change `status` (the run lock stays held). Exits non-zero; the user resumes by re-running `deepvista skill run --mode host`.
+- `run-on-deepvista` delegates a single phase to the DeepVista server agent. Used by `--mode auto` for server-routable phases.
+
+### `complete` — release the run lock (write)
+
+```bash
+deepvista skill complete <skill_id> --review "<3–6 retrospective bullets>"
+```
+
+Appends the `## Review` section, sets `status="completed"` (releases the lock so the skill can be run again), and emits `<json>{"done": true}</json>`.
 
 ### `status` — read-only
 
@@ -99,7 +126,12 @@ traceback) so agents don't blow up. 5-minute on-disk body cache by default.
 
 ```bash
 deepvista skill list
-deepvista skill run <skill_id> --input "Focus on Q4 objectives"
+deepvista skill run <skill_id> --input "Focus on Q4 objectives"           # host mode (default)
+deepvista skill run <skill_id> --mode deepvista                            # legacy server-agent run
+deepvista skill run <skill_id> --mode auto                                 # per-phase routing
+deepvista skill phase open <skill_id> "Phase 1: …"                         # host: open the first phase
+deepvista skill phase done <skill_id> "Phase 1: …" --artifact-card-id <id> # host: complete + attach artifact
+deepvista skill complete <skill_id> --review "shipped on Friday — clean run"
 deepvista skill status <run_chat_id>
 deepvista skill discover --category persona
 deepvista skill install persona-researcher

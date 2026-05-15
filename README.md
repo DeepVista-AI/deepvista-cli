@@ -280,9 +280,16 @@ Card types: `person` · `organization` · `message` · `todo` · `topic` · `key
 ```bash
 deepvista skill list [--limit N]
 deepvista skill get <skill_id>
-deepvista skill run <skill_id> [--input "context"]     # streams NDJSON
+deepvista skill run <skill_id> [--mode host|deepvista|auto] [--input "context"]
+deepvista skill phase open <skill_id> "Phase N: <title>"
+deepvista skill phase done <skill_id> "Phase N: <title>" [--artifact-card-id ID]... [--next-phase "Phase N+1: …"]
+deepvista skill phase pause <skill_id> --reason "<short sentence>"
+deepvista skill phase run-on-deepvista <skill_id> "Phase N: <title>"
+deepvista skill complete <skill_id> --review "<retrospective bullets>"
 deepvista skill status <run_chat_id>
 ```
+
+`skill run` defaults to **host mode** — it prints a JSON header + the workflow's SKILL.md body + a host runtime contract on stdout, and the host agent (Claude Code / OpenClaw / Cursor) drives the run via the `phase` shims and `complete`. Use `--mode deepvista` to keep the legacy behaviour (server agent drives the whole run, NDJSON streamed back). `--mode auto` decides per phase by inspecting each phase's `tool_plan`.
 
 ### vistabase — Implicit context
 
