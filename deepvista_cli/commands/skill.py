@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,18 @@ import click
 from deepvista_cli import skill_catalog
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.workflow_doc import (
+    PhaseNotFoundError,
+    WorkflowDocument,
+    is_phase_server_routable,
+)
+
+# Run modes for `deepvista skill run`. ``host`` is the default — the
+# packet is printed to stdout for the host agent to drive; ``deepvista``
+# forwards to /imagine (legacy behaviour); ``auto`` decides per-phase by
+# inspecting each phase's ``tool_plan``.
+_RUN_MODES = ("host", "deepvista", "auto")
+_DEFAULT_RUN_MODE = "host"
 
 SKILL_COLUMNS = ["id", "title", "display_status", "updated_at"]
 
@@ -100,27 +113,130 @@ def skill_get(ctx: click.Context, skill_id: str) -> None:
 @skill_group.command("run")
 @click.argument("skill_id")
 @click.option("--input", "user_input", default=None, help="Context or instructions for the run.")
+@click.option(
+    "--mode",
+    type=click.Choice(_RUN_MODES, case_sensitive=False),
+    default=_DEFAULT_RUN_MODE,
+    show_default=True,
+    help=(
+        "Where the workflow executes. ``host`` (default) prints a run packet "
+        "for the host agent (Claude Code / OpenClaw) to drive itself via the "
+        "`deepvista skill phase ...` CLI shims. ``deepvista`` forwards to "
+        "/imagine so the DeepVista server agent runs the whole workflow "
+        "(legacy behaviour). ``auto`` decides per-phase from each phase's "
+        "tool_plan."
+    ),
+)
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, dry_run: bool) -> None:
-    """Run a Skill — executes the workflow via the chat agent.
+def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, mode: str, dry_run: bool) -> None:
+    """Run a Skill — host mode by default; ``--mode deepvista`` delegates the whole run server-side.
 
-    > [!CAUTION] This is a write command — it creates a new Skill run and sends
-    > messages to the chat agent. Confirm with the user before executing.
+    > [!CAUTION] This is a write command — host mode acquires the parent
+    > Skill card's run lock (``status="in_progress"``) and prints the run
+    > packet for the agent driving execution. Deepvista mode creates a new
+    > chat session and streams the server agent's response. Confirm with
+    > the user before executing.
 
-    Output is NDJSON (one JSON object per line) as the agent streams its response.
+    Host-mode output is a JSON header + the workflow's SKILL.md body + the
+    host runtime contract — all on stdout, no SSE. The host agent reads it
+    and drives the workflow using ``deepvista skill phase ...`` shims.
+
+    Deepvista-mode output is NDJSON (one JSON object per line) as the
+    server agent streams its response.
     """
     if not _UUID_RE.match(skill_id):
         output_error(3, "Invalid skill ID", f"Expected UUID format, got: {skill_id!r}")
 
-    instruction = user_input or "Run this skill"
-    body: dict = {
-        "user_instruction": f'<contextCard id="{skill_id}" cardType="skill"></contextCard> {instruction}',
+    mode = mode.lower()
+
+    if mode == "deepvista":
+        _skill_run_deepvista(ctx, skill_id, user_input, dry_run=dry_run)
+        return
+
+    # host / auto: fetch the card, optionally acquire the lock, and emit a
+    # run packet the host agent drives.
+    card = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
+    if not card or not card.get("description"):
+        output_error(3, "Skill not found or has empty description", f"skill_id={skill_id}")
+
+    doc = WorkflowDocument(card["description"])
+    phases = doc.phases()
+    if not phases:
+        output_error(3, "Skill has no <accordion> phases", f"skill_id={skill_id}")
+
+    active = doc.active_phase() or doc.first_pending_phase() or phases[0]
+
+    phase_routes: list[dict[str, str]] = []
+    if mode == "auto":
+        for p in phases:
+            phase_routes.append(
+                {
+                    "phase": p.title,
+                    "route": "deepvista" if is_phase_server_routable(p) else "host",
+                }
+            )
+    else:
+        for p in phases:
+            phase_routes.append({"phase": p.title, "route": "host"})
+
+    run_header = {
+        "type": "skill_run_packet",
+        "mode": mode,
+        "skill_id": skill_id,
+        "skill_title": card.get("title", ""),
+        "active_phase": active.title,
+        "phases": [{"index": p.index, "title": p.title, "state": p.state} for p in phases],
+        "phase_routes": phase_routes,
+        "user_input": user_input or "",
+        "skill_status": card.get("status", ""),
     }
 
     if dry_run:
         format_output(
-            {"dry_run": True, "would": "start Skill run", "skill_id": skill_id, "instruction": instruction},
+            {"dry_run": True, "would": f"emit host-mode run packet ({mode})", **run_header},
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
+    # Acquire / refresh the run lock. Idempotent: re-runs while already
+    # ``in_progress`` are accepted as resume (the host agent is the lock
+    # owner in host mode, not a chat session).
+    _client(ctx).post(
+        "/update_context_card",
+        {"card_id": skill_id, "status": "in_progress", "reason": "skill-run-host-mode"},
+    )
+
+    click.echo(json.dumps(run_header, default=str))
+    click.echo()  # blank line so agents can split header from body cheaply
+    click.echo(card["description"])
+    click.echo()
+    click.echo("---")
+    click.echo()
+    click.echo(_load_host_runtime_contract())
+
+
+def _skill_run_deepvista(
+    ctx: click.Context, skill_id: str, user_input: str | None, *, dry_run: bool, force: bool = False
+) -> None:
+    """Forward the run to the DeepVista server agent via /imagine."""
+    instruction = user_input or "Run this skill"
+    body: dict[str, Any] = {
+        "user_instruction": f'<contextCard id="{skill_id}" cardType="skill"></contextCard> {instruction}',
+    }
+    if force:
+        body["force"] = True
+
+    if dry_run:
+        format_output(
+            {
+                "dry_run": True,
+                "would": "start DeepVista server-agent Skill run",
+                "skill_id": skill_id,
+                "instruction": instruction,
+            },
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
@@ -129,6 +245,303 @@ def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, dry_run
 
     for event in _client(ctx).stream_sse("/imagine", body):
         click.echo(json.dumps(event, default=str))
+
+
+def _load_host_runtime_contract() -> str:
+    """Return the embedded host-mode runtime contract markdown."""
+    return resources.files("deepvista_cli.resources").joinpath("workflow_host_runtime.md").read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Phase mutators — used by host agents driving the workflow themselves
+# ---------------------------------------------------------------------------
+
+
+@skill_group.group("phase")
+def skill_phase_group() -> None:
+    """Phase-level operations on an in-progress workflow Skill run.
+
+    Used by host agents (Claude Code / OpenClaw / Cursor) that drove
+    ``deepvista skill run --mode host`` and are now advancing the
+    workflow themselves. Each command parses the skill card's
+    description, mutates the accordion + mermaid markers for the
+    target phase, and persists the result via /update_context_card.
+    """
+
+
+def _load_skill_doc(ctx: click.Context, skill_id: str) -> tuple[dict, WorkflowDocument]:
+    """Fetch the parent Skill card and return ``(card, WorkflowDocument)``."""
+    if not _UUID_RE.match(skill_id):
+        output_error(3, "Invalid skill ID", f"Expected UUID format, got: {skill_id!r}")
+    card = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
+    if not card or not card.get("description"):
+        output_error(3, "Skill not found or empty description", f"skill_id={skill_id}")
+    return card, WorkflowDocument(card["description"])
+
+
+def _persist_doc(
+    ctx: click.Context,
+    skill_id: str,
+    doc: WorkflowDocument,
+    *,
+    reason: str,
+    status: str | None = None,
+) -> dict:
+    """Save mutated body back via /update_context_card.
+
+    ``status`` is only set when the caller explicitly wants to acquire or
+    release the lock — phase opens / dones leave it untouched.
+    """
+    body: dict[str, Any] = {
+        "card_id": skill_id,
+        "description": doc.body,
+        "reason": reason,
+    }
+    if status is not None:
+        body["status"] = status
+    return _client(ctx).post("/update_context_card", body)
+
+
+@skill_phase_group.command("open")
+@click.argument("skill_id")
+@click.argument("phase_label")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
+@click.pass_context
+def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_run: bool) -> None:
+    """Mark a phase as active (accordion open, mermaid ``:::dvActive``).
+
+    Idempotent — re-opening the already-active phase is a no-op write.
+    """
+    card, doc = _load_skill_doc(ctx, skill_id)
+    try:
+        doc.open_phase(phase_label)
+    except PhaseNotFoundError as exc:
+        output_error(3, "Phase not found", str(exc))
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "open phase", "skill_id": skill_id, "phase": phase_label},
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
+    _persist_doc(ctx, skill_id, doc, reason="host-phase-open")
+    format_output(
+        {"ok": True, "skill_id": skill_id, "active_phase": phase_label, "title": card.get("title", "")},
+        ctx.obj.output_format,
+        entity_type="skill",
+        base_url=ctx.obj.auth_url,
+    )
+
+
+@skill_phase_group.command("done")
+@click.argument("skill_id")
+@click.argument("phase_label")
+@click.option(
+    "--artifact-card-id",
+    "artifact_card_ids",
+    multiple=True,
+    help="Card ID to attach as an artifact for this phase. Repeatable.",
+)
+@click.option(
+    "--next-phase",
+    default=None,
+    help="If set, also open this phase immediately after marking the current one done.",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
+@click.pass_context
+def skill_phase_done(
+    ctx: click.Context,
+    skill_id: str,
+    phase_label: str,
+    artifact_card_ids: tuple[str, ...],
+    next_phase: str | None,
+    dry_run: bool,
+) -> None:
+    """Mark a phase complete and optionally advance to the next phase.
+
+    Each ``--artifact-card-id`` is embedded as a ``<contextCardBlock>``
+    under the phase's accordion. Pass ``--next-phase`` to open the
+    following phase in the same write (cheaper than two round-trips).
+    """
+    card, doc = _load_skill_doc(ctx, skill_id)
+    try:
+        doc.mark_phase_done(phase_label)
+    except PhaseNotFoundError as exc:
+        output_error(3, "Phase not found", str(exc))
+
+    # Resolve artifact card titles so the <contextCardBlock> has readable
+    # content. Each artifact card is fetched once — fine for the small
+    # number of artifacts per phase in practice.
+    for art_id in artifact_card_ids:
+        if not _UUID_RE.match(art_id):
+            output_error(3, "Invalid artifact card ID", f"Expected UUID, got: {art_id!r}")
+        art_card = _client(ctx).post("/get_context_card", {"card_id": art_id})
+        title = art_card.get("title", "") or "Artifact"
+        snippet = (art_card.get("snippet") or "").strip() or (art_card.get("description") or "").strip()
+        if len(snippet) > 200:
+            snippet = snippet[:197].rstrip() + "…"
+        doc.append_artifact_block(
+            label=phase_label,
+            card_id=art_id,
+            card_type=art_card.get("type", "note"),
+            title=title,
+            summary=snippet or "(no summary)",
+        )
+
+    if next_phase:
+        try:
+            doc.open_phase(next_phase)
+        except PhaseNotFoundError as exc:
+            output_error(3, "Next phase not found", str(exc))
+
+    if dry_run:
+        format_output(
+            {
+                "dry_run": True,
+                "would": "mark phase done",
+                "skill_id": skill_id,
+                "phase": phase_label,
+                "artifacts": list(artifact_card_ids),
+                "next_phase": next_phase,
+            },
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
+    _persist_doc(ctx, skill_id, doc, reason="host-phase-done")
+    format_output(
+        {
+            "ok": True,
+            "skill_id": skill_id,
+            "completed_phase": phase_label,
+            "next_phase": next_phase,
+            "artifacts": list(artifact_card_ids),
+            "title": card.get("title", ""),
+        },
+        ctx.obj.output_format,
+        entity_type="skill",
+        base_url=ctx.obj.auth_url,
+    )
+
+
+@skill_phase_group.command("pause")
+@click.argument("skill_id")
+@click.option("--reason", required=True, help="Short sentence explaining what's blocking the run.")
+@click.pass_context
+def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str) -> None:
+    """Pause the run (lock held). Exits non-zero so wrapping scripts notice.
+
+    Does NOT change the card's ``status`` — the run lock stays held so a
+    re-run resumes the same phase. The user resumes by re-invoking
+    ``deepvista skill run --mode host <skill_id>``.
+    """
+    card, doc = _load_skill_doc(ctx, skill_id)
+    active = doc.active_phase()
+    out = {
+        "ok": False,
+        "paused": True,
+        "skill_id": skill_id,
+        "title": card.get("title", ""),
+        "active_phase": active.title if active else None,
+        "reason": reason,
+        "resume_with": f"deepvista skill run --mode host {skill_id}",
+    }
+    format_output(out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url)
+    sys.exit(2)
+
+
+@skill_phase_group.command("run-on-deepvista")
+@click.argument("skill_id")
+@click.argument("phase_label")
+@click.option(
+    "--input",
+    "user_input",
+    default=None,
+    help="Extra context for the DeepVista agent on top of the phase-scoped instruction.",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Preview without calling /imagine.")
+@click.pass_context
+def skill_phase_run_on_deepvista(
+    ctx: click.Context, skill_id: str, phase_label: str, user_input: str | None, dry_run: bool
+) -> None:
+    """Delegate a single phase to the DeepVista server agent and return.
+
+    Used by ``--mode auto`` runs (and by the host agent on demand) when
+    the active phase's ``tool_plan`` is entirely server-side tools. The
+    server agent runs only that phase — it should mark the accordion
+    ``checked="true"`` and the mermaid node ``:::dvDone`` but NOT
+    advance further or set ``status="completed"``. Control returns to
+    the host once the server agent emits ``done: true`` for the phase.
+    """
+    # Validate phase exists locally before paying for an /imagine call.
+    _, doc = _load_skill_doc(ctx, skill_id)
+    if not any(p.title == phase_label for p in doc.phases()):
+        output_error(3, "Phase not found", f"No accordion titled {phase_label!r}")
+
+    extra = f" Extra context from the host: {user_input}" if user_input else ""
+    instruction = (
+        f'<contextCard id="{skill_id}" cardType="skill"></contextCard> '
+        f'Run ONLY the phase "{phase_label}". After completing it '
+        '(accordion checked="true", mermaid node :::dvDone), STOP. '
+        "Do NOT advance to any subsequent phase. Do NOT set "
+        'status="completed" — the host agent is driving the rest of the workflow.' + extra
+    )
+    body: dict[str, Any] = {"user_instruction": instruction, "force": True}
+
+    if dry_run:
+        format_output(
+            {
+                "dry_run": True,
+                "would": "delegate one phase to DeepVista server agent via /imagine",
+                "skill_id": skill_id,
+                "phase": phase_label,
+                "payload": body,
+            },
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
+    for event in _client(ctx).stream_sse("/imagine", body):
+        click.echo(json.dumps(event, default=str))
+
+
+@skill_group.command("complete")
+@click.argument("skill_id")
+@click.option(
+    "--review",
+    required=True,
+    help="3–6 retrospective bullets to append as the final ``## Review`` section.",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
+@click.pass_context
+def skill_complete(ctx: click.Context, skill_id: str, review: str, dry_run: bool) -> None:
+    """Finalize a host-mode workflow run.
+
+    Appends the ``## Review`` section, sets ``status="completed"``
+    (releasing the run lock so the skill can be run again), and emits
+    ``<json>{"done": true}</json>`` for the host agent's output channel.
+    """
+    card, doc = _load_skill_doc(ctx, skill_id)
+    doc.append_review(review)
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "append Review + release run lock", "skill_id": skill_id, "review": review},
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
+    _persist_doc(ctx, skill_id, doc, reason="host-skill-complete", status="completed")
+    click.echo(json.dumps({"done": True, "skill_id": skill_id, "title": card.get("title", "")}, default=str))
 
 
 @skill_group.command("status")
