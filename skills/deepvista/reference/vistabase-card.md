@@ -133,7 +133,7 @@ deepvista card +pin abc123
 
 ## After a write
 
-Show the app URL: `https://app.deepvista.ai/vistabase?contextId=<id>`.
+Show the app URL: `https://app.deepvista.ai/vistabase/<id>`.
 
 ## See also
 

@@ -116,7 +116,7 @@ If the source material isn't yet a DeepVista note, capture it first
    Use `--dry-run` (supported on every stateful command) to preview first.
 2. **Show the app URL after writes.** Surface a clickable link so the user can verify:
    - notes → `https://app.deepvista.ai/notes/<id>`
-   - cards → `https://app.deepvista.ai/vistabase?contextId=<id>`
+   - cards → `https://app.deepvista.ai/vistabase/<id>`
    - skills → `https://app.deepvista.ai/skills/<id>`
 3. **Use `--content-file` for non-trivial content.** Never paste large content,
    files, or URLs inline — pass `--content-file <absolute-path>` (or `--content-file -`
