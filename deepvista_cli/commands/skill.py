@@ -35,7 +35,7 @@ _DEFAULT_RUN_MODE = "host"
 
 SKILL_COLUMNS = ["id", "title", "display_status", "updated_at"]
 
-SKILL_KINDS = ("persona", "workflow")
+SKILL_KINDS = ("workflow",)
 
 # Cap applied when a selector returns a large set so a single synthesis run stays
 # within the agent's usable context. Overridable via --limit.
@@ -775,30 +775,26 @@ def skill_install(ctx: click.Context, skill_id: str, dry_run: bool) -> None:
 
 
 def _build_create_from_note_instruction(notes: list[tuple[str, str]], kinds: tuple[str, ...]) -> str:
-    """Build a thin user instruction that lets the server-side skills do the work.
+    """Build a thin user instruction that lets the server-side skill do the work.
 
     Emits `<contextCard>` chips for each source note followed by a short trigger
     phrase. The chat agent's intent router matches the phrase against the
-    `description` of `deepvista-make-persona-skill` / `deepvista-make-workflow-skill`
-    and loads the appropriate SKILL.md — that's where the full prompt, frontmatter
-    rules, mermaid requirements, and `upsert_context_card` instructions now live.
+    `description` of `deepvista-skill-workflow` and loads its SKILL.md — that's
+    where the full prompt, frontmatter rules, mermaid requirements, and
+    `upsert_context_card` instructions live.
+
+    ``kinds`` is retained for forward-compatibility but currently only
+    ``workflow`` is supported (DV-750 — the persona maker was removed
+    server-side, so the CLI no longer offers it).
     """
     if not notes:
         raise ValueError("at least one note is required")
 
     chips = " ".join(f'<contextCard id="{nid}" cardType="note">{title or "Note"}</contextCard>' for nid, title in notes)
 
-    wants_persona = "persona" in kinds
-    wants_workflow = "workflow" in kinds
     plural = len(notes) > 1
     source_phrase = "these notes" if plural else "this note"
-
-    if wants_persona and wants_workflow:
-        trigger = f"Create a persona skill and a workflow skill from {source_phrase}."
-    elif wants_persona:
-        trigger = f"Create a persona skill from {source_phrase}."
-    else:
-        trigger = f"Create a workflow skill from {source_phrase}."
+    trigger = f"Create a workflow skill from {source_phrase}."
 
     return f"{chips} {trigger}"
 
@@ -999,7 +995,7 @@ def _resolve_note_ids(
     type=click.Choice(SKILL_KINDS, case_sensitive=False),
     multiple=True,
     default=SKILL_KINDS,
-    help="Which skill kinds to synthesize. Repeatable. Default: persona and workflow.",
+    help="Which skill kinds to synthesize. Repeatable. Currently only `workflow` is supported.",
 )
 @click.option("--chat-id", default=None, help="Continue an existing synthesis session.")
 @click.option(
@@ -1032,15 +1028,14 @@ def skill_create_from_note(
     Pass a single note UUID positionally for the original single-note behaviour,
     or combine multiple notes via repeated positionals, `--note-id`, `--from-file`
     (including stdin via `-`), `--from-search`, `--from-similar`, `--from-tag`,
-    and `--from-grep`. The agent produces one `persona` skill (voice + frameworks)
-    and/or one `workflow` skill (executable steps), grounded in the union of all
-    resolved notes and linked back to every source.
+    and `--from-grep`. The agent produces one `workflow` skill (executable
+    steps), grounded in the union of all resolved notes and linked back to
+    every source.
 
-    The actual synthesis prompt lives server-side in
-    `deepvista-make-persona-skill` / `deepvista-make-workflow-skill`. This
-    command sends only `<contextCard>` chips plus a short trigger phrase so the
-    chat agent picks the right skill and runs it — keeping prompt logic on the
-    server as the single source of truth (DV-585).
+    The actual synthesis prompt lives server-side in `deepvista-skill-workflow`.
+    This command sends only `<contextCard>` chips plus a short trigger phrase
+    so the chat agent picks the right skill and runs it — keeping prompt logic
+    on the server as the single source of truth (DV-585).
 
     Streams NDJSON identical to `chat +send` and `skill run`.
 

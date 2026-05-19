@@ -26,11 +26,11 @@ Returns the full Skill definition including every phase and step.
 > Confirm first (or pass `--yes` in batch scripts).
 
 ```bash
-deepvista skill create-from-note <note_id> [--kind persona|workflow]... [--yes] [--dry-run]
+deepvista skill create-from-note <note_id> [--kind workflow]... [--yes] [--dry-run]
 ```
 
-Synthesizes one `persona` skill and/or one `workflow` skill from a source
-note (podcast, interview, book chapter, research summary). Full guide:
+Synthesizes a `workflow` skill from a source note (podcast, interview,
+book chapter, research summary). Full guide:
 [skill-create-from-note.md](skill-create-from-note.md).
 
 ### `run` — write
@@ -134,7 +134,7 @@ deepvista skill phase done <skill_id> "Phase 1: …" --artifact-card-id <id> # h
 deepvista skill complete <skill_id> --review "shipped on Friday — clean run"
 deepvista skill status <run_chat_id>
 deepvista skill discover --category persona
-deepvista skill install persona-researcher
+deepvista skill install deepvista-persona-founder-coach
 deepvista skill sync --dry-run --throttle-min 0
 deepvista skill load 11111111-1111-1111-1111-111111111111
 ```

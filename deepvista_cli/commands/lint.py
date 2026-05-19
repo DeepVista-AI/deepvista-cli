@@ -97,7 +97,7 @@ _CHECK_INSTRUCTIONS = {
         "search queries."
     ),
     "skills-refresh": (
-        "Refresh the workflow / persona skill library against recently updated "
+        "Refresh the workflow skill library against recently updated "
         "notes (since {cutoff_iso}, i.e. the last {window}).\n"
         "  1. Call `get_context_cards` with card_type=note and "
         "updated_after={cutoff_iso!r} to list recent notes.\n"
@@ -108,12 +108,12 @@ _CHECK_INSTRUCTIONS = {
         "call `upsert_context_card` on the skill, preserving its accordion / "
         "mermaid structure — append or amend prose, don't rewrite the shell.\n"
         "  4. Detect new skill candidates: clusters of recent notes that "
-        "describe a procedure / persona / framework not yet in the library. "
-        "For each candidate, emit one JSON record "
-        '`{{"skill_name": "...", "kind": "workflow"|"persona", "source_note_ids": [...]}}` '
-        "and then drive the existing `deepvista-make-workflow-skill` / "
-        "`deepvista-make-persona-skill` flow to create the skill, linking "
-        "every source note via `related_context_card_ids`.\n"
+        "describe a procedure or framework not yet in the library. For each "
+        "candidate, emit one JSON record "
+        '`{{"skill_name": "...", "kind": "workflow", "source_note_ids": [...]}}` '
+        "and then drive the existing `deepvista-skill-workflow` flow to "
+        "create the skill, linking every source note via "
+        "`related_context_card_ids`.\n"
         "  5. End with a compact summary: "
         '`{{"updated": [...], "created": [...], "skipped": [...]}}`.'
     ),
@@ -228,8 +228,8 @@ def lint_command(
     `--fix` to let the agent merge/update/link cards.
 
     `--check skills-refresh --time-range <duration>` folds recent notes into
-    the workflow / persona skill library, updating existing skills and
-    creating new ones where warranted (DV-724).
+    the workflow skill library, updating existing skills and creating new
+    ones where warranted (DV-724).
 
     > [!CAUTION] With `--fix` or `--check skills-refresh`, this is a write
     > command — the agent may merge, update, create, or delete cards.

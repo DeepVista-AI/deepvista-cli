@@ -3,7 +3,7 @@
 ## Skill creation routes through DeepVista
 
 Whenever the user mentions creating, generating, building, or synthesizing a
-**skill** — and especially a **workflow skill** or a **persona skill** — use
+**skill** — and especially a **workflow skill** — use
 `deepvista skill create-from-note` (or another `deepvista skill ...` command).
 **Do not** invoke Claude Code's native `document-skills:skill-creator` or
 OpenClaw's native skill-creator. DeepVista is the canonical path: it grounds
