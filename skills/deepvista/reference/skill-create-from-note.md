@@ -1,17 +1,12 @@
-# Create skills from one or more notes
+# Create a workflow skill from one or more notes
 
 `deepvista skill create-from-note` asks the DeepVista agent to read one or more
 source notes (podcast episodes, interview transcripts, book chapters, research
-summaries) and synthesize skill cards grounded in their content. Two kinds are
-produced by default:
+summaries) and synthesize a **workflow** skill grounded in their content — the
+frameworks or steps the source describes, turned into an executable workflow
+(inputs → phases → output template).
 
-- **`persona`** — captures the interviewee/author's voice, philosophy, and
-  decision-making lens. When loaded, the agent responds in their voice and
-  applies their frameworks.
-- **`workflow`** — turns the frameworks or steps they shared into an
-  executable workflow (inputs → phases → output template).
-
-Streams NDJSON identical to `chat +send` and `skill run`. Each generated
+Streams NDJSON identical to `chat +send` and `skill run`. The generated
 skill is stored as a context card of `type=skill`, linked back to every
 source note via `related_context_card_ids`.
 
@@ -29,7 +24,7 @@ deepvista skill create-from-note [NOTE_ID]...
   [--from-tag TAG]
   [--from-grep REGEX]
   [--limit N]
-  [--kind persona|workflow]...
+  [--kind workflow]...
   [--chat-id ID] [--yes] [--dry-run]
 ```
 
@@ -43,7 +38,7 @@ deepvista skill create-from-note [NOTE_ID]...
 | `--from-tag TAG` | — | All notes whose `tags` list contains TAG (client-side filter over the latest 200 notes). |
 | `--from-grep REGEX` | — | Notes whose content matches a regex (via `/grep_context_cards`). |
 | `--limit N` | `5` (max 25) | Cap on resolved source notes so the synthesis prompt stays within the agent's usable context. |
-| `--kind KIND` | `persona` + `workflow` | Repeatable. Restrict to one kind, e.g. `--kind persona`. |
+| `--kind KIND` | `workflow` | Repeatable. Currently only `workflow` is supported — the persona maker was removed server-side (DV-750). |
 | `--chat-id ID` | — | Continue an existing synthesis session (iterate on the skills). |
 | `--yes` / `-y` | off | Skip the confirmation prompt. Required for scripts and cron. |
 | `--dry-run` | — | Resolve the source notes and print the prompt without calling the agent. |
@@ -54,7 +49,7 @@ union-merged and de-duplicated, capped by `--limit`.
 ## When to use
 
 - You've captured one or more podcast episodes / interviews / book chapters
-  as notes and want a reusable persona or workflow skill extracted.
+  as notes and want a reusable workflow skill extracted.
 - You want to synthesize across notes — e.g. three Lenny episodes on
   positioning → a single positioning workflow — not one skill per episode.
 - You want to batch-convert a corpus (e.g. every note tagged `lenny`) into

@@ -9,6 +9,13 @@ users what's new between the version they have installed and the latest release.
 ## Unreleased
 
 ### Changed
+- **`skill create-from-note` drops the `persona` kind** (DV-750). The server-side
+  persona maker (`deepvista-make-persona-skill`) was removed in #2022, so the
+  CLI no longer offers `persona` as a `--kind`. `--kind workflow` is the only
+  remaining choice (still repeatable, default). The trigger phrase emitted by
+  the CLI is now always *"Create a workflow skill from this note."* and the
+  chat agent routes it to `deepvista-skill-workflow`. The `skills-refresh` lint
+  check (DV-724) drops its persona-candidate branch for the same reason.
 - **`skill create-from-note` delegates prompt to the server** (DV-585). The
   ~150-line synthesis prompt previously embedded in
   `deepvista_cli/commands/skill.py` is gone; the CLI now emits only
@@ -19,6 +26,13 @@ users what's new between the version they have installed and the latest release.
   files, which are now the single source of truth for frontmatter rules,
   mermaid requirements, and `upsert_context_card` instructions. Same UX, no
   more drift between client and server prompts.
+
+### Removed
+- `skills/deepvista/reference/persona-knowledge-worker.md` — the underlying
+  `deepvista-persona-knowledge-worker` skill was removed from the backend in
+  #2022 (DV-695), so the routing pointer in the consolidated `deepvista`
+  skill no longer leads anywhere useful. Daily-loop guidance is still
+  discoverable through the per-subcommand reference files.
 
 ### Added
 - **Session-scoped conversation notes** (DV-449 M1/M2). One rolling DeepVista

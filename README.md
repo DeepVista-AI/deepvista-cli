@@ -170,7 +170,6 @@ One skill, `deepvista`, with per-subcommand detail under `skills/deepvista/refer
 | `reference/skill-analyze-notes.md` | Pattern: search → read → synthesize notes |
 | `reference/skill-research-to-skill.md` | Pattern: research the KB, then run a Skill |
 | `reference/skill-import-files.md` | Bulk-import a folder as file cards |
-| `reference/persona-knowledge-worker.md` | Daily persona workflow loop |
 | `reference/openclaw.md` | Auto-capture rules for OpenClaw agents |
 
 The agent loads only the index at first; when a subcommand is needed, it reads the matching reference file on demand.
