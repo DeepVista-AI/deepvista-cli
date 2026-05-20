@@ -96,16 +96,29 @@ The CLI detects agent type from environment variables (`CLAUDECODE=1`, `OPENCODE
 | stdout | Meaning |
 |---|---|
 | *(empty)* | up to date / snoozed / disabled / offline |
-| `UPGRADE_AVAILABLE <old> <new>` | run `deepvista upgrade` to install |
+| `UPGRADE_AVAILABLE <old> <new>` | run `deepvista upgrade install --yes` to install |
 | `JUST_UPGRADED <old> <new>` | just finished updating |
 
 ```bash
-deepvista upgrade                # interactive install (shows changelog, prompts)
-deepvista upgrade snooze         # defer with backoff (1d → 2d → 7d)
-deepvista upgrade disable        # opt out permanently
-deepvista upgrade enable         # re-enable
-deepvista upgrade status         # show cached state
+deepvista upgrade                        # alias for `upgrade install` — interactive
+deepvista upgrade check                  # fast cached check (exit 1 if update available)
+deepvista upgrade check --no-cache       # bypass cache, re-check against PyPI
+deepvista upgrade check --quiet          # no stdout; communicate via exit code only
+deepvista upgrade install                # interactive: shows changelog, prompts y/n/snooze
+deepvista upgrade install --yes          # non-interactive: install immediately (use this in agent flows)
+deepvista upgrade install --skip-skills  # upgrade CLI only, leave skills alone
+deepvista upgrade install --dry-run      # preview what would be installed, no changes
+deepvista upgrade snooze                 # defer with escalating backoff (1d → 2d → 7d)
+deepvista upgrade snooze --days 3        # snooze for a specific number of days
+deepvista upgrade disable                # opt out permanently
+deepvista upgrade enable                 # re-enable after disable
+deepvista upgrade status                 # show current version, cached latest, snooze state
 ```
+
+> **Agent note:** `deepvista upgrade` and `deepvista upgrade install` are interactive — they
+> prompt "Install now? [y/n/snooze]". In agent flows, always use
+> `deepvista upgrade install --yes` after the user has confirmed in the conversation, so the
+> agent never blocks waiting for a terminal prompt.
 
 ## Output format
 

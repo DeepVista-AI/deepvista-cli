@@ -70,7 +70,7 @@ The command is cached (~1 hour TTL) so repeated invocations are cheap.
 |---|---|---|
 | *(empty)* | 0 | Up to date, snoozed, disabled, or network unreachable — say nothing. |
 | `JUST_UPGRADED <old> <new>` | 0 | Briefly confirm: "deepvista-cli upgraded to `<new>`." |
-| `UPGRADE_AVAILABLE <old> <new>` | 1 | Tell the user and offer `deepvista upgrade` — it fetches the changelog between `<old>` and `<new>` and prompts before installing. Snooze with `deepvista upgrade snooze`; disable with `deepvista upgrade disable`. |
+| `UPGRADE_AVAILABLE <old> <new>` | 1 | Tell the user and ask if they want to upgrade. If they confirm, run `deepvista upgrade install --yes` (the `--yes` flag skips the in-process prompt; without it the command blocks waiting for terminal input). To defer: `deepvista upgrade snooze`. To opt out: `deepvista upgrade disable`. |
 
 If `deepvista` is not on `PATH`, skip silently — do not attempt to install it automatically.
 
