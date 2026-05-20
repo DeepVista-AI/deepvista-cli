@@ -121,6 +121,8 @@ If the source material isn't yet a DeepVista note, capture it first
    to read from stdin) so the exact bytes are stored.
 4. **Read-only commands are safe.** `list`, `get`, `+search`, `+grep`, `+similar`,
    `show`, `discover`, `export`, `status` — run without confirmation.
+5. **Check `--help` for exact flags.** When you need exact flag syntax or available options,
+   run `deepvista <subcommand> --help` rather than guessing from memory.
 
 ## See also
 
