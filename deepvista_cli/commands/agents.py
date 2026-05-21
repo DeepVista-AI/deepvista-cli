@@ -23,6 +23,26 @@ from deepvista_cli.output.formatter import format_output, output_error
 AGENT_COLUMNS = ["id", "name", "agent_type", "status", "last_heartbeat_at", "updated_at"]
 AGENTS_DIR = CONFIG_DIR / "agents"
 
+# Backend error codes (mirror of ai/chat_service/routers/agents.py constants).
+# Surfaced via the JSON response body so the CLI can recover programmatically
+# instead of bailing on the user.
+ERROR_CODE_AGENT_NOT_FOUND = "AGENT_NOT_FOUND"
+ERROR_CODE_AGENT_ALREADY_REGISTERED = "AGENT_ALREADY_REGISTERED"
+
+# Friendly labels for auto-generated agent names. Matches the agent_type choices
+# below; anything missing falls back to the raw type string.
+_AGENT_TYPE_LABELS = {
+    "claude-code": "Claude Code",
+    "opencode": "OpenCode",
+    "openclaw": "OpenClaw",
+    "cursor": "Cursor",
+    "windsurf": "Windsurf",
+    "cline": "Cline",
+    "aider": "Aider",
+    "github-copilot": "GitHub Copilot",
+    "deepvista-cli": "DeepVista CLI",
+}
+
 
 # ---------------------------------------------------------------------------
 # Local agent ID storage
@@ -444,6 +464,54 @@ def _resolve_agent_id(ctx: click.Context, agent_id: str | None, agent_type: str 
     raise SystemExit(3)
 
 
+def _default_agent_name(agent_type: str) -> str:
+    """Sensible default display name for an auto-registered agent."""
+    import platform
+
+    label = _AGENT_TYPE_LABELS.get(agent_type, agent_type)
+    hostname = platform.node() or "unknown-host"
+    return f"{label} — {hostname}"
+
+
+def _register_agent_via_api(
+    ctx: click.Context, name: str, agent_type: str, config: dict
+) -> tuple[str | None, str | None]:
+    """POST /agents and persist the resulting ID. Adopts a pre-existing agent.
+
+    Returns ``(agent_id, error_message)``. When the backend reports
+    ``AGENT_ALREADY_REGISTERED`` it includes the existing agent row, so we
+    save its ID locally — the row is the source of truth, our local file
+    just needs to catch up.
+    """
+    data = _client(ctx).post("/agents", {"name": name, "agent_type": agent_type, "config": config})
+    agent = data.get("agent")
+    if agent and agent.get("id"):
+        _save_agent_id(agent_type, agent["id"])
+        return agent["id"], None
+    return None, data.get("error", "Registration failed")
+
+
+def _ensure_agent_registered(ctx: click.Context, agent_type: str) -> str:
+    """Return an agent_id for ``agent_type``, registering on-the-fly if needed.
+
+    Used by hook-driven flows (``agents sync``) so a fresh ``deepvista auth
+    login`` does not need a follow-up ``agents register`` for SOUL / MEMORY
+    pushes to start working (DV-751).
+    """
+    existing = _load_agent_id(agent_type)
+    if existing:
+        return existing
+    config = _build_config_snapshot(agent_type)
+    name = _default_agent_name(agent_type)
+    agent_id, error = _register_agent_via_api(ctx, name, agent_type, config)
+    if not agent_id:
+        output_error(1, "Auto-registration failed", error or "Unknown error")
+        raise SystemExit(1)
+    profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"
+    _install_hooks(agent_type, profile)
+    return agent_id
+
+
 # ---------------------------------------------------------------------------
 # Client helper
 # ---------------------------------------------------------------------------
@@ -537,11 +605,19 @@ def agents_register(ctx: click.Context, name: str, agent_type: str, dry_run: boo
 
     data = _client(ctx).post("/agents", {"name": name, "agent_type": agent_type, "config": config})
 
-    if not data.get("success"):
+    agent = data.get("agent")
+    # Adopt a pre-existing server-side row when the local file is missing —
+    # the backend returns it with AGENT_ALREADY_REGISTERED.
+    if not data.get("success") and not (
+        data.get("error_code") == ERROR_CODE_AGENT_ALREADY_REGISTERED and agent and agent.get("id")
+    ):
         output_error(1, "Registration failed", data.get("error", "Unknown error"))
         return
 
-    agent = data["agent"]
+    if not agent or not agent.get("id"):
+        output_error(1, "Registration failed", "Backend did not return an agent")
+        return
+
     _save_agent_id(agent_type, agent["id"])
 
     # Auto-install heartbeat hooks
@@ -750,8 +826,19 @@ def agents_sync(
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
-    resolved_id = _resolve_agent_id(ctx, agent_id, agent_type)
     resolved_type = agent_type or detect_agent_tool()[0]
+
+    # Resolve agent_id: explicit arg wins; otherwise self-heal from local
+    # storage or auto-register so the very first Stop hook on a fresh login
+    # starts pushing SOUL / MEMORY without a manual `agents register` step
+    # (DV-751).
+    if agent_id:
+        resolved_id: str = agent_id
+    elif resolved_type:
+        resolved_id = _ensure_agent_registered(ctx, resolved_type)
+    else:
+        output_error(3, "Cannot resolve agent ID", "Provide --agent-id or --type, or run inside a registered agent.")
+        raise SystemExit(3)
 
     body: dict = {"sync_type": "manual"}
     if status:
@@ -779,6 +866,16 @@ def agents_sync(
         return
 
     data = _client(ctx).post(f"/agents/{resolved_id}/sync", body)
+
+    # Recover from a stale local agent_id: the row was deleted server-side or
+    # belongs to a different user. Clear the local record, re-register, and
+    # retry the sync once. Only attempts recovery when we know the agent type
+    # — otherwise we can't pick a registration target.
+    if not data.get("success") and data.get("error_code") == ERROR_CODE_AGENT_NOT_FOUND and resolved_type:
+        _remove_agent_id(resolved_type)
+        resolved_id = _ensure_agent_registered(ctx, resolved_type)
+        data = _client(ctx).post(f"/agents/{resolved_id}/sync", body)
+
     if not data.get("success"):
         output_error(1, "Sync failed", data.get("error", ""))
         return
