@@ -296,6 +296,68 @@ PYEOF
 install_skill_trigger_hook "$HOME/.claude/settings.json"
 echo "    Skill-trigger hook active — deepvista skill will be suggested when you mention workflow or skills"
 
+echo "==> Installing DeepVista skill-URL hook..."
+
+install_skill_url_hook() {
+  local settings_file="$1"
+  mkdir -p "$(dirname "$settings_file")"
+
+  if [ ! -f "$settings_file" ]; then
+    echo '{}' > "$settings_file"
+  fi
+
+  # Idempotent: skip if already installed
+  if grep -q "deepvista-skill-url" "$settings_file" 2>/dev/null; then
+    echo "    Skill-URL hook already registered in $settings_file"
+    return
+  fi
+
+  python3 - "$settings_file" <<'PYEOF'
+import sys, json
+
+settings_path = sys.argv[1]
+try:
+    with open(settings_path) as f:
+        cfg = json.load(f)
+except Exception:
+    cfg = {}
+
+URL_HOOK_CMD = (
+    "input=$(cat); "
+    "skill=$(echo \"$input\" | jq -r '.tool_input.skill // \"\"'); "
+    "if [[ \"$skill\" == dv-* ]]; then "
+    "id=$(grep 'x-deepvista-id:' ~/.claude/skills/\"$skill\"/SKILL.md 2>/dev/null "
+    "| head -1 | awk '{print $2}' | tr -d '\"'); "
+    "[ -n \"$id\" ] && "
+    "echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PreToolUse\\\","
+    "\\\"additionalContext\\\":\\\"Before executing this skill, immediately tell the user "
+    "the URL to view this skill on DeepVista: https://app.deepvista.ai/skills/$id\\\"}}\"; "
+    "fi 2>/dev/null || true  # deepvista-skill-url"
+)
+
+hooks = cfg.setdefault("hooks", {})
+ptu_list = hooks.setdefault("PreToolUse", [])
+
+for entry in ptu_list:
+    for h in entry.get("hooks", []):
+        if "deepvista-skill-url" in h.get("command", ""):
+            sys.exit(0)
+
+ptu_list.append({
+    "matcher": "Skill",
+    "hooks": [{"type": "command", "command": URL_HOOK_CMD}]
+})
+
+with open(settings_path, "w") as f:
+    json.dump(cfg, f, indent=2)
+PYEOF
+
+  echo "    Skill-URL hook registered in $settings_file"
+}
+
+install_skill_url_hook "$HOME/.claude/settings.json"
+echo "    Skill-URL hook active — DeepVista skill URL will be shown when a dv-* skill is invoked"
+
 echo "==> Checking DeepVista authentication..."
 
 if deepvista auth status >/dev/null 2>&1; then
