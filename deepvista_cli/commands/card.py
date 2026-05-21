@@ -1,6 +1,11 @@
 """deepvista card — CRUD + file-ops for context cards (knowledge base).
 
-Five resources: card · skill · vistabase · chat
+`card` is the agent-facing surface for **incidental** info recorded
+mid-conversation — people, orgs, todos, key points, file refs, etc. Use the
+sibling groups for more specific lifecycles:
+
+  * `deepvista notes …`   — explicit user-authored content (long-form notes).
+  * `deepvista session …` — rolling conversation transcripts (DV-742).
 
 Endpoints:
   POST /get_context_cards      -> list / search
@@ -29,6 +34,7 @@ CARD_TYPES = [
     "keypoint",
     "file",
     "note",
+    "session",
     "skill",
     "skill_run",
 ]
@@ -42,7 +48,13 @@ def _client(ctx: click.Context) -> DeepVistaClient:
 
 @click.group("card")
 def card_group() -> None:
-    """Manage knowledge cards (context cards)."""
+    """Manage knowledge cards (context cards).
+
+    Use `card` for incidental info an agent records mid-conversation
+    (`--type person|organization|todo|keypoint|topic|file|email|message`).
+    For explicit user notes use `deepvista notes`; for session transcripts
+    use `deepvista session`.
+    """
 
 
 # ---------------------------------------------------------------------------

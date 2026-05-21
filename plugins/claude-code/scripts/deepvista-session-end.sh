@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# DeepVista session note — Claude Code SessionEnd hook.
-# Marks the session note complete and queues enrichment.
+# DeepVista session card — Claude Code SessionEnd hook.
+# Marks the session card complete and queues enrichment.
 # Install: referenced in ~/.claude/settings.json under hooks.SessionEnd.
 
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:$PATH"
@@ -24,7 +24,7 @@ print(d.get('session_id', ''), d.get('transcript_path', ''))
 TRANSCRIPT_FLAG=()
 [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ] && TRANSCRIPT_FLAG=(--transcript "$TRANSCRIPT")
 
-deepvista notes session-finalize \
+deepvista session finalize \
   --session-id "$SESSION_ID" \
   "${TRANSCRIPT_FLAG[@]}" \
   >/dev/null 2>&1 &
