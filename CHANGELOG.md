@@ -8,6 +8,16 @@ users what's new between the version they have installed and the latest release.
 
 ## Unreleased
 
+### Fixed
+- **Agent registration is now self-healing** (DV-751). `deepvista agents
+  sync` (the Claude Code Stop hook) auto-registers an agent on the first run
+  if none exists locally, so SOUL / MEMORY pushes start working without a
+  separate `agents register` step after `auth login`. If the backend reports
+  `AGENT_NOT_FOUND` for a stale local agent_id, the CLI clears the local
+  record, re-registers, and retries the sync once. `agents register` now
+  adopts a pre-existing server-side row instead of failing when the local
+  file is missing.
+
 ## v0.1.11
 
 ### Added
