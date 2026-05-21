@@ -14,9 +14,9 @@ flag reference.
 `list` · `get` · `create` · `update` · `delete` · `index` · `+quick`
 `history` · `diff` · `restore`
 
-> [!NOTE] `session-init` / `session-tick` / `session-finalize` are deprecated
-> aliases that forward to `deepvista session …` (DV-742). They emit a
-> deprecation hint on stderr and still work for one release.
+> [!NOTE] `session-init` / `session-tick` / `session-finalize` are thin
+> aliases that forward to `deepvista session …` (DV-742). Prefer the
+> top-level `deepvista session` group in new scripts.
 
 ## Agent conventions
 
@@ -39,9 +39,9 @@ deepvista notes +quick "Alice confirmed the API deadline is April 15"
 Run after bulk imports or after a long offline period. Pair with
 `deepvista lint --check missing-refs`.
 
-**`session-*` (deprecated)** — see [session.md](session.md). New hook installs
+**`session-*` (alias)** — see [session.md](session.md). New hook installs
 should call `deepvista session init|tick|finalize` directly; the `notes
-session-*` aliases delegate there and will be removed in a future release.
+session-*` subcommands are thin aliases that delegate there.
 
 **`history` / `diff` / `restore`** — version history. `restore` captures the current
 state as a new version first, so it's reversible.

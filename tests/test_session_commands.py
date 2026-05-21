@@ -260,12 +260,12 @@ def test_session_finalize_flips_status_and_enriches(
     assert enrich_call[1]["card_ids"] == ["card-fin"]
 
 
-def test_notes_session_init_is_deprecated_alias(
+def test_notes_session_init_aliases_to_new_group(
     isolated_state: Path,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """`notes session-init` warns and delegates to the new session group."""
+    """`notes session-init` is a thin alias that delegates to `session init`."""
     stub = _StubClient()
     stub.queue("/get_context_cards", {"cards": []})
     stub.queue("/get_context_cards", {"cards": []})
@@ -291,10 +291,8 @@ def test_notes_session_init_is_deprecated_alias(
     )
 
     assert result.exit_code == 0, result.output
-    # Deprecation hint goes to stderr; stdout stays clean JSON for pipes.
-    assert "deprecated" in result.stderr
     payload = json.loads(result.stdout)
     assert payload["card_id"] == "card-alias"
-    # The wrapper still writes a session card, not a note.
+    # The alias still writes a session card, not a note.
     create_call = next(call for call in stub.calls if call[0] == "/create_context_card")
     assert create_call[1]["card_type"] == "session"

@@ -6,7 +6,7 @@ The index command triggers entity extraction on notes not yet processed.
 
 For agent-recorded incidental info, use `deepvista card create --type <type>`.
 For session transcripts, use the dedicated `deepvista session` group — the
-`notes session-*` aliases here are deprecated and delegate to it (DV-742).
+`notes session-*` subcommands are thin aliases that delegate to it (DV-742).
 """
 
 from __future__ import annotations
@@ -22,15 +22,6 @@ from deepvista_cli.client.origin import detect_agent_tool
 from deepvista_cli.commands import resolve_content
 from deepvista_cli.commands.session import session_finalize, session_init, session_tick
 from deepvista_cli.output.formatter import format_output, output_error
-
-
-def _warn_session_deprecated(new_cmd: str) -> None:
-    """Emit a one-line deprecation hint to stderr; no exit, no JSON pollution."""
-    click.echo(
-        f"  notice: `notes session-*` is deprecated; use `deepvista session {new_cmd}` instead.",
-        err=True,
-    )
-
 
 NOTE_COLUMNS = ["id", "title", "display_status", "updated_at"]
 
@@ -303,14 +294,13 @@ def notes_session_init(
     agent_version: str | None,
     dry_run: bool,
 ) -> None:
-    """Deprecated alias for `deepvista session init` (DV-742).
+    """Alias for `deepvista session init` (DV-742).
 
     New session cards are written as ``type='session'``; in-flight rolling notes
     keep ticking through their existing id.
 
     > [!CAUTION] This is a write command (creates a card on first call).
     """
-    _warn_session_deprecated("init")
     ctx.invoke(
         session_init,
         session_id=session_id,
@@ -328,11 +318,10 @@ def notes_session_init(
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def notes_session_tick(ctx: click.Context, session_id: str, transcript: str, dry_run: bool) -> None:
-    """Deprecated alias for `deepvista session tick` (DV-742).
+    """Alias for `deepvista session tick` (DV-742).
 
     > [!CAUTION] This is a write command.
     """
-    _warn_session_deprecated("tick")
     ctx.invoke(session_tick, session_id=session_id, transcript=transcript, dry_run=dry_run)
 
 
@@ -347,11 +336,10 @@ def notes_session_tick(ctx: click.Context, session_id: str, transcript: str, dry
 def notes_session_finalize(
     ctx: click.Context, session_id: str, transcript: str | None, no_enrich: bool, dry_run: bool
 ) -> None:
-    """Deprecated alias for `deepvista session finalize` (DV-742).
+    """Alias for `deepvista session finalize` (DV-742).
 
     > [!CAUTION] This is a write command.
     """
-    _warn_session_deprecated("finalize")
     ctx.invoke(
         session_finalize,
         session_id=session_id,
