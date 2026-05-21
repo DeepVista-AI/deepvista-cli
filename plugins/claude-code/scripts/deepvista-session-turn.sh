@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# DeepVista session note — Claude Code Stop hook.
-# Appends the newest transcript turn(s) as a versioned block on the session note.
+# DeepVista session card — Claude Code Stop hook.
+# Appends the newest transcript turn(s) as a versioned block on the session card.
 # Install: referenced in ~/.claude/settings.json under hooks.Stop.
 
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:$PATH"
@@ -21,7 +21,7 @@ print(d.get('session_id', ''), d.get('transcript_path', ''))
 
 [ -z "$SESSION_ID" ] || [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ] && exit 0
 
-deepvista notes session-tick \
+deepvista session tick \
   --session-id "$SESSION_ID" \
   --transcript "$TRANSCRIPT" \
   >/dev/null 2>&1 &

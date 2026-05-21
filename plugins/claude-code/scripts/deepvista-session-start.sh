@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# DeepVista session note — SessionStart hook.
-# Creates-or-gets a rolling DeepVista note keyed by session_id.
+# DeepVista session card — SessionStart hook.
+# Creates-or-gets a rolling DeepVista session card (type='session') keyed by session_id.
 # Agent type + version are auto-detected by the CLI from env / process tree
 # (Claude Code, Cursor, Windsurf, etc. — see deepvista_cli.client.origin).
 # Install: referenced in ~/.claude/settings.json under hooks.SessionStart.
@@ -31,7 +31,7 @@ print(
 AGENT_VERSION_FLAG=()
 [ -n "$AGENT_VERSION" ] && AGENT_VERSION_FLAG=(--agent-version "$AGENT_VERSION")
 
-deepvista notes session-init \
+deepvista session init \
   --session-id "$SESSION_ID" \
   --transcript "$TRANSCRIPT" \
   --cwd "$CWD" \

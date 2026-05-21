@@ -1,12 +1,22 @@
-# Notes — quick capture and CRUD
+# Notes — explicit user-authored knowledge
 
-Notes are shorthand for `card --type note`. Run `deepvista notes --help` or
-`deepvista notes <cmd> --help` for full flag reference.
+Notes are for content **the user explicitly asked to record** (long-form
+text, "what I want to remember"). They are cards with `type=note`. For
+agent-recorded incidental snippets use `deepvista card create --type …`
+(see [vistabase-card.md](vistabase-card.md)); for session transcripts use
+[`deepvista session`](session.md) (DV-742).
+
+Run `deepvista notes --help` or `deepvista notes <cmd> --help` for full
+flag reference.
 
 ## Commands
 
 `list` · `get` · `create` · `update` · `delete` · `index` · `+quick`
-`session-init` · `session-tick` · `session-finalize` · `history` · `diff` · `restore`
+`history` · `diff` · `restore`
+
+> [!NOTE] `session-init` / `session-tick` / `session-finalize` are deprecated
+> aliases that forward to `deepvista session …` (DV-742). They emit a
+> deprecation hint on stderr and still work for one release.
 
 ## Agent conventions
 
@@ -29,10 +39,9 @@ deepvista notes +quick "Alice confirmed the API deadline is April 15"
 Run after bulk imports or after a long offline period. Pair with
 `deepvista lint --check missing-refs`.
 
-**`session-init` / `session-tick` / `session-finalize`** — rolling session note hooks
-used by the DeepVista Claude Code plugin. `session-init` is idempotent (safe in
-`SessionStart`); `session-tick` appends turn summaries; `session-finalize` marks
-`status: complete` and queues enrichment.
+**`session-*` (deprecated)** — see [session.md](session.md). New hook installs
+should call `deepvista session init|tick|finalize` directly; the `notes
+session-*` aliases delegate there and will be removed in a future release.
 
 **`history` / `diff` / `restore`** — version history. `restore` captures the current
 state as a new version first, so it's reversible.

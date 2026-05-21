@@ -31,6 +31,7 @@ from deepvista_cli.commands.config import config_group
 from deepvista_cli.commands.lint import lint_command
 from deepvista_cli.commands.memory import vistabase_group
 from deepvista_cli.commands.notes import notes_group
+from deepvista_cli.commands.session import session_group
 from deepvista_cli.commands.skill import skill_group
 from deepvista_cli.commands.upgrade import upgrade_command
 from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
@@ -86,6 +87,8 @@ for _name, _cmd in card_group.commands.items():
 cli.add_command(vistabase_group, name="memory")
 # Agent orchestration
 cli.add_command(agents_group)
+# Agent session transcripts (DV-742) — `init` / `tick` / `finalize`
+cli.add_command(session_group)
 # Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)
