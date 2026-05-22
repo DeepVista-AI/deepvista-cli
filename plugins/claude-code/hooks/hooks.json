@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-skill-url.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-skill-url.py"
           }
         ]
       }
