@@ -25,6 +25,16 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-skill-url-prompt.py"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
