@@ -194,6 +194,14 @@ class WorkflowDocument:
         self._body = _strip_open_from_other_accordions(self._body, keep_label=None)
         self._body = _set_mermaid_class_for_label(self._body, label=label, new_klass="dvDone")
 
+    def reset_phase(self, label: str) -> None:
+        """Reset a phase to pending: accordion unchecked and closed, mermaid node ``dvTodo``."""
+        if not self._has_phase(label):
+            raise PhaseNotFoundError(label)
+        self._body = _mutate_accordions(self._body, target_label=label, target_attrs={"checked": "false"})
+        self._body = _strip_open_from_other_accordions(self._body, keep_label=None)
+        self._body = _set_mermaid_class_for_label(self._body, label=label, new_klass="dvTodo")
+
     def append_artifact_block(self, label: str, card_id: str, card_type: str, title: str, summary: str) -> None:
         """Embed a ``<contextCardBlock>`` inside the named accordion's body.
 

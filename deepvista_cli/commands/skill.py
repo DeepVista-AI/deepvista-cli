@@ -100,6 +100,13 @@ def skill_get(ctx: click.Context, skill_id: str) -> None:
     Read-only — never modifies the Skill.
     """
     data = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
+    # Remind host agents that workflow skills must be executed via `skill run`,
+    # not by reading the body with `skill get` and driving phases manually.
+    attrs = data.get("attributes") or {}
+    if attrs.get("type") == "workflow":
+        data["run_hint"] = (
+            f"workflow skill — to execute with phase tracking run: deepvista skill run --mode host {skill_id}"
+        )
     format_output(
         data, ctx.obj.output_format, title=f"Skill: {skill_id}", entity_type="skill", base_url=ctx.obj.auth_url
     )
@@ -423,6 +430,41 @@ def skill_phase_done(
             "artifacts": list(artifact_card_ids),
             "title": card.get("title", ""),
         },
+        ctx.obj.output_format,
+        entity_type="skill",
+        base_url=ctx.obj.auth_url,
+    )
+
+
+@skill_phase_group.command("reset")
+@click.argument("skill_id")
+@click.argument("phase_label")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
+@click.pass_context
+def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_run: bool) -> None:
+    """Reset a phase back to pending (unchecked, closed, mermaid dvTodo).
+
+    Use this to re-run a phase that was already marked done or active.
+    The run lock (status=in_progress) is not affected.
+    """
+    card, doc = _load_skill_doc(ctx, skill_id)
+    try:
+        doc.reset_phase(phase_label)
+    except PhaseNotFoundError as exc:
+        output_error(3, "Phase not found", str(exc))
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "reset phase to pending", "skill_id": skill_id, "phase": phase_label},
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+        )
+        return
+
+    _persist_doc(ctx, skill_id, doc, reason="host-phase-reset")
+    format_output(
+        {"ok": True, "skill_id": skill_id, "reset_phase": phase_label, "title": card.get("title", "")},
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
