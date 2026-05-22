@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-skill-url-prompt.py"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-skill-url.py"
           }
         ]
       }
