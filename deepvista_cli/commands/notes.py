@@ -101,14 +101,28 @@ def notes_create(
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
     description = resolve_content(description, content_file)
-    body: dict = {"card_type": "note", "title": title, "enrich": True}
-    if description:
-        body["description"] = description
+
+    from deepvista_cli.commands.agents import load_agent_id_for_active_agent
+
+    agent, _ = detect_agent_tool()
+    agent_id = load_agent_id_for_active_agent()
+    # DV-791: prepend the combined agent tag so notes created here are filterable
+    # by the AgentFilter UI alongside +quick / session writes.
+    parsed_tags: list[str] = [sn.build_agent_tag(agent, agent_id)]
     if tags:
         try:
-            body["tags"] = _json.loads(tags)
+            user_tags = _json.loads(tags)
         except _json.JSONDecodeError:
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
+            return
+        if not isinstance(user_tags, list):
+            output_error(3, "Invalid --tags JSON", "Expected a JSON array of strings.")
+            return
+        parsed_tags.extend(user_tags)
+
+    body: dict = {"card_type": "note", "title": title, "tags": parsed_tags, "enrich": True}
+    if description:
+        body["description"] = description
 
     if dry_run:
         format_output(
@@ -459,12 +473,21 @@ def notes_quick(ctx: click.Context, text: str, dry_run: bool) -> None:
     if len(title) < len(text):
         title = title.rstrip(".") + "..."
 
+    from deepvista_cli.commands.agents import load_agent_id_for_active_agent
+
     agent, _ = detect_agent_tool()
+    agent_id = load_agent_id_for_active_agent()
+    # DV-791 (PR review): write a SINGLE combined tag rather than two separate
+    # ``agent:<tool>`` and ``agent_id:<uuid>`` entries. The backend now
+    # mirrors the same shape, so notes created via the CLI are queryable
+    # alongside notes created via the chat-service ``X-DeepVista-Origin``
+    # path with a single ``tag_contains`` lookup.
+    tags = [sn.build_agent_tag(agent, agent_id)]
     body = {
         "card_type": "note",
         "title": title,
         "description": text,
-        "tags": [f"{sn.AGENT_TAG_PREFIX}{agent}"],
+        "tags": tags,
         "enrich": True,
     }
 

@@ -119,11 +119,27 @@ That's it. Your knowledge base is now accessible from any terminal.
 
 **Install once, then talk to your agent.** The agent handles authentication and all commands on your behalf.
 
+### Claude Code (recommended)
+
+Install the DeepVista plugin from inside Claude Code:
+
+```
+/plugin marketplace add DeepVista-AI/deepvista-cli
+/plugin install deepvista@deepvista-ai
+```
+
+The plugin keeps your local skills directory in sync with the DeepVista
+catalog on every `SessionStart`. It calls the `deepvista` CLI under the hood,
+so make sure that's installed and logged in (`uv tool install deepvista-cli`
+then `deepvista auth login`).
+
+### For non-Claude-Code agents (Cursor, OpenCode, OpenClaw, …)
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash
 ```
 
-The script auto-detects your package manager (`uv`, `pipx`, or `pip`) and copies the consolidated `deepvista` skill into your agent's skill directory (Claude Code, OpenCode, Cursor, OpenClaw). If you upgraded from an earlier release, it also sweeps out the 12 legacy `deepvista-*` skills so you don't end up with both.
+The script auto-detects your package manager (`uv`, `pipx`, or `pip`) and copies the consolidated `deepvista` skill into your agent's skill directory (Cursor, OpenCode, OpenClaw, and Claude Code as a fallback). If you upgraded from an earlier release, it also sweeps out the 12 legacy `deepvista-*` skills so you don't end up with both.
 
 Prefer GitHub's CLI? `gh skill install DeepVista-AI/deepvista-cli` works too (GitHub CLI ≥ 2.90, preview).
 
@@ -144,15 +160,13 @@ Your agent will open the browser login page, guide you through pasting the auth 
 
 ### Auto-Capture
 
-The install script enables auto-capture in every detected agent — **no manual setup required**.
+Auto-capture (silently saving notable facts, decisions, and insights to your
+DeepVista knowledge base as you work) ships with the Claude Code plugin —
+install it from inside Claude Code with `/plugin install deepvista@deepvista-ai`.
 
-| Agent | Config file |
-|-------|-------------|
-| Claude Code | `~/.claude/CLAUDE.md` |
-| Cursor | `~/.cursor/rules` |
-| OpenCode | `~/.opencode/AGENTS.md` |
-
-Your agent silently saves facts, decisions, insights, and action items to your DeepVista knowledge base as you work. The install is idempotent — re-running won't duplicate anything.
+For Cursor / OpenCode / OpenClaw, the `deepvista` skill's reference docs
+include the same capture prompts that you can paste into your agent's global
+instructions file.
 
 ### Skill Reference
 
@@ -349,10 +363,11 @@ pip install git+https://github.com/DeepVista-AI/deepvista-cli.git
 uv tool install git+https://github.com/DeepVista-AI/deepvista-cli.git
 ```
 
-### As a Claude Code plugin
+### As a Claude Code plugin (recommended for Claude Code users)
 
-The plugin is additive on top of the CLI — it wires the DeepVista skill catalog
-into Claude Code on every `SessionStart`. Install in this order:
+The plugin is the canonical way to use DeepVista from Claude Code. It wires the
+DeepVista skill catalog into Claude Code on every `SessionStart` and ships the
+auto-capture hook. Install in this order:
 
 ```bash
 # 1. Install the CLI (required — the plugin calls it)

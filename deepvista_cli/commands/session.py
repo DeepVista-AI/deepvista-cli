@@ -114,6 +114,8 @@ def session_init(
 
     > [!CAUTION] This is a write command (creates a card on first call).
     """
+    from deepvista_cli.commands.agents import load_agent_id_for_active_agent
+
     if agent is None:
         detected_agent, detected_version = detect_agent_tool()
         agent = detected_agent
@@ -139,13 +141,21 @@ def session_init(
         )
         return
 
-    fm = sn.seed_frontmatter(session_id, cwd, transcript, agent=agent, agent_version=agent_version)
+    agent_id = load_agent_id_for_active_agent()
+    fm = sn.seed_frontmatter(
+        session_id,
+        cwd,
+        transcript,
+        agent=agent,
+        agent_version=agent_version,
+        agent_id=agent_id,
+    )
     body = sn.build_initial_body(fm)
     payload = {
         "card_type": SESSION_CARD_TYPE,
         "title": sn.default_title(session_id, cwd),
         "description": body,
-        "tags": sn.session_tags(session_id, agent, cwd),
+        "tags": sn.session_tags(session_id, agent, cwd, agent_id=agent_id),
         "enrich": False,
     }
 

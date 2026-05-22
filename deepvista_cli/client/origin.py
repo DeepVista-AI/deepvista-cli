@@ -238,4 +238,17 @@ def build_origin() -> dict[str, str | bool]:
     if model:
         origin["model"] = model
 
+    # Agent UUID (DV-791): when the active agent has been registered via
+    # `deepvista auth login` / `agents register` (DV-751 self-healing), surface
+    # the UUID so the backend can echo `agent_id:<uuid>` onto server-side cards.
+    # Import lazily to avoid a circular dependency (agents.py imports origin).
+    try:
+        from deepvista_cli.commands.agents import load_agent_id_for_active_agent  # noqa: PLC0415
+
+        agent_id = load_agent_id_for_active_agent()
+        if agent_id:
+            origin["agent_id"] = agent_id
+    except Exception:
+        log.debug("could not resolve agent_id for origin header", exc_info=True)
+
     return origin
