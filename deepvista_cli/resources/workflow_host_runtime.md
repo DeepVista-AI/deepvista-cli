@@ -147,6 +147,7 @@ be run again), and emits `<json>{"done": true}</json>`.
 | --- | --- |
 | Open a phase | `deepvista skill phase open <skill_id> "Phase N: …"` |
 | Mark a phase done | `deepvista skill phase done <skill_id> "Phase N: …" [--artifact-card-id ID]…` |
+| Reset phase to pending | `deepvista skill phase reset <skill_id> "Phase N: …"` |
 | Pause (lock held) | `deepvista skill phase pause <skill_id> --reason "…"` |
 | Resume from pause | re-run `deepvista skill run --mode host <skill_id>` |
 | One-phase fallback to DeepVista | `deepvista skill phase run-on-deepvista <skill_id> "Phase N: …"` |
