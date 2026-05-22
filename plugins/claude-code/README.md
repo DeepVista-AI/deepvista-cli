@@ -27,17 +27,21 @@ whatever stubs were synced previously in place.
 
 ## Install
 
-Local development:
-
-```
-/plugin install /path/to/deepvista-cli/plugins/claude-code
-```
-
-From the marketplace:
+This is the recommended way to use DeepVista from Claude Code. Run these two
+commands inside Claude Code:
 
 ```
 /plugin marketplace add DeepVista-AI/deepvista-cli
 /plugin install deepvista@deepvista-ai
+```
+
+If you're on a different agent (Cursor, OpenCode, OpenClaw, …), use the
+[install script](../../README.md#for-non-claude-code-agents-cursor-opencode-openclaw-) instead.
+
+For local plugin development:
+
+```
+/plugin install /path/to/deepvista-cli/plugins/claude-code
 ```
 
 ## Commands
