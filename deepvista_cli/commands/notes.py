@@ -459,12 +459,18 @@ def notes_quick(ctx: click.Context, text: str, dry_run: bool) -> None:
     if len(title) < len(text):
         title = title.rstrip(".") + "..."
 
+    from deepvista_cli.commands.agents import load_agent_id_for_active_agent
+
     agent, _ = detect_agent_tool()
+    tags = [f"{sn.AGENT_TAG_PREFIX}{agent}"]
+    agent_id = load_agent_id_for_active_agent()
+    if agent_id:
+        tags.append(f"{sn.AGENT_ID_TAG_PREFIX}{agent_id}")
     body = {
         "card_type": "note",
         "title": title,
         "description": text,
-        "tags": [f"{sn.AGENT_TAG_PREFIX}{agent}"],
+        "tags": tags,
         "enrich": True,
     }
 

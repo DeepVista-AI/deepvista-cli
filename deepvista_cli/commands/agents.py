@@ -74,6 +74,25 @@ def _load_agent_id(agent_type: str) -> str | None:
         return None
 
 
+def load_agent_id_for_active_agent() -> str | None:
+    """Best-effort lookup of the active agent's UUID from the local cache.
+
+    Detects the active agent type via the same env/process-tree heuristics used
+    elsewhere (``detect_agent_tool``) and returns the agent UUID previously
+    persisted by ``agents register`` / ``agents sync`` (DV-751 self-healing).
+
+    Returns ``None`` when no UUID is available — callers should treat the
+    ``agent_id`` tag/frontmatter/header field as optional.
+    """
+    try:
+        agent_type, _ = detect_agent_tool()
+    except Exception:
+        return None
+    if not agent_type:
+        return None
+    return _load_agent_id(agent_type)
+
+
 def _remove_agent_id(agent_type: str) -> None:
     """Remove local agent registration file."""
     path = _agent_id_path(agent_type)

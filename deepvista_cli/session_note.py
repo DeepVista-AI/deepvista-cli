@@ -33,6 +33,7 @@ from typing import Any
 
 SESSION_TAG_PREFIX = "cc-session:"
 AGENT_TAG_PREFIX = "agent:"
+AGENT_ID_TAG_PREFIX = "agent_id:"
 PROJECT_TAG_PREFIX = "project:"
 DEFAULT_AGENT = "claude-code"
 FRONTMATTER_FENCE = "---"
@@ -101,6 +102,7 @@ def parse_frontmatter(body: str) -> tuple[dict[str, Any], str]:
 def serialize_frontmatter(fm: dict[str, Any], rest: str) -> str:
     ordered_keys = [
         "agent",
+        "agent_id",
         "agent_version",
         "cc_session_id",
         "project_dir",
@@ -363,6 +365,7 @@ def seed_frontmatter(
     transcript: str,
     agent: str = DEFAULT_AGENT,
     agent_version: str | None = None,
+    agent_id: str | None = None,
 ) -> dict[str, Any]:
     fm: dict[str, Any] = {
         "agent": agent,
@@ -375,20 +378,25 @@ def seed_frontmatter(
         "transcript_path": transcript,
         "status": "active",
     }
+    if agent_id:
+        fm["agent_id"] = agent_id
     if agent_version:
         fm["agent_version"] = agent_version
     fm.update(probe_git(cwd))
     return fm
 
 
-def session_tags(session_id: str, agent: str, cwd: str) -> list[str]:
+def session_tags(session_id: str, agent: str, cwd: str, agent_id: str | None = None) -> list[str]:
     project = Path(cwd).name
-    return [
+    tags = [
         f"{SESSION_TAG_PREFIX}{session_id}",
         f"{AGENT_TAG_PREFIX}{agent}",
         f"{PROJECT_TAG_PREFIX}{project}",
         "session-note",
     ]
+    if agent_id:
+        tags.append(f"{AGENT_ID_TAG_PREFIX}{agent_id}")
+    return tags
 
 
 def default_title(session_id: str, cwd: str) -> str:
