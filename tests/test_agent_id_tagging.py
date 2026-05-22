@@ -78,7 +78,13 @@ def test_serialize_frontmatter_orders_agent_id_after_agent() -> None:
     assert agent_pos < agent_id_pos < agent_version_pos
 
 
-def test_session_tags_emits_agent_id_tag_when_provided() -> None:
+def test_session_tags_emits_unified_agent_tag_when_agent_id_present() -> None:
+    """DV-791 (PR review): session cards carry a SINGLE ``agent:<tool>:<id>`` tag.
+
+    The old split form (``agent:<tool>`` + ``agent_id:<uuid>``) is gone for
+    new writes — the backend parser now emits the same combined shape, so
+    a single ``tag_contains`` lookup turns up cards from either path.
+    """
     tags = sn.session_tags(
         session_id="sess-1",
         agent="claude-code",
@@ -86,14 +92,24 @@ def test_session_tags_emits_agent_id_tag_when_provided() -> None:
         agent_id="abc-uuid",
     )
     assert f"{sn.SESSION_TAG_PREFIX}sess-1" in tags
-    assert f"{sn.AGENT_TAG_PREFIX}claude-code" in tags
-    assert f"{sn.AGENT_ID_TAG_PREFIX}abc-uuid" in tags
+    assert "agent:claude-code:abc-uuid" in tags
+    # Crucially: no legacy ``agent:<tool>`` bare tag, no standalone ``agent_id:`` tag.
+    assert "agent:claude-code" not in tags
+    assert not any(t.startswith(sn.AGENT_ID_TAG_PREFIX) for t in tags)
 
 
-def test_session_tags_omits_agent_id_tag_when_unknown() -> None:
+def test_session_tags_falls_back_to_bare_agent_tag_when_agent_id_unknown() -> None:
     tags = sn.session_tags(session_id="sess-1", agent="claude-code", cwd="/tmp/myproject")
+    # Without an agent_id we degrade to ``agent:<tool>`` so callers can still
+    # narrow by tool.
     assert f"{sn.AGENT_TAG_PREFIX}claude-code" in tags
     assert not any(t.startswith(sn.AGENT_ID_TAG_PREFIX) for t in tags)
+
+
+def test_build_agent_tag_helper() -> None:
+    assert sn.build_agent_tag("claude-code", "uuid-1") == "agent:claude-code:uuid-1"
+    assert sn.build_agent_tag("claude-code", None) == "agent:claude-code"
+    assert sn.build_agent_tag("claude-code", "") == "agent:claude-code"
 
 
 # ---------------------------------------------------------------------------
@@ -177,17 +193,20 @@ def _invoke_quick(monkeypatch: pytest.MonkeyPatch, agent_id: str | None) -> _Rec
     return recorder
 
 
-def test_quick_note_emits_both_agent_and_agent_id_tags(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_quick_note_emits_unified_agent_tag_when_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``+quick`` writes a SINGLE ``agent:<tool>:<id>`` tag (DV-791 PR review)."""
     recorder = _invoke_quick(monkeypatch, agent_id="abc-uuid")
     assert recorder.posts, "expected a POST /create_context_card call"
     path, body = recorder.posts[0]
     assert path == "/create_context_card"
     tags = body.get("tags") or []
-    assert f"{sn.AGENT_TAG_PREFIX}claude-code" in tags
-    assert f"{sn.AGENT_ID_TAG_PREFIX}abc-uuid" in tags
+    assert "agent:claude-code:abc-uuid" in tags
+    # No bare ``agent:<tool>`` and no standalone ``agent_id:`` tag.
+    assert "agent:claude-code" not in tags
+    assert not any(t.startswith(sn.AGENT_ID_TAG_PREFIX) for t in tags)
 
 
-def test_quick_note_omits_agent_id_tag_when_unregistered(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_quick_note_falls_back_to_bare_agent_tag_when_unregistered(monkeypatch: pytest.MonkeyPatch) -> None:
     recorder = _invoke_quick(monkeypatch, agent_id=None)
     _, body = recorder.posts[0]
     tags = body.get("tags") or []

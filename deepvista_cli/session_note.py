@@ -33,6 +33,9 @@ from typing import Any
 
 SESSION_TAG_PREFIX = "cc-session:"
 AGENT_TAG_PREFIX = "agent:"
+# Legacy prefix kept for the in-flight rolling notes already on disk that
+# carry ``agent_id:<uuid>`` as a standalone tag. New writes go through the
+# unified ``agent:<tool>:<uuid>`` form via :func:`build_agent_tag`.
 AGENT_ID_TAG_PREFIX = "agent_id:"
 PROJECT_TAG_PREFIX = "project:"
 DEFAULT_AGENT = "claude-code"
@@ -386,17 +389,33 @@ def seed_frontmatter(
     return fm
 
 
+def build_agent_tag(agent: str, agent_id: str | None = None) -> str:
+    """Return the unified ``agent:<tool>[:<agent_id>]`` tag for a card.
+
+    Per the DV-791 PR review, the CLI writes a SINGLE combined tag instead
+    of separate ``agent:<tool>`` and ``agent_id:<uuid>`` entries. The
+    backend ``X-DeepVista-Origin`` parser emits the same shape, so cards
+    created via either path are queryable with a single ``tag_contains``
+    lookup. When ``agent_id`` is unknown the tag degrades to ``agent:<tool>``
+    so callers can append unconditionally.
+    """
+    if agent_id:
+        return f"{AGENT_TAG_PREFIX}{agent}:{agent_id}"
+    return f"{AGENT_TAG_PREFIX}{agent}"
+
+
 def session_tags(session_id: str, agent: str, cwd: str, agent_id: str | None = None) -> list[str]:
     project = Path(cwd).name
-    tags = [
+    # DV-791 (PR review): unified ``agent:<tool>[:<agent_id>]`` tag. The old
+    # split ``agent:<tool>`` + ``agent_id:<uuid>`` form is gone for new
+    # writes (existing on-disk session notes that carry the legacy form
+    # keep working via the ``AGENT_ID_TAG_PREFIX`` parsers).
+    return [
         f"{SESSION_TAG_PREFIX}{session_id}",
-        f"{AGENT_TAG_PREFIX}{agent}",
+        build_agent_tag(agent, agent_id),
         f"{PROJECT_TAG_PREFIX}{project}",
         "session-note",
     ]
-    if agent_id:
-        tags.append(f"{AGENT_ID_TAG_PREFIX}{agent_id}")
-    return tags
 
 
 def default_title(session_id: str, cwd: str) -> str:

@@ -462,10 +462,13 @@ def notes_quick(ctx: click.Context, text: str, dry_run: bool) -> None:
     from deepvista_cli.commands.agents import load_agent_id_for_active_agent
 
     agent, _ = detect_agent_tool()
-    tags = [f"{sn.AGENT_TAG_PREFIX}{agent}"]
     agent_id = load_agent_id_for_active_agent()
-    if agent_id:
-        tags.append(f"{sn.AGENT_ID_TAG_PREFIX}{agent_id}")
+    # DV-791 (PR review): write a SINGLE combined tag rather than two separate
+    # ``agent:<tool>`` and ``agent_id:<uuid>`` entries. The backend now
+    # mirrors the same shape, so notes created via the CLI are queryable
+    # alongside notes created via the chat-service ``X-DeepVista-Origin``
+    # path with a single ``tag_contains`` lookup.
+    tags = [sn.build_agent_tag(agent, agent_id)]
     body = {
         "card_type": "note",
         "title": title,
