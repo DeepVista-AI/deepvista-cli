@@ -40,8 +40,13 @@ AGENT_ID_TAG_PREFIX = "agent_id:"
 PROJECT_TAG_PREFIX = "project:"
 DEFAULT_AGENT = "claude-code"
 FRONTMATTER_FENCE = "---"
-TURN_HEADING_RE = re.compile(r"^### Turn (\d+) · ")
+TURN_HEAD_CHAR_LIMIT = 80
 SUMMARY_CHAR_LIMIT = 400
+# The frontmatter `summary` field surfaces in the vistabase list-row preview
+# (DV-817). It's seeded from the first user turn during `session tick` and
+# replaced with an LLM rollup at finalize, so the placeholder text needs to
+# be short and single-line.
+FRONTMATTER_SUMMARY_CHAR_LIMIT = 140
 BODY_SIZE_CAP_BYTES = 50_000
 
 
@@ -118,6 +123,7 @@ def serialize_frontmatter(fm: dict[str, Any], rest: str) -> str:
         "version",
         "transcript_path",
         "tools_used",
+        "summary",
         "status",
     ]
     lines = [FRONTMATTER_FENCE]
@@ -260,12 +266,17 @@ def summarize_turn(turn: Turn, index: int, now: datetime | None = None) -> str:
     )
     tools = ", ".join(f"{k}({v})" for k, v in tool_pairs) or "_(none)_"
     files = ", ".join(f"`{p}`" for p in turn.files_touched[:8]) or "_(none)_"
+    head_preview = _truncate(turn.user_text, TURN_HEAD_CHAR_LIMIT) or "(no user text)"
+    head = f"Turn {index} · {head_preview}"
     return (
-        f"### Turn {index} · {ts}\n"
+        "<accordion-plain>\n"
+        f"{head}\n\n"
         f"**User:** {user}\n\n"
         f"**Assistant:** {assistant}\n\n"
         f"**Tools:** {tools}\n\n"
-        f"**Files touched:** {files}\n"
+        f"**Files touched:** {files}\n\n"
+        f"_{ts}_\n"
+        "</accordion-plain>\n"
     )
 
 
@@ -274,6 +285,18 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+def summary_from_user_text(text: str) -> str:
+    """Build a single-line frontmatter `summary` from a user turn's text.
+
+    Used at first tick as a placeholder until the `deepvista-summarize-session`
+    skill produces a real LLM-generated summary at finalize. Returns an empty
+    string when the input is blank — callers should skip writing the field in
+    that case rather than persisting an empty placeholder.
+    """
+    cleaned = _truncate(text, FRONTMATTER_SUMMARY_CHAR_LIMIT)
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +338,7 @@ def _cap_body_size(body: str) -> str:
     fm, rest = parse_frontmatter(body)
     head, _, tail = rest.partition("## Turns")
     tail = tail.split("\n", 1)[1] if "\n" in tail else ""
-    turn_blocks = re.split(r"(?=^### Turn \d+ · )", tail, flags=re.MULTILINE)
+    turn_blocks = re.split(r"(?=^<accordion-plain>)", tail, flags=re.MULTILINE)
     turn_blocks = [b for b in turn_blocks if b.strip()]
     kept: list[str] = []
     size = len(serialize_frontmatter(fm, head + "## Turns\n\n").encode("utf-8"))
@@ -418,6 +441,8 @@ def session_tags(session_id: str, agent: str, cwd: str, agent_id: str | None = N
     ]
 
 
-def default_title(session_id: str, cwd: str) -> str:
-    project = Path(cwd).name or "session"
-    return f"{project} · {session_id[:8]}"
+def default_title(session_id: str, cwd: str, now: datetime | None = None) -> str:
+    project = Path(cwd).name
+    started = (now or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M")
+    prefix = f"{project} session" if project else "session"
+    return f"{prefix} · {started}"

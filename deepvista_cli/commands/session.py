@@ -229,6 +229,14 @@ def session_tick(ctx: click.Context, session_id: str, transcript: str, dry_run: 
             "turn_count": turn_num,
             "version": turn_num,
         }
+        # DV-817: seed the frontmatter `summary` from the first user turn so
+        # the vistabase list row has something to show before finalize runs
+        # the LLM rollup. Only write when missing — later ticks must not
+        # overwrite a summary the summarize-session skill has already set.
+        if not str(fm.get("summary") or "").strip():
+            placeholder = sn.summary_from_user_text(turn.user_text)
+            if placeholder:
+                updates["summary"] = placeholder
         existing_tools = _parse_counter(fm.get("tools_used"))
         for name, count in turn.tool_counts.items():
             existing_tools[name] = existing_tools.get(name, 0) + count
