@@ -458,6 +458,9 @@ def notes_restore(ctx: click.Context, note_id: str, version: int, yes: bool, dry
 # ---------------------------------------------------------------------------
 
 
+_QUICK_TITLE_BUDGET = 50
+
+
 @notes_group.command("+quick")
 @click.argument("text")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
@@ -465,13 +468,20 @@ def notes_restore(ctx: click.Context, note_id: str, version: int, yes: bool, dry
 def notes_quick(ctx: click.Context, text: str, dry_run: bool) -> None:
     """Quick-create a note from a single line of text.
 
-    The first ~50 characters become the title; the full text is the content.
+    The text is used as both the title and the content. Inputs that exceed
+    50 characters, span multiple lines, or contain a period are rejected —
+    use ``deepvista notes create --title ... --content ...`` for those, so
+    the title isn't silently truncated.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
-    title = text[:50].split(".")[0].split("\n")[0].strip()
-    if len(title) < len(text):
-        title = title.rstrip(".") + "..."
+    title = text.strip()
+    if len(title) > _QUICK_TITLE_BUDGET or "\n" in title or "." in title:
+        raise click.UsageError(
+            f"+quick takes a single short line (<= {_QUICK_TITLE_BUDGET} chars, no '.' or newlines) "
+            "so the title isn't truncated. Use "
+            '`deepvista notes create --title "..." --content "..."` for longer notes.'
+        )
 
     from deepvista_cli.commands.agents import load_agent_id_for_active_agent
 
