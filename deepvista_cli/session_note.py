@@ -42,11 +42,14 @@ DEFAULT_AGENT = "claude-code"
 FRONTMATTER_FENCE = "---"
 TURN_HEAD_CHAR_LIMIT = 80
 SUMMARY_CHAR_LIMIT = 400
-# The frontmatter `summary` field surfaces in the vistabase list-row preview
-# (DV-817). It's seeded from the first user turn during `session tick` and
-# replaced with an LLM rollup at finalize, so the placeholder text needs to
-# be short and single-line.
-FRONTMATTER_SUMMARY_CHAR_LIMIT = 140
+# Heuristic title length applied during the first 3 ticks (DV-827). Mirrors
+# TURN_HEAD_CHAR_LIMIT for consistency with the in-body turn-head line; the
+# `deepvista-summarize-session` skill aims for ≤ 60 chars Title Case at
+# finalize, so this acts as a slightly looser pre-AI placeholder.
+TITLE_CHAR_LIMIT = 80
+# How many of the first ticks rewrite the title from the first user turn.
+# Past this, the card's title is left alone until the AI finalize step.
+TITLE_REWRITE_TICK_THRESHOLD = 3
 BODY_SIZE_CAP_BYTES = 50_000
 
 
@@ -123,7 +126,6 @@ def serialize_frontmatter(fm: dict[str, Any], rest: str) -> str:
         "version",
         "transcript_path",
         "tools_used",
-        "summary",
         "status",
     ]
     lines = [FRONTMATTER_FENCE]
@@ -287,16 +289,15 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
-def summary_from_user_text(text: str) -> str:
-    """Build a single-line frontmatter `summary` from a user turn's text.
+def title_from_first_user_turn(text: str) -> str:
+    """Heuristic placeholder title derived from a session's first user turn.
 
-    Used at first tick as a placeholder until the `deepvista-summarize-session`
-    skill produces a real LLM-generated summary at finalize. Returns an empty
-    string when the input is blank — callers should skip writing the field in
-    that case rather than persisting an empty placeholder.
+    Applied at ticks 1–``TITLE_REWRITE_TICK_THRESHOLD`` to give the card a
+    meaningful name before the `deepvista-summarize-session` skill writes
+    an AI title at finalize. Empty input returns an empty string so callers
+    can skip the field.
     """
-    cleaned = _truncate(text, FRONTMATTER_SUMMARY_CHAR_LIMIT)
-    return cleaned
+    return _truncate(text, TITLE_CHAR_LIMIT)
 
 
 # ---------------------------------------------------------------------------

@@ -72,13 +72,34 @@ def test_summarize_turn_head_truncates_long_user_text() -> None:
     assert head_payload.endswith("…")
 
 
-def test_serialize_frontmatter_round_trips_summary() -> None:
+def test_serialize_frontmatter_round_trips_unknown_keys() -> None:
+    # Legacy session notes on disk may carry a `summary:` field written by an
+    # older CLI. The parser must still round-trip it so existing cards keep
+    # rendering correctly even after the writer dropped the field.
     fm = {"agent": "claude-code", "summary": "First question text", "status": "active"}
     body = sn.serialize_frontmatter(fm, "## Turns\n\n")
     fm_back, _ = sn.parse_frontmatter(body)
     assert fm_back["summary"] == "First question text"
-    # `summary` appears before `status` in the canonical order.
-    assert body.index("summary:") < body.index("status:")
+
+
+def test_title_from_first_user_turn_truncates_to_title_limit() -> None:
+    assert sn.title_from_first_user_turn("Short prompt") == "Short prompt"
+
+    long_text = "x" * (sn.TITLE_CHAR_LIMIT + 50)
+    truncated = sn.title_from_first_user_turn(long_text)
+    assert len(truncated) <= sn.TITLE_CHAR_LIMIT
+    assert truncated.endswith("…")
+
+
+def test_title_from_first_user_turn_collapses_whitespace() -> None:
+    derived = sn.title_from_first_user_turn("line one\nline two")
+    assert "\n" not in derived
+    assert derived == "line one line two"
+
+
+def test_title_from_first_user_turn_returns_empty_for_blank_input() -> None:
+    assert sn.title_from_first_user_turn("") == ""
+    assert sn.title_from_first_user_turn("   \n  ") == ""
 
 
 def test_append_turn_prepends_accordion_blocks() -> None:
@@ -96,27 +117,6 @@ def test_append_turn_prepends_accordion_blocks() -> None:
     second_idx = body.index("Turn 2 · ")
     first_idx = body.index("Turn 1 · ")
     assert second_idx < first_idx
-
-
-def test_summary_from_user_text_truncates_to_frontmatter_limit() -> None:
-    short = sn.summary_from_user_text("Short prompt")
-    assert short == "Short prompt"
-
-    long_text = "x" * (sn.FRONTMATTER_SUMMARY_CHAR_LIMIT + 50)
-    truncated = sn.summary_from_user_text(long_text)
-    assert len(truncated) <= sn.FRONTMATTER_SUMMARY_CHAR_LIMIT
-    assert truncated.endswith("…")
-
-
-def test_summary_from_user_text_collapses_newlines() -> None:
-    summary = sn.summary_from_user_text("line one\nline two")
-    assert "\n" not in summary
-    assert summary == "line one line two"
-
-
-def test_summary_from_user_text_returns_empty_for_blank_input() -> None:
-    assert sn.summary_from_user_text("") == ""
-    assert sn.summary_from_user_text("   \n  ") == ""
 
 
 def test_cap_body_size_splits_on_accordion_boundary(monkeypatch) -> None:
