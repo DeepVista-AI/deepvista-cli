@@ -20,8 +20,21 @@ from deepvista_cli.client.origin import build_origin, detect_agent_tool
 from deepvista_cli.config import CONFIG_DIR
 from deepvista_cli.output.formatter import format_output, output_error
 
-AGENT_COLUMNS = ["id", "name", "agent_type", "status", "last_heartbeat_at", "updated_at"]
+AGENT_COLUMNS = ["id", "name", "agent_type", "agent_role", "status", "last_heartbeat_at", "updated_at"]
 AGENTS_DIR = CONFIG_DIR / "agents"
+
+# DV-832: closed enum of agent roles. Mirrors the SQL CHECK + Python enum
+# in the deepvista repo (vista_common/models/managed_agent.py::AgentRole).
+AGENT_ROLE_CHOICES = (
+    "sales",
+    "marketing",
+    "product",
+    "engineering",
+    "hiring",
+    "content",
+    "misc",
+)
+DEFAULT_AGENT_ROLE = "misc"
 
 # Backend error codes (mirror of ai/chat_service/routers/agents.py constants).
 # Surfaced via the JSON response body so the CLI can recover programmatically
@@ -49,29 +62,73 @@ _AGENT_TYPE_LABELS = {
 # ---------------------------------------------------------------------------
 
 
-def _agent_id_path(agent_type: str) -> Path:
-    """Path to the local agent registration file for a given type."""
+def _agent_id_path(agent_type: str, agent_role: str | None = None) -> Path:
+    """Path to the local agent registration file for a given (type, role).
+
+    DV-832: cache key is now ``<type>__<role>.json`` so a single machine can
+    host multiple roles (e.g. an engineering Claude and a marketing Claude
+    against different projects). When ``agent_role`` is omitted we fall back
+    to the legacy ``<type>.json`` filename for read-only adoption — see
+    ``_load_agent_id``.
+    """
+    if agent_role:
+        return AGENTS_DIR / f"{agent_type}__{agent_role}.json"
     return AGENTS_DIR / f"{agent_type}.json"
 
 
-def _save_agent_id(agent_type: str, agent_id: str) -> None:
+def _save_agent_id(agent_type: str, agent_id: str, agent_role: str = DEFAULT_AGENT_ROLE) -> None:
     """Persist agent ID locally after registration."""
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = _agent_id_path(agent_type)
-    path.write_text(_json.dumps({"agent_id": agent_id, "agent_type": agent_type}))
+    path = _agent_id_path(agent_type, agent_role)
+    path.write_text(_json.dumps({"agent_id": agent_id, "agent_type": agent_type, "agent_role": agent_role}))
     os.chmod(path, 0o600)
 
 
-def _load_agent_id(agent_type: str) -> str | None:
-    """Load locally stored agent ID for a given type."""
-    path = _agent_id_path(agent_type)
-    if not path.exists():
+def _load_agent_id(agent_type: str, agent_role: str | None = None) -> str | None:
+    """Load locally stored agent ID for a given (type, [role]).
+
+    DV-832: prefers the new ``<type>__<role>.json`` cache key. When
+    ``agent_role`` is None, returns the most recently modified
+    registration for this type (covers Stop hook calls that don't yet
+    pass --role). Migrates the legacy ``<type>.json`` file on first read
+    by treating it as the ``misc`` role.
+    """
+    if agent_role:
+        path = _agent_id_path(agent_type, agent_role)
+        if not path.exists():
+            return None
+        try:
+            return _json.loads(path.read_text()).get("agent_id")
+        except (_json.JSONDecodeError, KeyError):
+            return None
+
+    # No role specified — scan all per-role files for this type, prefer newest.
+    candidates: list[tuple[float, Path]] = []
+    if AGENTS_DIR.exists():
+        for p in AGENTS_DIR.glob(f"{agent_type}__*.json"):
+            try:
+                candidates.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
+
+    # Legacy fallback: the pre-DV-832 ``<type>.json`` file (treated as role=misc).
+    legacy = AGENTS_DIR / f"{agent_type}.json"
+    if legacy.exists():
+        try:
+            candidates.append((legacy.stat().st_mtime, legacy))
+        except OSError:
+            pass
+
+    if not candidates:
         return None
-    try:
-        data = _json.loads(path.read_text())
-        return data.get("agent_id")
-    except (_json.JSONDecodeError, KeyError):
-        return None
+
+    candidates.sort(reverse=True)
+    for _, path in candidates:
+        try:
+            return _json.loads(path.read_text()).get("agent_id")
+        except (_json.JSONDecodeError, KeyError):
+            continue
+    return None
 
 
 def load_agent_id_for_active_agent() -> str | None:
@@ -93,11 +150,25 @@ def load_agent_id_for_active_agent() -> str | None:
     return _load_agent_id(agent_type)
 
 
-def _remove_agent_id(agent_type: str) -> None:
-    """Remove local agent registration file."""
-    path = _agent_id_path(agent_type)
-    if path.exists():
-        path.unlink()
+def _remove_agent_id(agent_type: str, agent_role: str | None = None) -> None:
+    """Remove local agent registration file(s) for this type.
+
+    When ``agent_role`` is given, only that role's cache file is removed.
+    Without a role, every cache for this type (including the legacy
+    ``<type>.json``) is cleared — used when a stale local record needs to
+    be wiped before re-registration (DV-751).
+    """
+    if agent_role:
+        path = _agent_id_path(agent_type, agent_role)
+        if path.exists():
+            path.unlink()
+        return
+
+    for path in AGENTS_DIR.glob(f"{agent_type}__*.json"):
+        path.unlink(missing_ok=True)
+    legacy = AGENTS_DIR / f"{agent_type}.json"
+    if legacy.exists():
+        legacy.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -493,7 +564,11 @@ def _default_agent_name(agent_type: str) -> str:
 
 
 def _register_agent_via_api(
-    ctx: click.Context, name: str, agent_type: str, config: dict
+    ctx: click.Context,
+    name: str,
+    agent_type: str,
+    config: dict,
+    agent_role: str = DEFAULT_AGENT_ROLE,
 ) -> tuple[str | None, str | None]:
     """POST /agents and persist the resulting ID. Adopts a pre-existing agent.
 
@@ -502,10 +577,13 @@ def _register_agent_via_api(
     save its ID locally — the row is the source of truth, our local file
     just needs to catch up.
     """
-    data = _client(ctx).post("/agents", {"name": name, "agent_type": agent_type, "config": config})
+    data = _client(ctx).post(
+        "/agents",
+        {"name": name, "agent_type": agent_type, "agent_role": agent_role, "config": config},
+    )
     agent = data.get("agent")
     if agent and agent.get("id"):
-        _save_agent_id(agent_type, agent["id"])
+        _save_agent_id(agent_type, agent["id"], agent.get("agent_role", agent_role))
         return agent["id"], None
     return None, data.get("error", "Registration failed")
 
@@ -515,14 +593,16 @@ def _ensure_agent_registered(ctx: click.Context, agent_type: str) -> str:
 
     Used by hook-driven flows (``agents sync``) so a fresh ``deepvista auth
     login`` does not need a follow-up ``agents register`` for SOUL / MEMORY
-    pushes to start working (DV-751).
+    pushes to start working (DV-751). Auto-registration defaults to the
+    ``misc`` role; users opt into a specific role via ``agents register
+    --role`` or ``agents update --role``.
     """
     existing = _load_agent_id(agent_type)
     if existing:
         return existing
     config = _build_config_snapshot(agent_type)
     name = _default_agent_name(agent_type)
-    agent_id, error = _register_agent_via_api(ctx, name, agent_type, config)
+    agent_id, error = _register_agent_via_api(ctx, name, agent_type, config, DEFAULT_AGENT_ROLE)
     if not agent_id:
         output_error(1, "Auto-registration failed", error or "Unknown error")
         raise SystemExit(1)
@@ -587,18 +667,28 @@ def agents_group() -> None:
     ),
     help="Agent tool type.",
 )
+@click.option(
+    "--role",
+    "agent_role",
+    default=DEFAULT_AGENT_ROLE,
+    type=click.Choice(AGENT_ROLE_CHOICES),
+    show_default=True,
+    help="Functional role this agent owns (DV-832).",
+)
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def agents_register(ctx: click.Context, name: str, agent_type: str, dry_run: bool) -> None:
+def agents_register(ctx: click.Context, name: str, agent_type: str, agent_role: str, dry_run: bool) -> None:
     """Register a new agent and save its ID locally.
 
     Auto-reads soul from system files (CLAUDE.md, .cursorrules, etc.).
+    Identity is `(type, role, project)` — register the same type under a
+    different role to spin up another agent on the same machine.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
-    existing_id = _load_agent_id(agent_type)
+    existing_id = _load_agent_id(agent_type, agent_role)
     if existing_id:
-        msg = f"Agent type '{agent_type}' already registered locally "
+        msg = f"Agent type '{agent_type}' role '{agent_role}' already registered locally "
         msg += f"(id: {existing_id}). Use 'agents update' to modify."
         click.echo(_json.dumps({"warning": msg}), err=True)
         return
@@ -614,6 +704,7 @@ def agents_register(ctx: click.Context, name: str, agent_type: str, dry_run: boo
                 "would": "register agent",
                 "name": name,
                 "agent_type": agent_type,
+                "agent_role": agent_role,
                 "would_install_hooks": _install_hooks.__doc__ and agent_type == "claude-code",
                 "config_snapshot": config,
                 "profile": profile,
@@ -622,7 +713,10 @@ def agents_register(ctx: click.Context, name: str, agent_type: str, dry_run: boo
         )
         return
 
-    data = _client(ctx).post("/agents", {"name": name, "agent_type": agent_type, "config": config})
+    data = _client(ctx).post(
+        "/agents",
+        {"name": name, "agent_type": agent_type, "agent_role": agent_role, "config": config},
+    )
 
     agent = data.get("agent")
     # Adopt a pre-existing server-side row when the local file is missing —
@@ -637,7 +731,7 @@ def agents_register(ctx: click.Context, name: str, agent_type: str, dry_run: boo
         output_error(1, "Registration failed", "Backend did not return an agent")
         return
 
-    _save_agent_id(agent_type, agent["id"])
+    _save_agent_id(agent_type, agent["id"], agent.get("agent_role", agent_role))
 
     # Auto-install heartbeat hooks
     profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"
@@ -715,6 +809,13 @@ def agents_get(ctx: click.Context, agent_id: str | None, agent_type: str | None)
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--name", default=None, help="New display name.")
 @click.option("--status", default=None, type=click.Choice(["online", "offline", "error"]), help="Set status.")
+@click.option(
+    "--role",
+    "agent_role",
+    default=None,
+    type=click.Choice(AGENT_ROLE_CHOICES),
+    help="Reassign agent_role (DV-832).",
+)
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def agents_update(
@@ -723,9 +824,10 @@ def agents_update(
     agent_type: str | None,
     name: str | None,
     status: str | None,
+    agent_role: str | None,
     dry_run: bool,
 ) -> None:
-    """Update an agent's name or status. Soul is auto-read from system files.
+    """Update an agent's name, status, or role. Soul is auto-read from system files.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
@@ -737,6 +839,8 @@ def agents_update(
         body["name"] = name
     if status:
         body["status"] = status
+    if agent_role:
+        body["agent_role"] = agent_role
 
     # Auto-read soul from system
     soul_content = _read_soul(resolved_type)
@@ -744,7 +848,7 @@ def agents_update(
         body["config"] = {"soul": soul_content}
 
     if not body:
-        output_error(3, "Nothing to update", "Provide --name or --status.")
+        output_error(3, "Nothing to update", "Provide --name, --status, or --role.")
         return
 
     if dry_run:
@@ -916,9 +1020,12 @@ def agents_status(ctx: click.Context) -> None:
     data = _client(ctx).get("/agents")
     agents = data.get("agents", [])
 
-    # Annotate with local registration info
+    # Annotate with local registration info. Match by (type, role) first;
+    # fall back to type-only for legacy single-role caches.
     for agent in agents:
-        local_id = _load_agent_id(agent.get("agent_type", ""))
+        atype = agent.get("agent_type", "") or ""
+        arole = agent.get("agent_role")
+        local_id = _load_agent_id(atype, arole) or _load_agent_id(atype)
         agent["locally_registered"] = local_id == agent.get("id")
 
     result = {"agents": agents, "count": len(agents)}
