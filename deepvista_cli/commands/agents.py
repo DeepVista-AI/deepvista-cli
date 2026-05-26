@@ -23,17 +23,9 @@ from deepvista_cli.output.formatter import format_output, output_error
 AGENT_COLUMNS = ["id", "name", "agent_type", "agent_role", "status", "last_heartbeat_at", "updated_at"]
 AGENTS_DIR = CONFIG_DIR / "agents"
 
-# DV-832: closed enum of agent roles. Mirrors the SQL CHECK + Python enum
-# in the deepvista repo (vista_common/models/managed_agent.py::AgentRole).
-AGENT_ROLE_CHOICES = (
-    "sales",
-    "marketing",
-    "product",
-    "engineering",
-    "hiring",
-    "content",
-    "misc",
-)
+# DV-832: agent_role is open-text. We provide a default but do not
+# enforce a closed set — the product list (sales, marketing, product,
+# engineering, hiring, content, misc, …) may change.
 DEFAULT_AGENT_ROLE = "misc"
 
 # Backend error codes (mirror of ai/chat_service/routers/agents.py constants).
@@ -671,9 +663,8 @@ def agents_group() -> None:
     "--role",
     "agent_role",
     default=DEFAULT_AGENT_ROLE,
-    type=click.Choice(AGENT_ROLE_CHOICES),
     show_default=True,
-    help="Functional role this agent owns (DV-832).",
+    help="Functional role this agent owns (free-text, e.g. engineering, marketing).",
 )
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
@@ -813,8 +804,7 @@ def agents_get(ctx: click.Context, agent_id: str | None, agent_type: str | None)
     "--role",
     "agent_role",
     default=None,
-    type=click.Choice(AGENT_ROLE_CHOICES),
-    help="Reassign agent_role (DV-832).",
+    help="Reassign agent_role (free-text).",
 )
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
