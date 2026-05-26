@@ -239,6 +239,17 @@ def session_tick(ctx: click.Context, session_id: str, transcript: str, dry_run: 
 
     payload = {"card_id": card_id, "description": body, "reason": "session-tick"}
 
+    # DV-827: while the AI finalize title pipeline is still ramping up
+    # reliability, give the card a meaningful title for the first few ticks
+    # using the first user turn. We gate on the pre-tick turn count so that
+    # an opening tick which flushes many turns at once still writes the
+    # title once, but later ticks past the threshold leave it alone (so the
+    # AI title at finalize, or a user rename, sticks).
+    if last_idx < sn.TITLE_REWRITE_TICK_THRESHOLD and turns:
+        derived_title = sn.title_from_first_user_turn(turns[0].user_text)
+        if derived_title:
+            payload["title"] = derived_title
+
     if dry_run:
         format_output(
             {

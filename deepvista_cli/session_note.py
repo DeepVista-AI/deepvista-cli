@@ -40,8 +40,16 @@ AGENT_ID_TAG_PREFIX = "agent_id:"
 PROJECT_TAG_PREFIX = "project:"
 DEFAULT_AGENT = "claude-code"
 FRONTMATTER_FENCE = "---"
-TURN_HEADING_RE = re.compile(r"^### Turn (\d+) · ")
+TURN_HEAD_CHAR_LIMIT = 80
 SUMMARY_CHAR_LIMIT = 400
+# Heuristic title length applied during the first 3 ticks (DV-827). Mirrors
+# TURN_HEAD_CHAR_LIMIT for consistency with the in-body turn-head line; the
+# `deepvista-summarize-session` skill aims for ≤ 60 chars Title Case at
+# finalize, so this acts as a slightly looser pre-AI placeholder.
+TITLE_CHAR_LIMIT = 80
+# How many of the first ticks rewrite the title from the first user turn.
+# Past this, the card's title is left alone until the AI finalize step.
+TITLE_REWRITE_TICK_THRESHOLD = 3
 BODY_SIZE_CAP_BYTES = 50_000
 
 
@@ -260,12 +268,17 @@ def summarize_turn(turn: Turn, index: int, now: datetime | None = None) -> str:
     )
     tools = ", ".join(f"{k}({v})" for k, v in tool_pairs) or "_(none)_"
     files = ", ".join(f"`{p}`" for p in turn.files_touched[:8]) or "_(none)_"
+    head_preview = _truncate(turn.user_text, TURN_HEAD_CHAR_LIMIT) or "(no user text)"
+    head = f"Turn {index} · {head_preview}"
     return (
-        f"### Turn {index} · {ts}\n"
+        "<accordion-plain>\n"
+        f"{head}\n\n"
         f"**User:** {user}\n\n"
         f"**Assistant:** {assistant}\n\n"
         f"**Tools:** {tools}\n\n"
-        f"**Files touched:** {files}\n"
+        f"**Files touched:** {files}\n\n"
+        f"_{ts}_\n"
+        "</accordion-plain>\n"
     )
 
 
@@ -274,6 +287,17 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+def title_from_first_user_turn(text: str) -> str:
+    """Heuristic placeholder title derived from a session's first user turn.
+
+    Applied at ticks 1–``TITLE_REWRITE_TICK_THRESHOLD`` to give the card a
+    meaningful name before the `deepvista-summarize-session` skill writes
+    an AI title at finalize. Empty input returns an empty string so callers
+    can skip the field.
+    """
+    return _truncate(text, TITLE_CHAR_LIMIT)
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +339,7 @@ def _cap_body_size(body: str) -> str:
     fm, rest = parse_frontmatter(body)
     head, _, tail = rest.partition("## Turns")
     tail = tail.split("\n", 1)[1] if "\n" in tail else ""
-    turn_blocks = re.split(r"(?=^### Turn \d+ · )", tail, flags=re.MULTILINE)
+    turn_blocks = re.split(r"(?=^<accordion-plain>)", tail, flags=re.MULTILINE)
     turn_blocks = [b for b in turn_blocks if b.strip()]
     kept: list[str] = []
     size = len(serialize_frontmatter(fm, head + "## Turns\n\n").encode("utf-8"))
@@ -418,6 +442,8 @@ def session_tags(session_id: str, agent: str, cwd: str, agent_id: str | None = N
     ]
 
 
-def default_title(session_id: str, cwd: str) -> str:
-    project = Path(cwd).name or "session"
-    return f"{project} · {session_id[:8]}"
+def default_title(session_id: str, cwd: str, now: datetime | None = None) -> str:
+    project = Path(cwd).name
+    started = (now or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M")
+    prefix = f"{project} session" if project else "session"
+    return f"{prefix} · {started}"
