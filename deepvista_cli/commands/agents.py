@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import json as _json
 import os
+import sys
 from pathlib import Path
 
 import click
 
+from deepvista_cli import agent_catalog
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import build_origin, detect_agent_tool
 from deepvista_cli.config import CONFIG_DIR
@@ -477,6 +479,26 @@ def _read_soul(agent_type: str) -> str | None:
     return None
 
 
+def _read_system_prompt_file(path: str | None) -> str | None:
+    """Read a custom system prompt (``config.soul``) from a file for register/update.
+
+    Lets a caller set a deliberate persona prompt instead of the soul that is
+    auto-read from local agent files — this is what ``agents export`` bakes into
+    the generated subagent body.
+    """
+    if not path:
+        return None
+    try:
+        content = Path(path).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        output_error(3, "Cannot read --system-prompt-file", str(exc))
+        raise SystemExit(3) from exc
+    if not content:
+        output_error(3, "Empty --system-prompt-file", f"{path} contains no content.")
+        raise SystemExit(3)
+    return content
+
+
 def _build_config_snapshot(agent_type: str) -> dict:
     """Build a full config snapshot for sync/register per RFC spec."""
     origin = build_origin()
@@ -666,14 +688,30 @@ def agents_group() -> None:
     show_default=True,
     help="Functional role this agent owns (free-text, e.g. engineering, marketing).",
 )
+@click.option(
+    "--system-prompt-file",
+    "system_prompt_file",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="File whose contents become this agent's system prompt (config.soul), "
+    "overriding the auto-read soul. `agents export` bakes it into the generated subagent body.",
+)
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def agents_register(ctx: click.Context, name: str, agent_type: str, agent_role: str, dry_run: bool) -> None:
+def agents_register(
+    ctx: click.Context,
+    name: str,
+    agent_type: str,
+    agent_role: str,
+    system_prompt_file: str | None,
+    dry_run: bool,
+) -> None:
     """Register a new agent and save its ID locally.
 
-    Auto-reads soul from system files (CLAUDE.md, .cursorrules, etc.).
-    Identity is `(type, role, project)` — register the same type under a
-    different role to spin up another agent on the same machine.
+    Auto-reads soul from system files (CLAUDE.md, .cursorrules, etc.) unless
+    `--system-prompt-file` is given. Identity is `(type, role, project)` —
+    register the same type under a different role to spin up another agent on
+    the same machine.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
@@ -685,6 +723,9 @@ def agents_register(ctx: click.Context, name: str, agent_type: str, agent_role: 
         return
 
     config = _build_config_snapshot(agent_type)
+    custom_soul = _read_system_prompt_file(system_prompt_file)
+    if custom_soul:
+        config["soul"] = custom_soul
 
     if dry_run:
         profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"
@@ -806,6 +847,13 @@ def agents_get(ctx: click.Context, agent_id: str | None, agent_type: str | None)
     default=None,
     help="Reassign agent_role (free-text).",
 )
+@click.option(
+    "--system-prompt-file",
+    "system_prompt_file",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="File whose contents replace this agent's system prompt (config.soul). Overrides the auto-read soul.",
+)
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
 def agents_update(
@@ -815,9 +863,13 @@ def agents_update(
     name: str | None,
     status: str | None,
     agent_role: str | None,
+    system_prompt_file: str | None,
     dry_run: bool,
 ) -> None:
-    """Update an agent's name, status, or role. Soul is auto-read from system files.
+    """Update an agent's name, status, or role.
+
+    The system prompt (config.soul) comes from `--system-prompt-file` when
+    given, else it is auto-read from system files (CLAUDE.md, .cursorrules, …).
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
@@ -832,8 +884,8 @@ def agents_update(
     if agent_role:
         body["agent_role"] = agent_role
 
-    # Auto-read soul from system
-    soul_content = _read_soul(resolved_type)
+    # Explicit prompt file wins; otherwise auto-read soul from system files.
+    soul_content = _read_system_prompt_file(system_prompt_file) or _read_soul(resolved_type)
     if soul_content:
         body["config"] = {"soul": soul_content}
 
@@ -993,6 +1045,88 @@ def agents_sync(
         output_error(1, "Sync failed", data.get("error", ""))
         return
     _output(ctx, data["agent"], title="Synced Agent")
+
+
+# ---------------------------------------------------------------------------
+# export (managed agents → Claude Code plugin agent definitions)
+# ---------------------------------------------------------------------------
+
+
+@agents_group.command("export")
+@click.option(
+    "--target",
+    type=click.Path(file_okay=False, resolve_path=True),
+    default=None,
+    help="Directory to write agent definitions into. Default: ~/.claude/agents.",
+)
+@click.option(
+    "--prefix",
+    default=agent_catalog.DEFAULT_PREFIX,
+    show_default=True,
+    help="Filename prefix for generated definitions (keeps curated agents untouched).",
+)
+@click.option(
+    "--limit",
+    type=click.IntRange(1, 500),
+    default=agent_catalog.DEFAULT_LIMIT,
+    show_default=True,
+    help="Cap number of managed agents fetched.",
+)
+@click.option(
+    "--throttle-min",
+    type=int,
+    default=agent_catalog.DEFAULT_THROTTLE_MIN,
+    show_default=True,
+    help="Skip export if the last successful run was newer than N minutes.",
+)
+@click.option("--force", is_flag=True, default=False, help="Ignore the throttle and export now.")
+@click.option("--dry-run", is_flag=True, default=False, help="Compute diff, print summary, exit without writing.")
+@click.option("--quiet", is_flag=True, default=False, help="Suppress stdout; communicate via exit code only.")
+@click.pass_context
+def agents_export(
+    ctx: click.Context,
+    target: str | None,
+    prefix: str,
+    limit: int,
+    throttle_min: int,
+    force: bool,
+    dry_run: bool,
+    quiet: bool,
+) -> None:
+    """Export managed agents as Claude Code plugin agent definitions.
+
+    Each distinct managed-agent role (DV-832 ``agent_role``) becomes one
+    ``<role>.md`` subagent under ``--target``, so it is callable inline in
+    Claude Code — e.g. ``@marketing summarize this week``. Re-runs are
+    idempotent and throttled; hand-curated agents are never overwritten.
+
+    Read/write on disk only — never calls remote write endpoints. Safe to wire
+    into a SessionStart hook: it exits 0 on any failure, leaving the previous
+    export's definitions in place.
+    """
+    target_path = Path(target) if target else agent_catalog.DEFAULT_TARGET_DIR
+
+    try:
+        result = agent_catalog.sync_agent_defs(
+            _client(ctx),
+            target=target_path,
+            prefix=prefix,
+            limit=limit,
+            throttle_min=throttle_min,
+            force=force,
+            dry_run=dry_run,
+        )
+    # A SessionStart hook must never fail the session, so we swallow auth/API/
+    # network errors (including those raised as SystemExit) and exit 0.
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
+        if not quiet:
+            click.echo(_json.dumps({"error": {"code": 1, "message": f"export failed: {exc}"}}), err=True)
+        sys.exit(0)
+
+    if quiet:
+        return
+
+    _output(ctx, result, title="Agent definitions export")
 
 
 # ---------------------------------------------------------------------------

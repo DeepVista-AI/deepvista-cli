@@ -12,7 +12,8 @@ description: |
 
 The DeepVista Claude Code plugin requires the `deepvista` CLI to be installed
 separately. Without it, the plugin's `SessionStart` hook exits silently and
-no catalog skills sync.
+neither the skill catalog nor your agent roles sync — so `/skills` shows no
+DeepVista entries and no `@<role>` subagents are generated.
 
 ## Install
 
@@ -34,8 +35,10 @@ deepvista auth status     # verify
 
 ## Trigger a first sync
 
-Once the CLI is installed and authenticated, force the plugin's catalog
-sync without waiting for the next session start:
+Once the CLI is installed and authenticated, force the plugin's sync without
+waiting for the next session start. This writes both the skill stubs (under
+`skills/`) and one `dv-<role>.md` subagent per managed-agent role (under
+`agents/`):
 
 ```
 /refresh-skills
