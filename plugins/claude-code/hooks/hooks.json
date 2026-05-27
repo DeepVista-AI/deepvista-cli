@@ -5,11 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/sync-catalog.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/sync-agents.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-sync.sh"
           },
           {
             "type": "command",

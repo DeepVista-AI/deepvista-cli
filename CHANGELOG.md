@@ -13,12 +13,19 @@ users what's new between the version they have installed and the latest release.
   agents export` turns each distinct managed-agent role (DV-832 `agent_role`)
   into a Claude Code plugin agent definition, so roles are callable inline —
   e.g. `@marketing summarize this week`. The plugin's `SessionStart` hook
-  (`sync-agents.sh`) writes one `dv-<role>.md` per role into
-  `${CLAUDE_PLUGIN_ROOT}/agents/`, mirroring the skill-catalog sync: idempotent,
-  throttled, and safe (exits 0 on any failure). Generated files carry an
+  (`deepvista-sync.sh`, which also runs the skill-catalog sync) writes one
+  `dv-<role>.md` per role into `${CLAUDE_PLUGIN_ROOT}/agents/`, mirroring the
+  skill-catalog sync: idempotent, throttled, and safe (exits 0 on any
+  failure). Generated files carry an
   `x-deepvista-agent` marker and a `dv-` prefix so they are gitignored and
   hand-curated agents of the same name always win. The `misc` default role is
   skipped. Tunable via `DEEPVISTA_AGENT_SYNC_THROTTLE_MIN` / `_LIMIT`.
+- **Custom agent system prompts** (DV-836). `agents register` / `agents update`
+  accept `--system-prompt-file`, storing the contents as the agent's
+  `config.soul`. When set, `agents export` bakes that prompt in as the generated
+  subagent's body (verbatim); the role-template body is the fallback when no soul
+  is set. Frontmatter (routing, tools, model, preloaded `deepvista` skill) stays
+  templated either way.
 
 ### Fixed
 - **Agent registration is now self-healing** (DV-751). `deepvista agents

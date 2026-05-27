@@ -80,6 +80,41 @@ def test_build_agent_markdown_generic_role():
     assert "Legal specialist for DeepVista" in md
 
 
+def test_build_agent_markdown_bakes_custom_soul():
+    """A managed agent with config.soul renders that prompt as the body, not the template."""
+    meta = agent_catalog.AgentRoleMeta(
+        role="marketing",
+        agent_name="Marketing",
+        agent_id="abc123",
+        system_prompt="You are a bespoke marketing brain.\nGround everything in notes.",
+    )
+    md = agent_catalog.build_agent_markdown(meta)
+    # Frontmatter stays templated (routing + preloaded skill + role description).
+    assert "name: marketing" in md
+    assert "skills: deepvista" in md
+    assert "Marketing specialist for DeepVista" in md
+    # Body is the custom prompt verbatim; the default template body is bypassed.
+    assert "You are a bespoke marketing brain." in md
+    assert "Operating procedure" not in md
+
+
+def test_metas_from_agents_reads_config_soul():
+    """config.soul flows into AgentRoleMeta.system_prompt for the export to bake in."""
+    agents = [
+        {
+            "id": "m1",
+            "name": "Marketing",
+            "agent_type": "deepvista-cli",
+            "agent_role": "marketing",
+            "updated_at": "2026-05-27",
+            "config": {"soul": "CUSTOM PROMPT", "machine": "laptop"},
+        }
+    ]
+    metas = agent_catalog.metas_from_agents(agents)
+    assert len(metas) == 1
+    assert metas[0].system_prompt == "CUSTOM PROMPT"
+
+
 # ---------------------------------------------------------------------------
 # grouping
 # ---------------------------------------------------------------------------

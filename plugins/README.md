@@ -59,5 +59,3 @@ command -v deepvista >/dev/null 2>&1 && \
                   ▼
          full instructions in agent context
 ```
-
-See `../deepvista-skills-plugin-design.md` for the full design.
