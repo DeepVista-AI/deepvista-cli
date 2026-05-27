@@ -8,6 +8,18 @@ users what's new between the version they have installed and the latest release.
 
 ## Unreleased
 
+### Added
+- **Managed agents become Claude Code subagents** (DV-836). New `deepvista
+  agents export` turns each distinct managed-agent role (DV-832 `agent_role`)
+  into a Claude Code plugin agent definition, so roles are callable inline —
+  e.g. `@marketing summarize this week`. The plugin's `SessionStart` hook
+  (`sync-agents.sh`) writes one `dv-<role>.md` per role into
+  `${CLAUDE_PLUGIN_ROOT}/agents/`, mirroring the skill-catalog sync: idempotent,
+  throttled, and safe (exits 0 on any failure). Generated files carry an
+  `x-deepvista-agent` marker and a `dv-` prefix so they are gitignored and
+  hand-curated agents of the same name always win. The `misc` default role is
+  skipped. Tunable via `DEEPVISTA_AGENT_SYNC_THROTTLE_MIN` / `_LIMIT`.
+
 ### Fixed
 - **Agent registration is now self-healing** (DV-751). `deepvista agents
   sync` (the Claude Code Stop hook) auto-registers an agent on the first run

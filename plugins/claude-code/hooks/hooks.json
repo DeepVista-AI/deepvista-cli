@@ -9,6 +9,10 @@
           },
           {
             "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/sync-agents.sh"
+          },
+          {
+            "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-session-start.sh"
           }
         ]

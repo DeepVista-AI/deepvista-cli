@@ -1,0 +1,10 @@
+# Generated subagent definitions (`dv-*.md`) are written here at runtime by the
+# SessionStart hook (`deepvista agents export`) — one per DeepVista managed-agent
+# role. They re-export on every session start, so a marketplace `git pull` that
+# wipes them is self-healing. We ignore the prefix so generated defs do not show
+# up as local modifications, stay out of plugin PR diffs, and survive the brief
+# window between a `git pull` and the hook writing them back.
+#
+# Hand-curated agents committed here (without the `dv-` prefix) are tracked
+# normally and always win over a generated role of the same name.
+dv-*.md
