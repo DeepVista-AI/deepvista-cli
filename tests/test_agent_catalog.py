@@ -14,10 +14,17 @@ from deepvista_cli import agent_catalog
 
 
 class FakeClient:
-    """In-memory stand-in for ``DeepVistaClient`` (GET only)."""
+    """In-memory stand-in for ``DeepVistaClient`` (GET + POST)."""
 
-    def __init__(self, agents: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        agents: list[dict[str, Any]],
+        *,
+        skill_cards: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         self._agents = agents
+        # Persona Skill context cards keyed by id; consulted by /get_context_card.
+        self._skill_cards = skill_cards or {}
         self.calls: list[tuple[str, dict | None]] = []
 
     def get(self, path: str, params: dict | None = None) -> Any:
@@ -25,6 +32,16 @@ class FakeClient:
         if path == "/agents":
             return {"agents": self._agents}
         raise AssertionError(f"unexpected GET {path}")
+
+    def post(self, path: str, body: dict | None = None) -> Any:
+        self.calls.append((path, body))
+        if path == "/get_context_card":
+            card_id = (body or {}).get("card_id")
+            card = self._skill_cards.get(card_id)
+            if card is None:
+                raise AssertionError(f"unknown skill card {card_id!r}")
+            return {"card": card}
+        raise AssertionError(f"unexpected POST {path}")
 
 
 def _agent(role: str, *, name: str = "", aid: str = "id-x", updated: str = "2026-01-01") -> dict[str, Any]:
@@ -223,3 +240,111 @@ def test_dry_run_writes_nothing(tmp_path: Path):
     assert res["dry_run"] is True
     assert res["plan"]["to_add"] == ["sales"]
     assert not list(tmp_path.glob("dv-*.md"))
+
+
+# ---------------------------------------------------------------------------
+# DV-853: persona Skill context card → config.system_prompt expansion
+# ---------------------------------------------------------------------------
+
+
+def test_parse_persona_ref_accepts_skill_and_persona_prefixes():
+    assert agent_catalog.parse_persona_ref("skill:abc12345") == "abc12345"
+    assert agent_catalog.parse_persona_ref("persona:xyz98765") == "xyz98765"
+    # Whitespace and case in the prefix are tolerated.
+    assert agent_catalog.parse_persona_ref("  Skill: abc-12_3  ") == "abc-12_3"
+
+
+def test_parse_persona_ref_rejects_inline_text():
+    assert agent_catalog.parse_persona_ref("") == ""
+    assert agent_catalog.parse_persona_ref("You are a marketing brain.") == ""
+    # Too short to be a real id — treat as inline text so a stray colon doesn't
+    # silently turn a typo'd system prompt into a broken reference.
+    assert agent_catalog.parse_persona_ref("skill:ab") == ""
+
+
+def test_metas_from_agents_carries_persona_ref():
+    """A ``skill:<id>`` reference in config.system_prompt is parsed out as the
+    persona card id and removed from the inline prompt body."""
+    metas = agent_catalog.metas_from_agents(
+        [
+            {
+                "id": "m1",
+                "name": "Marketing",
+                "agent_role": "marketing",
+                "updated_at": "2026-05-27",
+                "config": {"system_prompt": "skill:persona-mkt-001"},
+            }
+        ]
+    )
+    assert len(metas) == 1
+    assert metas[0].persona_card_id == "persona-mkt-001"
+    # No body yet — resolution happens in _fetch_server_agents.
+    assert metas[0].system_prompt == ""
+
+
+def test_metas_from_agents_prefers_inline_system_prompt_over_soul():
+    """When system_prompt is inline text (not a ref), it wins over the older
+    ``config.soul`` field — system_prompt is the newer, role-scoped knob."""
+    metas = agent_catalog.metas_from_agents(
+        [
+            {
+                "id": "m1",
+                "agent_role": "marketing",
+                "config": {"system_prompt": "INLINE PROMPT", "soul": "OLD SOUL"},
+            }
+        ]
+    )
+    assert metas[0].system_prompt == "INLINE PROMPT"
+    assert metas[0].persona_card_id == ""
+
+
+def test_sync_resolves_persona_card_into_subagent_body(tmp_path: Path):
+    """End-to-end: a managed agent points config.system_prompt at a persona
+    Skill card, the export resolves the card body and bakes it into dv-<role>.md."""
+    agents = [
+        {
+            "id": "m1",
+            "name": "Marketing",
+            "agent_role": "marketing",
+            "updated_at": "2026-05-28",
+            "config": {"system_prompt": "skill:persona-mkt-001"},
+        }
+    ]
+    cards = {
+        "persona-mkt-001": {
+            "id": "persona-mkt-001",
+            "title": "Marketing persona",
+            "description": "You are a launch-obsessed marketer who grounds claims in DeepVista notes.",
+        }
+    }
+    client = FakeClient(agents, skill_cards=cards)
+    res = agent_catalog.sync_agent_defs(client, target=tmp_path, force=True, state_path=tmp_path / "s.json")
+    assert res["summary"]["added"] == 1
+    body = (tmp_path / "dv-marketing.md").read_text(encoding="utf-8")
+    # The resolved persona text is inlined as the subagent body…
+    assert "launch-obsessed marketer" in body
+    # …with a provenance comment + frontmatter pointer to the source card.
+    assert "persona Skill context card" in body
+    assert "x-deepvista-persona-card-id: persona-mkt-001" in body
+    # The templated 5-step body is bypassed when a persona is present.
+    assert "Operating procedure" not in body
+
+
+def test_sync_falls_back_when_persona_card_missing(tmp_path: Path):
+    """A persona ref whose card resolves to empty content degrades to the
+    templated body — no exception, no broken file."""
+    agents = [
+        {
+            "id": "m1",
+            "agent_role": "marketing",
+            "config": {"system_prompt": "skill:does-not-exist-1234"},
+        }
+    ]
+    # Card returns no description — simulates a partly-deleted catalog entry.
+    cards = {"does-not-exist-1234": {"id": "does-not-exist-1234", "title": "Ghost"}}
+    client = FakeClient(agents, skill_cards=cards)
+    res = agent_catalog.sync_agent_defs(client, target=tmp_path, force=True, state_path=tmp_path / "s.json")
+    assert res["summary"]["added"] == 1
+    body = (tmp_path / "dv-marketing.md").read_text(encoding="utf-8")
+    # Falls back to the templated body — the user still gets a usable subagent.
+    assert "Operating procedure" in body

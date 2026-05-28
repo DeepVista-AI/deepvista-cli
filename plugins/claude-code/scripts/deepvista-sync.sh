@@ -20,6 +20,7 @@ LOG_DIR="$HOME/.config/deepvista/logs"
 mkdir -p "$LOG_DIR"
 SKILL_LOG="$LOG_DIR/catalog-sync.log"
 AGENT_LOG="$LOG_DIR/agent-export.log"
+PLANNING_LOG="$LOG_DIR/daily-planning.log"
 
 if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then
   printf '[%s] CLAUDE_PLUGIN_ROOT not set; refusing to sync\n' \
@@ -71,5 +72,16 @@ AGENT_LIMIT="${DEEPVISTA_AGENT_SYNC_LIMIT:-50}"
     --quiet
   printf '[%s] export exit=%s\n' "$(date -u +%FT%TZ)" "$?"
 } >>"$AGENT_LOG" 2>&1 || true
+
+# 3. Daily planning note (DV-853) — idempotent. Creates today's planning note
+# the first SessionStart of each day; silent on subsequent runs. Disable by
+# exporting DEEPVISTA_DAILY_PLANNING=0.
+if [ "${DEEPVISTA_DAILY_PLANNING:-1}" != "0" ]; then
+  {
+    printf '[%s] seeding daily planning note\n' "$(date -u +%FT%TZ)"
+    deepvista --format json planning daily-note
+    printf '[%s] daily-note exit=%s\n' "$(date -u +%FT%TZ)" "$?"
+  } >>"$PLANNING_LOG" 2>&1 || true
+fi
 
 exit 0

@@ -31,6 +31,7 @@ from deepvista_cli.commands.config import config_group
 from deepvista_cli.commands.lint import lint_command
 from deepvista_cli.commands.memory import vistabase_group
 from deepvista_cli.commands.notes import notes_group
+from deepvista_cli.commands.planning import planning_group
 from deepvista_cli.commands.session import session_group
 from deepvista_cli.commands.skill import skill_group
 from deepvista_cli.commands.upgrade import upgrade_command
@@ -87,6 +88,8 @@ for _name, _cmd in card_group.commands.items():
 cli.add_command(vistabase_group, name="memory")
 # Agent orchestration
 cli.add_command(agents_group)
+# Daily planning notes (DV-853) — orchestration entry for `/deepvista run`
+cli.add_command(planning_group)
 # Agent session transcripts (DV-742) — `init` / `tick` / `finalize`
 cli.add_command(session_group)
 # Supporting commands
