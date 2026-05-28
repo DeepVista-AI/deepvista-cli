@@ -37,6 +37,13 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [0.1.18](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.1.17...v0.1.18) (2026-05-28)
+
+
+### Documentation
+
+* add CONTRIBUTING.md covering PR workflow and the release-please prose trap ([#145](https://github.com/DeepVista-AI/deepvista-cli/issues/145)) ([a9012d9](https://github.com/DeepVista-AI/deepvista-cli/commit/a9012d9cf45de695c754a0c89deb3f80e63e8b48))
+
 ## [0.1.17](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.1.16...v0.1.17) (2026-05-28)
 
 
