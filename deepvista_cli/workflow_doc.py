@@ -1,25 +1,9 @@
-"""Parse and mutate a workflow Skill's SKILL.md body (`description`).
+"""Read-only parsing of a workflow Skill's SKILL.md body.
 
-A workflow Skill body is a complete SKILL.md: YAML frontmatter, a mermaid
-diagram, one ``<accordion>`` per phase, etc. The DeepVista server agent
-mutates this body in place at run-time to reflect phase progress (see
-``deepvista-skill-workflow/SKILL.md``). When a host agent (Claude Code /
-OpenClaw / Cursor) drives the run via ``deepvista skill run --mode host``,
-the same mutations need to happen client-side via the ``deepvista skill
-phase ...`` CLI shims; this module is the parsing + mutation backbone.
-
-Scope (v1):
-- accordion attributes: open / checked
-- mermaid node class markers: ``:::dvActive`` / ``:::dvDone`` / ``:::dvTodo``
-- phase listing (parse accordion titles)
-- ``phase_contract.tool_plan`` extraction for ``--mode auto`` routing
-  (handles both new frontmatter contracts and legacy inline yaml blocks)
-
-Out of scope (v1):
-- Edge animation directive updates (``eN@{ animation: slow }``). Server-side
-  runs continue to manage these; host-mode runs leave them static and the
-  renderer falls back to a static diagram. The accordion + node-class
-  invariants are sufficient for the frontend to show phase state.
+Provides phase listing and ``tool_plan`` extraction used by the CLI for
+``--mode auto`` routing decisions. Phase mutations (open/done/reset) are
+delegated to the server via ``POST /workflow_phase`` so all mutation logic
+lives in one place.
 """
 
 from __future__ import annotations
@@ -40,18 +24,6 @@ _ACCORDION_RE = re.compile(
 
 # Inside an accordion body, the phase title is the first non-empty line.
 _PHASE_TITLE_LINE_RE = re.compile(r"^\s*(.+?)\s*$", re.MULTILINE)
-
-# Mermaid class marker: ``...:::dvActive`` / ``:::dvDone`` / ``:::dvTodo`` /
-# ``:::dvError``. We match the node label + the class so we can swap classes.
-_MERMAID_NODE_CLASS_RE = re.compile(
-    r"(?P<label_open>[\[\{\(])"
-    r"(?P<label_text>[^\]\}\)]*?)"
-    r"(?P<label_close>[\]\}\)])"
-    r":::(?P<klass>dvActive|dvDone|dvTodo|dvError)"
-)
-
-# Fenced mermaid block.
-_MERMAID_BLOCK_RE = re.compile(r"```mermaid\n(?P<body>.*?)```", re.DOTALL)
 
 # Inline ```yaml ... ``` block within an accordion body — legacy phase contract.
 _INLINE_YAML_RE = re.compile(r"```yaml\n(?P<body>.*?)```", re.DOTALL)
@@ -161,63 +133,6 @@ class WorkflowDocument:
     # Mutate — accordions
     # ------------------------------------------------------------------
 
-    def open_phase(self, label: str) -> None:
-        """Mark the accordion matching ``label`` as active (open + unchecked).
-
-        All other accordions lose ``open="true"`` (their ``checked`` attr is
-        preserved). The mermaid node whose label aligns with ``label`` gets
-        its class marker set to ``:::dvActive``; the previously-active node
-        (if any) is downgraded to ``:::dvDone`` — the assumption is that the
-        caller has finished it before advancing. Use ``mark_phase_done``
-        first if you want explicit ``done`` semantics on the prior phase.
-        """
-        if not self._has_phase(label):
-            raise PhaseNotFoundError(label)
-
-        self._body = _mutate_accordions(
-            self._body,
-            target_label=label,
-            target_attrs={"checked": "false", "open": "true"},
-        )
-        # All non-target accordions lose ``open="true"``.
-        self._body = _strip_open_from_other_accordions(self._body, keep_label=label)
-
-        # Mermaid: previous active → dvDone, target → dvActive.
-        self._body = _set_mermaid_class_for_label(self._body, label="*active*", new_klass="dvDone")
-        self._body = _set_mermaid_class_for_label(self._body, label=label, new_klass="dvActive")
-
-    def mark_phase_done(self, label: str) -> None:
-        """Mark a phase complete: accordion checked, mermaid node ``dvDone``."""
-        if not self._has_phase(label):
-            raise PhaseNotFoundError(label)
-        self._body = _mutate_accordions(self._body, target_label=label, target_attrs={"checked": "true"})
-        self._body = _strip_open_from_other_accordions(self._body, keep_label=None)
-        self._body = _set_mermaid_class_for_label(self._body, label=label, new_klass="dvDone")
-
-    def reset_phase(self, label: str) -> None:
-        """Reset a phase to pending: accordion unchecked and closed, mermaid node ``dvTodo``."""
-        if not self._has_phase(label):
-            raise PhaseNotFoundError(label)
-        self._body = _mutate_accordions(self._body, target_label=label, target_attrs={"checked": "false"})
-        self._body = _strip_open_from_other_accordions(self._body, keep_label=None)
-        self._body = _set_mermaid_class_for_label(self._body, label=label, new_klass="dvTodo")
-
-    def append_artifact_block(self, label: str, card_id: str, card_type: str, title: str, summary: str) -> None:
-        """Embed a ``<contextCardBlock>`` inside the named accordion's body.
-
-        The block is inserted at the end of the accordion body (before the
-        closing tag). Idempotent — calling with the same ``card_id`` again
-        is a no-op.
-        """
-        if not self._has_phase(label):
-            raise PhaseNotFoundError(label)
-        block = (
-            f'<contextCardBlock id="{card_id}" cardType="{card_type}" view="compact">\n'
-            f"{title}\n{summary}\n"
-            "</contextCardBlock>"
-        )
-        self._body = _append_to_accordion(self._body, label=label, block=block, dedupe_marker=f'id="{card_id}"')
-
     def append_review(self, review_md: str) -> None:
         """Append a ``## Review`` section to the doc body if not already present.
 
@@ -230,26 +145,6 @@ class WorkflowDocument:
             self._body = self._body.rstrip() + "\n\n" + review_md.strip() + "\n"
         else:
             self._body = self._body.rstrip() + "\n\n## Review\n\n" + review_md.strip() + "\n"
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _has_phase(self, label: str) -> bool:
-        return any(p.title == label for p in self.phases())
-
-
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-
-class PhaseNotFoundError(ValueError):
-    """Raised when a CLI command names a phase that's not in the workflow body."""
-
-    def __init__(self, label: str) -> None:
-        super().__init__(f"No accordion titled {label!r} found in workflow body")
-        self.label = label
 
 
 # ---------------------------------------------------------------------------
@@ -280,158 +175,6 @@ def _attr_value(attrs: str, name: str) -> str | None:
     """Extract the value of ``name`` from a string like ``checked="false" open="true"``."""
     m = re.search(rf'{re.escape(name)}\s*=\s*"([^"]*)"', attrs)
     return m.group(1) if m else None
-
-
-def _mutate_accordions(body: str, target_label: str, target_attrs: dict[str, str]) -> str:
-    """Re-emit accordions, replacing the target accordion's attrs.
-
-    Non-target accordions are left structurally intact; only the target's
-    opening tag is rewritten so the merge between ``target_attrs`` and the
-    existing attrs preserves attributes we don't touch (e.g. custom data-*).
-    """
-
-    def repl(match: re.Match[str]) -> str:
-        attrs = match.group("attrs")
-        body_inner = match.group("body")
-        title = _extract_phase_title(body_inner)
-        if title != target_label:
-            return match.group(0)
-        new_attrs = _merge_attrs(attrs, target_attrs)
-        return f"<accordion{new_attrs}>{body_inner}</accordion>"
-
-    return _ACCORDION_RE.sub(repl, body)
-
-
-def _strip_open_from_other_accordions(body: str, keep_label: str | None) -> str:
-    """Drop ``open="true"`` from every accordion except the one matching ``keep_label``."""
-
-    def repl(match: re.Match[str]) -> str:
-        attrs = match.group("attrs")
-        body_inner = match.group("body")
-        title = _extract_phase_title(body_inner)
-        if keep_label is not None and title == keep_label:
-            return match.group(0)
-        new_attrs = _remove_attr(attrs, "open")
-        return f"<accordion{new_attrs}>{body_inner}</accordion>"
-
-    return _ACCORDION_RE.sub(repl, body)
-
-
-def _merge_attrs(existing: str, updates: dict[str, str]) -> str:
-    """Merge ``updates`` into the attribute string ``existing``.
-
-    Existing attribute values are overwritten by ``updates``; attributes not
-    in ``updates`` are preserved. The returned string starts with a single
-    leading space so it can be re-spliced into ``<accordion{attrs}>``.
-    """
-    parts: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    for m in re.finditer(r'(\w+)\s*=\s*"([^"]*)"', existing):
-        key, val = m.group(1), m.group(2)
-        if key in updates:
-            val = updates[key]
-        seen.add(key)
-        parts.append((key, val))
-    for key, val in updates.items():
-        if key not in seen:
-            parts.append((key, val))
-    if not parts:
-        return ""
-    return " " + " ".join(f'{k}="{v}"' for k, v in parts)
-
-
-def _remove_attr(existing: str, name: str) -> str:
-    """Return ``existing`` with the ``name`` attribute (if any) removed."""
-    cleaned = re.sub(rf'\s*{re.escape(name)}\s*=\s*"[^"]*"', "", existing)
-    cleaned = cleaned.strip()
-    return (" " + cleaned) if cleaned else ""
-
-
-def _set_mermaid_class_for_label(body: str, label: str, new_klass: str) -> str:
-    """Update the ``:::dvX`` class marker on the mermaid node aligned with ``label``.
-
-    ``label`` may be the special sentinel ``"*active*"`` — matches whatever
-    node is currently ``:::dvActive`` (used to demote the prior active node
-    when opening a new phase).
-
-    Matching is structural: the node label text either equals the accordion
-    title or contains the phase prefix (``"Phase N:"`` / ``"Step N:"``).
-    """
-    blocks = list(_MERMAID_BLOCK_RE.finditer(body))
-    if not blocks:
-        return body
-
-    def rewrite_node(node_match: re.Match[str], in_block: str) -> str | None:
-        klass = node_match.group("klass")
-        text = node_match.group("label_text").strip()
-        if label == "*active*":
-            if klass != "dvActive":
-                return None
-        else:
-            if not _labels_align(text, label):
-                return None
-        # Rewrite the class only — keep label punctuation as-is.
-        return (
-            node_match.group("label_open")
-            + node_match.group("label_text")
-            + node_match.group("label_close")
-            + ":::"
-            + new_klass
-        )
-
-    new_body = body
-    # Iterate blocks back-to-front so substring positions don't shift.
-    for block in reversed(blocks):
-        original = block.group("body")
-        rewritten = _MERMAID_NODE_CLASS_RE.sub(
-            lambda nm, original=original: rewrite_node(nm, original) or nm.group(0),
-            original,
-        )
-        if rewritten != original:
-            start, end = block.span("body")
-            new_body = new_body[:start] + rewritten + new_body[end:]
-    return new_body
-
-
-def _labels_align(node_text: str, phase_title: str) -> bool:
-    """Heuristic: does a mermaid node label correspond to a given accordion title?
-
-    True if:
-    - exact string equality after stripping wrapping quotes (case-insensitive), OR
-    - both share the same ``Phase N:`` / ``Step N:`` prefix.
-    """
-    n = node_text.strip().strip('"').strip()
-    p = phase_title.strip().strip('"').strip()
-    if n.lower() == p.lower():
-        return True
-    n_prefix = _phase_prefix(n)
-    p_prefix = _phase_prefix(p)
-    return bool(n_prefix and n_prefix == p_prefix)
-
-
-def _phase_prefix(text: str) -> str:
-    """Return the ``Phase N`` / ``Step N`` / ``N.`` prefix, or empty string."""
-    m = re.match(r"\s*(Phase\s+\d+|Step\s+\d+|\d+\.)\s*[:.]?", text, re.IGNORECASE)
-    if not m:
-        return ""
-    return re.sub(r"\s+", " ", m.group(1)).strip().lower()
-
-
-def _append_to_accordion(body: str, label: str, block: str, dedupe_marker: str) -> str:
-    """Insert ``block`` inside the named accordion's body, idempotently."""
-
-    def repl(match: re.Match[str]) -> str:
-        attrs = match.group("attrs")
-        body_inner = match.group("body")
-        title = _extract_phase_title(body_inner)
-        if title != label:
-            return match.group(0)
-        if dedupe_marker in body_inner:
-            return match.group(0)
-        new_body = body_inner.rstrip() + "\n\n" + block + "\n"
-        return f"<accordion{attrs}>{new_body}</accordion>"
-
-    return _ACCORDION_RE.sub(repl, body)
 
 
 def _extract_inline_tool_plan(accordion_body: str) -> list[str]:
