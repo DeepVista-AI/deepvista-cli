@@ -37,6 +37,14 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [0.2.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.1.18...v0.2.0) (2026-05-28)
+
+
+### Features
+
+* **DV-853:** productionize the deepvista subagents ([#147](https://github.com/DeepVista-AI/deepvista-cli/issues/147)) ([45e9ba1](https://github.com/DeepVista-AI/deepvista-cli/commit/45e9ba17de08243fe84be3de6826c72116360351))
+* **session:** skip session init for configured CWD patterns (DV-862) ([#148](https://github.com/DeepVista-AI/deepvista-cli/issues/148)) ([df74381](https://github.com/DeepVista-AI/deepvista-cli/commit/df743810ae6dec7c4a520c43d82f1eeae421762b))
+
 ## [0.1.18](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.1.17...v0.1.18) (2026-05-28)
 
 
