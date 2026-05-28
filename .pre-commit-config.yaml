@@ -19,10 +19,3 @@ repos:
         entry: uv run pyright deepvista_cli/
         pass_filenames: false
         types: [python]
-
-      - id: plugin-version-sync
-        name: plugin.json version matches pyproject.toml
-        language: system
-        entry: python3 scripts/check_plugin_version.py
-        pass_filenames: false
-        files: ^(pyproject\.toml|plugins/claude-code/\.claude-plugin/plugin\.json)$

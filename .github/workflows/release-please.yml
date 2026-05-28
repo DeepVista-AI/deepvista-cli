@@ -1,0 +1,72 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      prs: ${{ steps.release.outputs.prs }}
+      prs_created: ${{ steps.release.outputs.prs_created }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # Optional: set RELEASE_PLEASE_TOKEN (PAT or GitHub App token) so commits
+          # made by release-please trigger downstream workflows (e.g. CI on the
+          # release PR). Without it, GITHUB_TOKEN is used and downstream workflows
+          # do not run on bot-authored pushes.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+  sync-uv-lock:
+    # release-please updates pyproject.toml + plugin.json but not uv.lock. Refresh
+    # uv.lock on the release PR branch so CI's `uv sync --frozen` stays clean.
+    needs: release-please
+    if: needs.release-please.outputs.prs_created == 'true' || needs.release-please.outputs.prs != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Extract release PR branch
+        id: pr
+        run: |
+          BRANCH=$(echo '${{ needs.release-please.outputs.prs }}' | jq -r '.[0].headBranchName // empty')
+          if [ -z "$BRANCH" ]; then
+            echo "no release PR open; skipping uv.lock sync"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.pr.outputs.skip != 'true'
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.pr.outputs.skip != 'true'
+        with:
+          enable-cache: true
+
+      - name: Regenerate uv.lock and commit if changed
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          uv lock
+          if git diff --quiet uv.lock; then
+            echo "uv.lock already in sync"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock
+          git commit -m "chore: sync uv.lock with release version"
+          git push

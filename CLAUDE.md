@@ -50,44 +50,37 @@ Validate with `gh skill publish --dry-run` before committing — this is also th
 
 ## Releasing a new version
 
-The `main` branch is protected. Follow this workflow:
+Releases are automated by [release-please](https://github.com/googleapis/release-please).
+You don't bump versions, edit `uv.lock`, write tags, or open release PRs by hand.
 
-1. **Create release branch and bump version**
-   ```bash
-   git checkout main && git pull
-   git checkout -b release/vX.Y.Z
-   # Edit pyproject.toml: version = "X.Y.Z"
-   uv lock                              # regenerate uv.lock so it matches
-   git add pyproject.toml uv.lock
-   git commit -m "release: vX.Y.Z"      # pre-commit will bump plugin.json and abort
-   git add plugins/claude-code/.claude-plugin/plugin.json
-   git commit -m "release: vX.Y.Z"
-   git push -u origin release/vX.Y.Z
-   ```
+**Day-to-day flow:**
 
-   `uv.lock` must be staged because `uv lock` pins the project's own version
-   (CI's `uv sync --frozen` tolerates self-version drift but contributors will
-   hit a lockfile mismatch if it's skipped). The `plugin-version-sync` pre-commit
-   hook auto-bumps `plugins/claude-code/.claude-plugin/plugin.json` on the first
-   commit attempt — stage it and re-run `git commit`. CI enforces the same
-   invariant with `--check`.
+1. Land feature PRs on `main` using Conventional Commit titles
+   (`feat(DV-xxx): …`, `fix(notes): …`, `feat!: …` for breaking). Squash-merge as usual.
+2. release-please watches `main` and keeps a single open PR titled
+   `chore(main): release X.Y.Z`. It bumps `pyproject.toml`, `uv.lock`, and
+   `plugins/claude-code/.claude-plugin/plugin.json`, and updates `CHANGELOG.md`.
+   Each new commit on `main` rewrites the same PR (highest bump wins:
+   `feat` upgrades a pending `fix` PR from patch to minor).
+3. **To ship: merge the release PR.** release-please then creates the
+   `vX.Y.Z` tag and the GitHub Release. The tag push triggers
+   `.github/workflows/publish.yml`, which builds and uploads to PyPI.
 
-2. **Create PR and merge**
-   ```bash
-   gh pr create --title "release: vX.Y.Z" --body "Bump version for release"
-   ```
+**Version bumps follow commit types:**
 
-3. **After PR merged, tag and push**
-   ```bash
-   git checkout main && git pull
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
-   ```
+| Commit type | Bump | Example |
+|---|---|---|
+| `fix:` | patch | 0.1.16 → 0.1.17 |
+| `feat:` | minor | 0.1.16 → 0.2.0 |
+| `feat!:` or `BREAKING CHANGE:` footer | major | 0.1.16 → 1.0.0 |
+| `chore:` / `docs:` / `refactor:` / `test:` / `ci:` | none | — |
 
-CI publishes to PyPI **and** creates a GitHub Release automatically on `v*`
-tags. Pre-releases (`vX.Y.ZaN` / `bN` / `rcN`) are converted to semver
-(`vX.Y.Z-alpha.N`, etc.) and released under that tag by `gh skill publish`,
-so `gh skill install DeepVista-AI/deepvista-cli@vX.Y.Z-alpha.N` works. Stable
-releases reuse the PyPI tag directly.
+Override the proposed version with a `Release-As: 1.0.0` footer on any commit.
+
+**Pre-releases (alpha / beta / rc) still use the manual flow** — release-please
+is configured for stable PEP 440 versions only. To cut `0.1.0a27` etc., bump
+`pyproject.toml` + `plugins/claude-code/.claude-plugin/plugin.json` on a release
+branch, push, tag `v0.1.0a27`, and the publish workflow's pre-release path
+(`gh skill publish --tag`) handles the PEP 440 → semver conversion.
 
 **Version scheme:** `0.1.0aN` (alpha) → `0.1.0bN` (beta) → `0.1.0rcN` (rc) → `0.1.0` (stable)
