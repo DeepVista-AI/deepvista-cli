@@ -21,7 +21,6 @@ from deepvista_cli import skill_catalog
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.output.formatter import format_output, output_error
 from deepvista_cli.workflow_doc import (
-    PhaseNotFoundError,
     WorkflowDocument,
     is_phase_server_routable,
 )
@@ -286,27 +285,9 @@ def _load_skill_doc(ctx: click.Context, skill_id: str) -> tuple[dict, WorkflowDo
     return card, WorkflowDocument(card["description"])
 
 
-def _persist_doc(
-    ctx: click.Context,
-    skill_id: str,
-    doc: WorkflowDocument,
-    *,
-    reason: str,
-    status: str | None = None,
-) -> dict:
-    """Save mutated body back via /update_context_card.
-
-    ``status`` is only set when the caller explicitly wants to acquire or
-    release the lock — phase opens / dones leave it untouched.
-    """
-    body: dict[str, Any] = {
-        "card_id": skill_id,
-        "description": doc.body,
-        "reason": reason,
-    }
-    if status is not None:
-        body["status"] = status
-    return _client(ctx).post("/update_context_card", body)
+def _phase(ctx: click.Context, card_id: str, **kwargs: Any) -> dict:
+    """Call /workflow_phase and return the API response."""
+    return _client(ctx).post("/workflow_phase", {"card_id": card_id, **kwargs})
 
 
 @skill_phase_group.command("open")
@@ -319,12 +300,6 @@ def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_ru
 
     Idempotent — re-opening the already-active phase is a no-op write.
     """
-    card, doc = _load_skill_doc(ctx, skill_id)
-    try:
-        doc.open_phase(phase_label)
-    except PhaseNotFoundError as exc:
-        output_error(3, "Phase not found", str(exc))
-
     if dry_run:
         format_output(
             {"dry_run": True, "would": "open phase", "skill_id": skill_id, "phase": phase_label},
@@ -334,9 +309,9 @@ def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_ru
         )
         return
 
-    _persist_doc(ctx, skill_id, doc, reason="host-phase-open")
+    result = _phase(ctx, skill_id, phase_label=phase_label, action="open")
     format_output(
-        {"ok": True, "skill_id": skill_id, "active_phase": phase_label, "title": card.get("title", "")},
+        {"ok": True, "skill_id": skill_id, "active_phase": phase_label, "title": result.get("title", "")},
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
@@ -373,37 +348,6 @@ def skill_phase_done(
     under the phase's accordion. Pass ``--next-phase`` to open the
     following phase in the same write (cheaper than two round-trips).
     """
-    card, doc = _load_skill_doc(ctx, skill_id)
-    try:
-        doc.mark_phase_done(phase_label)
-    except PhaseNotFoundError as exc:
-        output_error(3, "Phase not found", str(exc))
-
-    # Resolve artifact card titles so the <contextCardBlock> has readable
-    # content. Each artifact card is fetched once — fine for the small
-    # number of artifacts per phase in practice.
-    for art_id in artifact_card_ids:
-        if not _UUID_RE.match(art_id):
-            output_error(3, "Invalid artifact card ID", f"Expected UUID, got: {art_id!r}")
-        art_card = _client(ctx).post("/get_context_card", {"card_id": art_id})
-        title = art_card.get("title", "") or "Artifact"
-        snippet = (art_card.get("snippet") or "").strip() or (art_card.get("description") or "").strip()
-        if len(snippet) > 200:
-            snippet = snippet[:197].rstrip() + "…"
-        doc.append_artifact_block(
-            label=phase_label,
-            card_id=art_id,
-            card_type=art_card.get("type", "note"),
-            title=title,
-            summary=snippet or "(no summary)",
-        )
-
-    if next_phase:
-        try:
-            doc.open_phase(next_phase)
-        except PhaseNotFoundError as exc:
-            output_error(3, "Next phase not found", str(exc))
-
     if dry_run:
         format_output(
             {
@@ -420,7 +364,14 @@ def skill_phase_done(
         )
         return
 
-    _persist_doc(ctx, skill_id, doc, reason="host-phase-done")
+    result = _phase(
+        ctx,
+        skill_id,
+        phase_label=phase_label,
+        action="done",
+        artifact_card_ids=list(artifact_card_ids),
+        next_phase=next_phase,
+    )
     format_output(
         {
             "ok": True,
@@ -428,7 +379,7 @@ def skill_phase_done(
             "completed_phase": phase_label,
             "next_phase": next_phase,
             "artifacts": list(artifact_card_ids),
-            "title": card.get("title", ""),
+            "title": result.get("title", ""),
         },
         ctx.obj.output_format,
         entity_type="skill",
@@ -447,12 +398,6 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
     Use this to re-run a phase that was already marked done or active.
     The run lock (status=in_progress) is not affected.
     """
-    card, doc = _load_skill_doc(ctx, skill_id)
-    try:
-        doc.reset_phase(phase_label)
-    except PhaseNotFoundError as exc:
-        output_error(3, "Phase not found", str(exc))
-
     if dry_run:
         format_output(
             {"dry_run": True, "would": "reset phase to pending", "skill_id": skill_id, "phase": phase_label},
@@ -462,9 +407,9 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
         )
         return
 
-    _persist_doc(ctx, skill_id, doc, reason="host-phase-reset")
+    result = _phase(ctx, skill_id, phase_label=phase_label, action="reset")
     format_output(
-        {"ok": True, "skill_id": skill_id, "reset_phase": phase_label, "title": card.get("title", "")},
+        {"ok": True, "skill_id": skill_id, "reset_phase": phase_label, "title": result.get("title", "")},
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
