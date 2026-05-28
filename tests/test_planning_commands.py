@@ -120,12 +120,16 @@ def test_daily_note_creates_when_absent(
     assert payload["created"] is True
     assert payload["date"] == "20260528"
     assert payload["roles"] == ["marketing", "engineering", "gtm"]
+    assert payload["source"] == "template"
     # Verify the create payload carries the seeded sections.
     create_call = next(c for c in stub.calls if c[0] == "/create_context_card")
     body = create_call[1] or {}
     assert "## marketing" in body["description"]
     assert "daily-planning" in body["tags"]
     assert "date:20260528" in body["tags"]
+    # Templated notes don't carry the agent-source tag — the slash command
+    # uses this signal to decide whether to regenerate via the skill.
+    assert "source:agent" not in body["tags"]
 
 
 def test_daily_note_idempotent_when_present(
@@ -176,6 +180,90 @@ def test_daily_note_force_recreates(
     payload = json.loads(result.output)
     assert payload["created"] is True
     assert [c[0] for c in stub.calls] == ["/create_context_card"]
+
+
+def test_daily_note_agent_content_bypasses_template(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `daily-planning` skill calls `daily-note --content-file -` with an
+    LLM-reasoned plan; the templated seed must be bypassed and the note must
+    be tagged ``source:agent`` so /deepvista run trusts it."""
+    stub = _StubCtxClient()
+    stub.queue("/get_context_cards", {"cards": []})
+    stub.queue("/create_context_card", {"id": "note-agent"})
+    _install_stub_client(monkeypatch, stub)
+
+    agent_md = (
+        "# Daily Planning 20260528\n\n"
+        "Yesterday shipped DV-852; today we wrap DV-853 and prep DV-860.\n\n"
+        "## Workflow today\n- /refresh-skills\n\n"
+        "## marketing\n- Draft launch tweet for DV-853 (see card-001).\n"
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["planning", "daily-note", "--date", "20260528", "--content", agent_md],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["created"] is True
+    assert payload["source"] == "agent"
+    create_call = next(c for c in stub.calls if c[0] == "/create_context_card")
+    body = create_call[1] or {}
+    # Body is the agent's markdown, not the boilerplate stub.
+    assert "Yesterday shipped DV-852" in body["description"]
+    assert "_Task brief for `@marketing`" not in body["description"]
+    # Tag set tells /deepvista run not to regenerate.
+    assert "source:agent" in body["tags"]
+    assert "daily-planning" in body["tags"]
+
+
+def test_today_reports_source_for_agent_and_template(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`planning today` exposes the source label so the slash command can
+    detect a stub and offer to regenerate via the daily-planning skill."""
+    stub = _StubCtxClient()
+    # First lookup: an agent-generated note.
+    stub.queue(
+        "/get_context_cards",
+        {
+            "cards": [
+                {
+                    "id": "note-1",
+                    "title": "Daily Planning 20260528",
+                    "tags": ["daily-planning", "date:20260528", "source:agent"],
+                    "description": "# Daily Planning 20260528\n## marketing\n- ship\n",
+                }
+            ]
+        },
+    )
+    # Second lookup: a templated stub.
+    stub.queue(
+        "/get_context_cards",
+        {
+            "cards": [
+                {
+                    "id": "note-2",
+                    "title": "Daily Planning 20260529",
+                    "tags": ["daily-planning", "date:20260529"],
+                    "description": "# Daily Planning 20260529\n## marketing\n- stub\n",
+                }
+            ]
+        },
+    )
+    _install_stub_client(monkeypatch, stub)
+
+    runner = CliRunner()
+    agent_result = runner.invoke(cli, ["planning", "today", "--date", "20260528"])
+    assert agent_result.exit_code == 0, agent_result.output
+    assert json.loads(agent_result.output)["source"] == "agent"
+
+    template_result = runner.invoke(cli, ["planning", "today", "--date", "20260529"])
+    assert template_result.exit_code == 0, template_result.output
+    assert json.loads(template_result.output)["source"] == "template"
 
 
 def test_daily_note_rejects_invalid_date(

@@ -148,7 +148,21 @@ def planning_group() -> None:
 @click.option(
     "--roles",
     default=None,
-    help='Comma-separated roles to seed (default: "marketing,engineering,gtm").',
+    help='Comma-separated roles to seed (default: "marketing,engineering,gtm"). Ignored when --content is provided.',
+)
+@click.option(
+    "--content",
+    default=None,
+    help=(
+        "Pre-rendered markdown to save as the note body. When set, the templated "
+        "seed is bypassed and the note is tagged ``source:agent`` (used by the "
+        "daily-planning skill to land an LLM-reasoned plan)."
+    ),
+)
+@click.option(
+    "--content-file",
+    default=None,
+    help="Read content from a file path. Use '-' for stdin. Overrides --content.",
 )
 @click.option(
     "--force",
@@ -162,6 +176,8 @@ def planning_daily_note(
     ctx: click.Context,
     date_str: str | None,
     roles: str | None,
+    content: str | None,
+    content_file: str | None,
     force: bool,
     dry_run: bool,
 ) -> None:
@@ -171,15 +187,28 @@ def planning_daily_note(
     from a SessionStart hook or a cron job. Pass ``--force`` to create a fresh
     note anyway (the previous one is left in place; both will coexist).
 
+    Two seed paths:
+
+    - **Templated** (no ``--content`` / ``--content-file``) — writes a stub with
+      one ``## <role>`` section per default role. Use this as a fallback when
+      no agent is available.
+    - **Agent-generated** (``--content`` / ``--content-file -``) — saves the
+      provided markdown verbatim and tags the note ``source:agent``. The
+      bundled ``daily-planning`` skill drives this path: it reads yesterday's
+      plan + recent cards, reasons about progress, and pipes today's plan in.
+
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
+    from deepvista_cli.commands import resolve_content
+
     date_str = date_str or _today_yyyymmdd()
     if len(date_str) != 8 or not date_str.isdigit():
         output_error(3, "Invalid --date", f"Expected YYYYMMDD, got: {date_str}")
         return
 
+    agent_body = resolve_content(content, content_file)
     role_list = tuple(r.strip() for r in (roles or ",".join(DEFAULT_ROLES)).split(",") if r.strip())
-    if not role_list:
+    if not agent_body and not role_list:
         output_error(3, "Invalid --roles", "Provide at least one non-empty role.")
         return
 
@@ -201,11 +230,22 @@ def planning_daily_note(
         )
         return
 
+    tags = _planning_tags(date_str)
+    if agent_body:
+        # Mark agent-generated notes so the /deepvista run flow can tell them
+        # apart from templated stubs and skip the "your plan is still a stub"
+        # nudge. The body keeps the canonical H1 if the skill produced one;
+        # if not, the title still drives the card's title field.
+        tags.append("source:agent")
+        description = agent_body.strip() + "\n"
+    else:
+        description = _seed_markdown(role_list, date_str)
+
     body = {
         "card_type": "note",
         "title": _planning_title(date_str),
-        "description": _seed_markdown(role_list, date_str),
-        "tags": _planning_tags(date_str),
+        "description": description,
+        "tags": tags,
         "enrich": True,
     }
 
@@ -220,7 +260,13 @@ def planning_daily_note(
 
     created = client.post("/create_context_card", body)
     format_output(
-        {"created": True, "note": created, "date": date_str, "roles": list(role_list)},
+        {
+            "created": True,
+            "note": created,
+            "date": date_str,
+            "roles": list(role_list),
+            "source": "agent" if agent_body else "template",
+        },
         ctx.obj.output_format,
         title=f"Daily Planning {date_str}",
         entity_type="note",
@@ -253,6 +299,8 @@ def planning_today(ctx: click.Context, date_str: str | None) -> None:
         return
 
     sections = _parse_role_sections(note.get("description") or "")
+    tags = note.get("tags") or []
+    source = "agent" if "source:agent" in tags else "template"
     result = {
         "date": date_str,
         "note_id": note.get("id"),
@@ -260,6 +308,7 @@ def planning_today(ctx: click.Context, date_str: str | None) -> None:
         "description": note.get("description"),
         "roles": list(sections.keys()),
         "sections": sections,
+        "source": source,
     }
     format_output(
         result,

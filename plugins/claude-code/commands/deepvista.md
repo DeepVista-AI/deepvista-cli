@@ -1,13 +1,15 @@
 ---
-description: DeepVista controls — `run` dispatches today's planning note to subagents; no args shows help
+description: DeepVista controls — `run` generates + dispatches today's planning note via the daily-planning skill; no args shows help
 argument-hint: "[run]"
 ---
 
 DeepVista control surface. Behaviour depends on `$ARGUMENTS`:
 
 - **No argument** (or any value other than `run`) → print the help block below.
-- **`run`** → dispatch today's Daily Planning note to the role specialist
-  subagents and append a summary.
+- **`run`** → generate today's *Daily Planning* note via the `daily-planning`
+  skill (if one doesn't already exist or is still a templated stub), dispatch
+  each `## <role>` section to its matching `@<role>` subagent, and append a
+  consolidated summary back onto the note.
 
 ---
 
@@ -17,17 +19,18 @@ Print this verbatim, then stop:
 
 > **DeepVista — Claude Code commands**
 >
-> - `/deepvista run` — read today's *Daily Planning YYYYMMDD* note and dispatch
->   each `## <role>` section to the matching `@<role>` subagent
->   (`@marketing`, `@engineering`, `@gtm`, …). Subagent results are appended
->   back to the planning note under a `## Summary — <timestamp>` block.
+> - `/deepvista run` — generate today's *Daily Planning* note (LLM-reasoned,
+>   driven by the `daily-planning` skill: yesterday's progress + last 7 days
+>   of cards → per-role tasks), then dispatch each `## <role>` section to
+>   the matching `@<role>` subagent. Subagent results are appended back to
+>   the planning note under a `## Summary — <timestamp>` block.
 > - `/refresh-skills` — resync the DeepVista skill catalog and agent
 >   definitions immediately (bypasses the 60-minute throttle).
 >
 > **Tips**
 >
-> - No planning note yet? Run `deepvista planning daily-note` (or wait for the
->   next SessionStart hook to seed it).
+> - Want to draft a plan without dispatching? Just say *"draft today's
+>   planning note"* and the `daily-planning` skill kicks in.
 > - Personalise a subagent's voice by setting `config.system_prompt = "skill:<persona-card-id>"`
 >   on its managed agent and re-running `/refresh-skills`.
 > - Need help with the CLI itself? `deepvista --help` or `deepvista <group> --help`.
@@ -36,26 +39,38 @@ Print this verbatim, then stop:
 
 Execute the daily-planning dispatch workflow.
 
-### Step 1 — Resolve today's planning note
+### Step 1 — Make sure today's plan exists and is agent-generated
 
 ```bash
 deepvista --format json planning today
 ```
 
-If the command exits non-zero with "No planning note for …", run:
+Three cases to handle:
 
-```bash
-deepvista --format json planning daily-note
-```
+- **Exit non-zero / "No planning note for …"** → today's note doesn't exist.
+  **Load the `daily-planning` skill and follow it end-to-end** to produce
+  today's plan. The skill ends with a `deepvista planning daily-note
+  --content-file - --force` call that saves the result. Then re-run
+  `planning today` to pick up the saved note.
 
-…then re-run `planning today`. Parse the JSON `note_id`, `title`, and
-`sections` fields. `sections` is `{ role: section_markdown }`.
+- **Exit zero, `"source": "template"`** → a stub exists (e.g. from a manual
+  `deepvista planning daily-note` call). Tell the user the current plan is
+  still a stub and ask whether to regenerate via the `daily-planning` skill.
+  If they confirm, load the skill, follow it (it will `--force`-overwrite
+  the stub), then re-run `planning today`.
+
+- **Exit zero, `"source": "agent"`** → an agent-generated plan already
+  exists. Proceed to Step 2 without changes.
+
+Parse the final JSON for `note_id`, `title`, and `sections`. `sections`
+is `{ role: section_markdown }` with reserved sections filtered out.
 
 ### Step 2 — Dispatch each role section to its subagent
 
 For each `(role, section_markdown)` in `sections`, invoke the matching
-subagent inline. Skip any role that has no on-disk `dv-<role>.md` definition —
-the user hasn't registered a managed agent for it yet. Example body:
+subagent inline. Skip any role that has no on-disk `dv-<role>.md`
+definition — the user hasn't registered a managed agent for it yet.
+Example body:
 
 ```
 @<role>
@@ -98,7 +113,9 @@ deepvista planning append-summary --note-id <note_id> --summary-file -
 
 Tell the user, in two lines:
 
-- Roles dispatched (and any skipped because no matching subagent existed).
-- Link / id of the updated planning note.
+- Whether the plan was generated this run (and via which skill), or pulled
+  from an existing agent-generated note.
+- Roles dispatched (and any skipped because no matching subagent existed),
+  plus the planning note URL.
 
 If any step fails, stop and surface the error — do not silently fall through.
