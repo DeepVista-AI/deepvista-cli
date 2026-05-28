@@ -269,9 +269,9 @@ def skill_phase_group() -> None:
 
     Used by host agents (Claude Code / OpenClaw / Cursor) that drove
     ``deepvista skill run --mode host`` and are now advancing the
-    workflow themselves. Each command parses the skill card's
-    description, mutates the accordion + mermaid markers for the
-    target phase, and persists the result via /update_context_card.
+    workflow themselves. Each command delegates the phase mutation to
+    the server via ``POST /workflow_phase`` — accordion and mermaid
+    markers are updated server-side in a single atomic write.
     """
 
 
@@ -527,7 +527,10 @@ def skill_complete(ctx: click.Context, skill_id: str, review: str, dry_run: bool
         )
         return
 
-    _persist_doc(ctx, skill_id, doc, reason="host-skill-complete", status="completed")
+    _client(ctx).post(
+        "/update_context_card",
+        {"card_id": skill_id, "description": doc.body, "reason": "host-skill-complete", "status": "completed"},
+    )
     click.echo(json.dumps({"done": True, "skill_id": skill_id, "title": card.get("title", "")}, default=str))
 
 
