@@ -54,6 +54,37 @@ deepvista session tick \
 deepvista session finalize --session-id "$CLAUDE_SESSION_ID"
 ```
 
+## Skipping nested sub-agent sessions
+
+`session init` short-circuits when `--cwd` matches any pattern in
+`session_skip_cwd_patterns` (a top-level list in
+`~/.config/deepvista/config.json`). This stops the SessionStart hook from
+recording sub-agent sessions whose CWD is not a real working directory — e.g.
+**claude-mem's observer sub-claude** runs with
+`cwd=~/.claude-mem/observer-sessions` and only quotes file paths from the
+*primary* session; recording it pollutes the vistabase with bogus File cards.
+
+Defaults skip `*/.claude-mem/observer-sessions[/*]`. Patterns are
+fnmatch-style Unix shell globs (`*` matches across `/`). To override, edit
+`~/.config/deepvista/config.json` by hand — add a top-level
+`session_skip_cwd_patterns` list. An explicit empty list disables skipping.
+
+```jsonc
+{
+  "default": { "api_url": "https://api.deepvista.ai" },
+  "session_skip_cwd_patterns": [
+    "*/.claude-mem/observer-sessions",
+    "*/.claude-mem/observer-sessions/*",
+    "*/scratchpad/*"
+  ]
+}
+```
+
+When a session is skipped, `init` emits
+`{"skipped": true, "reason": "cwd matches session_skip_cwd_patterns", ...}`
+and creates no card. Downstream `tick` / `finalize` self-no-op because no
+card was cached (exit 3 "Unknown session", silenced by the hook scripts).
+
 ## See also
 
 - [notes.md](notes.md) — explicit user-authored knowledge.

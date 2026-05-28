@@ -78,6 +78,7 @@ Tunable via environment variables (read by the `SessionStart` hook):
 | `${CLAUDE_PLUGIN_ROOT}/agents/dv-<role>.md` | Generated subagent (one per managed-agent role) |
 | `~/.config/deepvista/catalog-state.json` | Last skill-sync timestamp + stub inventory |
 | `~/.config/deepvista/agent-defs-state.json` | Last agent-export timestamp + definition inventory |
+| `~/.config/deepvista/config.json` | CLI profiles + top-level `session_skip_cwd_patterns` list |
 | `~/.config/deepvista/cache/skill-bodies/` | 5-minute TTL cache of fetched bodies |
 | `~/.config/deepvista/logs/catalog-sync.log` | Skill-sync hook stdout/stderr |
 | `~/.config/deepvista/logs/agent-export.log` | Agent-export hook stdout/stderr |
@@ -100,6 +101,24 @@ Force a fresh run from the shell:
 ```
 DEEPVISTA_FORCE_SYNC=1 deepvista skill sync --force
 deepvista agents export --force
+```
+
+Nested observer/sub-agent sessions showing up in the vistabase (e.g.
+`observer-sessions · <hash>` notes from claude-mem's observer sub-claude)?
+The plugin's SessionStart hook now skips CWDs matching the top-level
+`session_skip_cwd_patterns` list in `~/.config/deepvista/config.json`.
+Defaults cover `~/.claude-mem/observer-sessions`; to extend, edit the file
+and add patterns (fnmatch-style globs):
+
+```jsonc
+{
+  "default": { "api_url": "https://api.deepvista.ai" },
+  "session_skip_cwd_patterns": [
+    "*/.claude-mem/observer-sessions",
+    "*/.claude-mem/observer-sessions/*",
+    "*/scratchpad/*"
+  ]
+}
 ```
 
 No agents showing up as `@<role>`? Confirm you have managed agents with roles:

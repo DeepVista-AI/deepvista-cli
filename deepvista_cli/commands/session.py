@@ -23,6 +23,7 @@ import click
 from deepvista_cli import session_note as sn
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
+from deepvista_cli.config import should_skip_session_cwd
 from deepvista_cli.output.formatter import format_output, output_error
 
 SESSION_CARD_TYPE = "session"
@@ -115,6 +116,29 @@ def session_init(
     > [!CAUTION] This is a write command (creates a card on first call).
     """
     from deepvista_cli.commands.agents import load_agent_id_for_active_agent
+
+    if should_skip_session_cwd(cwd):
+        # DV-862: CWD matches ``session_skip_cwd_patterns`` in
+        # ``~/.config/deepvista/config.json``. Drops sub-agent sessions
+        # whose CWD isn't a real working directory — e.g. claude-mem's
+        # observer sub-claude runs with
+        # ``cwd=~/.claude-mem/observer-sessions`` and quotes file paths
+        # from the *primary* session, polluting the vistabase. Downstream
+        # ``tick`` / ``finalize`` self-no-op (no cached card → exit 3) so
+        # guarding ``init`` alone covers the whole lifecycle.
+        format_output(
+            {
+                "skipped": True,
+                "reason": "cwd matches session_skip_cwd_patterns",
+                "cwd": cwd,
+                "session_id": session_id,
+            },
+            ctx.obj.output_format,
+            title="Session init (skipped)",
+            entity_type=SESSION_ENTITY_TYPE,
+            base_url=ctx.obj.auth_url,
+        )
+        return
 
     if agent is None:
         detected_agent, detected_version = detect_agent_tool()

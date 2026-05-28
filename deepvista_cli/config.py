@@ -8,6 +8,7 @@ Resolution order for each setting:
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 from dataclasses import dataclass
@@ -35,6 +36,21 @@ def credentials_path(profile: str = "default") -> Path:
 
 
 PROFILES_PATH = CONFIG_DIR / "config.json"
+
+# Reserved top-level key in ``config.json`` holding the list of CWD globs
+# that ``deepvista session init`` should skip. Stored as a flat list (not a
+# dict) so it's trivially distinguishable from profile entries and easy for
+# the user to hand-edit. See DV-862.
+SESSION_SKIP_CWD_KEY = "session_skip_cwd_patterns"
+
+# Defaults used when ``config.json`` is missing the key. Skips claude-mem's
+# observer sub-claude (cwd=~/.claude-mem/observer-sessions) so its quoted
+# file paths from the *primary* session don't get mined into bogus File
+# cards (root cause for DV-861).
+DEFAULT_SESSION_SKIP_CWD_PATTERNS: tuple[str, ...] = (
+    "*/.claude-mem/observer-sessions",
+    "*/.claude-mem/observer-sessions/*",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -84,8 +100,13 @@ def set_profile(name: str, settings: dict) -> None:
 
 
 def list_profiles() -> dict:
-    """List all profiles."""
-    return _load_profiles()
+    """List all profiles.
+
+    Filters out reserved non-profile keys (e.g.
+    ``session_skip_cwd_patterns``) by keeping only dict-valued entries —
+    profiles are always dicts, reserved settings are lists/scalars.
+    """
+    return {k: v for k, v in _load_profiles().items() if isinstance(v, dict)}
 
 
 def delete_profile(name: str) -> bool:
@@ -95,6 +116,40 @@ def delete_profile(name: str) -> bool:
         del profiles[name]
         _save_profiles(profiles)
         return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Session CWD skip patterns (DV-862)
+# ---------------------------------------------------------------------------
+
+
+def get_session_skip_cwd_patterns() -> list[str]:
+    """Return the configured CWD-skip patterns for ``session init``.
+
+    Reads a top-level ``session_skip_cwd_patterns`` list from
+    ``~/.config/deepvista/config.json``. There is no matching setter — edit
+    the file by hand. Falls back to ``DEFAULT_SESSION_SKIP_CWD_PATTERNS``
+    when the key is absent. An explicit empty list disables skipping.
+    """
+    raw = _load_profiles().get(SESSION_SKIP_CWD_KEY)
+    if isinstance(raw, list):
+        return [str(p) for p in raw]
+    return list(DEFAULT_SESSION_SKIP_CWD_PATTERNS)
+
+
+def should_skip_session_cwd(cwd: str | None) -> bool:
+    """Return True iff ``cwd`` matches any configured skip pattern.
+
+    Matching is fnmatch-style (Unix shell globs; ``*`` matches across path
+    separators). The hook payload's ``cwd`` is already absolute on every
+    supported agent, so no resolution is performed here.
+    """
+    if not cwd:
+        return False
+    for pattern in get_session_skip_cwd_patterns():
+        if fnmatch.fnmatchcase(cwd, pattern):
+            return True
     return False
 
 
