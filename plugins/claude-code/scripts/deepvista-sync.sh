@@ -20,7 +20,6 @@ LOG_DIR="$HOME/.config/deepvista/logs"
 mkdir -p "$LOG_DIR"
 SKILL_LOG="$LOG_DIR/catalog-sync.log"
 AGENT_LOG="$LOG_DIR/agent-export.log"
-PLANNING_LOG="$LOG_DIR/daily-planning.log"
 
 if [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then
   printf '[%s] CLAUDE_PLUGIN_ROOT not set; refusing to sync\n' \
@@ -72,20 +71,5 @@ AGENT_LIMIT="${DEEPVISTA_AGENT_SYNC_LIMIT:-50}"
     --quiet
   printf '[%s] export exit=%s\n' "$(date -u +%FT%TZ)" "$?"
 } >>"$AGENT_LOG" 2>&1 || true
-
-# 3. Daily planning note (DV-853) — *don't* auto-create a templated stub from
-# the hook. Generation belongs to the `daily-planning` skill (yesterday's plan
-# + last 7 days of cards → reasoned plan), which the user invokes via
-# `/deepvista run`. We only log presence here so the log shows whether a
-# regeneration is due.
-{
-  TODAY="$(date +%Y%m%d)"
-  if deepvista --format json planning today --date "$TODAY" >/dev/null 2>&1; then
-    printf '[%s] planning note exists for %s\n' "$(date -u +%FT%TZ)" "$TODAY"
-  else
-    printf '[%s] no planning note for %s — run /deepvista run to generate\n' \
-      "$(date -u +%FT%TZ)" "$TODAY"
-  fi
-} >>"$PLANNING_LOG" 2>&1 || true
 
 exit 0
