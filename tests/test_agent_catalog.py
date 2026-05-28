@@ -14,17 +14,10 @@ from deepvista_cli import agent_catalog
 
 
 class FakeClient:
-    """In-memory stand-in for ``DeepVistaClient`` (GET + POST)."""
+    """In-memory stand-in for ``DeepVistaClient`` (GET only)."""
 
-    def __init__(
-        self,
-        agents: list[dict[str, Any]],
-        *,
-        skill_cards: dict[str, dict[str, Any]] | None = None,
-    ) -> None:
+    def __init__(self, agents: list[dict[str, Any]]) -> None:
         self._agents = agents
-        # Persona Skill context cards keyed by id; consulted by /get_context_card.
-        self._skill_cards = skill_cards or {}
         self.calls: list[tuple[str, dict | None]] = []
 
     def get(self, path: str, params: dict | None = None) -> Any:
@@ -32,16 +25,6 @@ class FakeClient:
         if path == "/agents":
             return {"agents": self._agents}
         raise AssertionError(f"unexpected GET {path}")
-
-    def post(self, path: str, body: dict | None = None) -> Any:
-        self.calls.append((path, body))
-        if path == "/get_context_card":
-            card_id = (body or {}).get("card_id")
-            card = self._skill_cards.get(card_id)
-            if card is None:
-                raise AssertionError(f"unknown skill card {card_id!r}")
-            return {"card": card}
-        raise AssertionError(f"unexpected POST {path}")
 
 
 def _agent(role: str, *, name: str = "", aid: str = "id-x", updated: str = "2026-01-01") -> dict[str, Any]:
@@ -243,108 +226,59 @@ def test_dry_run_writes_nothing(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# DV-853: persona Skill context card → config.system_prompt expansion
+# DV-853: config.system_prompt is the preferred field; falls back to config.soul
 # ---------------------------------------------------------------------------
 
 
-def test_parse_persona_ref_accepts_skill_and_persona_prefixes():
-    assert agent_catalog.parse_persona_ref("skill:abc12345") == "abc12345"
-    assert agent_catalog.parse_persona_ref("persona:xyz98765") == "xyz98765"
-    # Whitespace and case in the prefix are tolerated.
-    assert agent_catalog.parse_persona_ref("  Skill: abc-12_3  ") == "abc-12_3"
-
-
-def test_parse_persona_ref_rejects_inline_text():
-    assert agent_catalog.parse_persona_ref("") == ""
-    assert agent_catalog.parse_persona_ref("You are a marketing brain.") == ""
-    # Too short to be a real id — treat as inline text so a stray colon doesn't
-    # silently turn a typo'd system prompt into a broken reference.
-    assert agent_catalog.parse_persona_ref("skill:ab") == ""
-
-
-def test_metas_from_agents_carries_persona_ref():
-    """A ``skill:<id>`` reference in config.system_prompt is parsed out as the
-    persona card id and removed from the inline prompt body."""
-    metas = agent_catalog.metas_from_agents(
-        [
-            {
-                "id": "m1",
-                "name": "Marketing",
-                "agent_role": "marketing",
-                "updated_at": "2026-05-27",
-                "config": {"system_prompt": "skill:persona-mkt-001"},
-            }
-        ]
-    )
-    assert len(metas) == 1
-    assert metas[0].persona_card_id == "persona-mkt-001"
-    # No body yet — resolution happens in _fetch_server_agents.
-    assert metas[0].system_prompt == ""
-
-
-def test_metas_from_agents_prefers_inline_system_prompt_over_soul():
-    """When system_prompt is inline text (not a ref), it wins over the older
-    ``config.soul`` field — system_prompt is the newer, role-scoped knob."""
+def test_metas_from_agents_prefers_system_prompt_over_soul():
+    """``config.system_prompt`` is the new field; falls back to ``config.soul``
+    only when system_prompt is empty. The body is plain text — any reference
+    to a persona context card lives inside the prompt wording itself."""
     metas = agent_catalog.metas_from_agents(
         [
             {
                 "id": "m1",
                 "agent_role": "marketing",
-                "config": {"system_prompt": "INLINE PROMPT", "soul": "OLD SOUL"},
-            }
+                "config": {
+                    "system_prompt": (
+                        "You are the marketing specialist; "
+                        "follow persona context card persona-mkt-001."
+                    ),
+                    "soul": "OLD SOUL",
+                },
+            },
+            {
+                "id": "m2",
+                "agent_role": "sales",
+                "config": {"soul": "LEGACY SALES PROMPT"},
+            },
         ]
     )
-    assert metas[0].system_prompt == "INLINE PROMPT"
-    assert metas[0].persona_card_id == ""
+    by_role = {m.role: m for m in metas}
+    # system_prompt wins when both fields are present.
+    assert "persona context card persona-mkt-001" in by_role["marketing"].system_prompt
+    assert "OLD SOUL" not in by_role["marketing"].system_prompt
+    # config.soul still flows through when system_prompt is absent.
+    assert by_role["sales"].system_prompt == "LEGACY SALES PROMPT"
 
 
-def test_sync_resolves_persona_card_into_subagent_body(tmp_path: Path):
-    """End-to-end: a managed agent points config.system_prompt at a persona
-    Skill card, the export resolves the card body and bakes it into dv-<role>.md."""
-    agents = [
-        {
-            "id": "m1",
-            "name": "Marketing",
-            "agent_role": "marketing",
-            "updated_at": "2026-05-28",
-            "config": {"system_prompt": "skill:persona-mkt-001"},
-        }
-    ]
-    cards = {
-        "persona-mkt-001": {
-            "id": "persona-mkt-001",
-            "title": "Marketing persona",
-            "description": "You are a launch-obsessed marketer who grounds claims in DeepVista notes.",
-        }
-    }
-    client = FakeClient(agents, skill_cards=cards)
-    res = agent_catalog.sync_agent_defs(client, target=tmp_path, force=True, state_path=tmp_path / "s.json")
-    assert res["summary"]["added"] == 1
-    body = (tmp_path / "dv-marketing.md").read_text(encoding="utf-8")
-    # The resolved persona text is inlined as the subagent body…
-    assert "launch-obsessed marketer" in body
-    # …with a provenance comment + frontmatter pointer to the source card.
-    assert "persona Skill context card" in body
-    assert "x-deepvista-persona-card-id: persona-mkt-001" in body
-    # The templated 5-step body is bypassed when a persona is present.
-    assert "Operating procedure" not in body
-
-
-def test_sync_falls_back_when_persona_card_missing(tmp_path: Path):
-    """A persona ref whose card resolves to empty content degrades to the
-    templated body — no exception, no broken file."""
-    agents = [
-        {
-            "id": "m1",
-            "agent_role": "marketing",
-            "config": {"system_prompt": "skill:does-not-exist-1234"},
-        }
-    ]
-    # Card returns no description — simulates a partly-deleted catalog entry.
-    cards = {"does-not-exist-1234": {"id": "does-not-exist-1234", "title": "Ghost"}}
-    client = FakeClient(agents, skill_cards=cards)
-    res = agent_catalog.sync_agent_defs(client, target=tmp_path, force=True, state_path=tmp_path / "s.json")
-    assert res["summary"]["added"] == 1
-    body = (tmp_path / "dv-marketing.md").read_text(encoding="utf-8")
-    # Falls back to the templated body — the user still gets a usable subagent.
-    assert "Operating procedure" in body
+def test_build_agent_markdown_bakes_system_prompt_verbatim():
+    """A managed agent's system_prompt referencing a persona card by id is
+    baked into the subagent body as-is — no resolution, no extra frontmatter.
+    The agent loads the persona at runtime via the preloaded `deepvista` skill."""
+    meta = agent_catalog.AgentRoleMeta(
+        role="marketing",
+        agent_name="Marketing",
+        agent_id="abc123",
+        system_prompt=(
+            "You are the marketing specialist; "
+            "follow persona context card persona-mkt-001."
+        ),
+    )
+    md = agent_catalog.build_agent_markdown(meta)
+    assert "persona context card persona-mkt-001" in md
+    # No persona-card frontmatter line — resolution is deliberately the
+    # agent's responsibility, not the export's.
+    assert "x-deepvista-persona-card-id" not in md
+    # Templated body is bypassed when a custom prompt is present.
+    assert "Operating procedure" not in md
