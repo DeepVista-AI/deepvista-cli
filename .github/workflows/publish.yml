@@ -126,16 +126,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh skill publish --tag "${{ steps.semver.outputs.tag }}"
 
-      - name: Publish to GitHub skills — stable (validate + gh release create)
-        # Stable versions (e.g. 0.1.1) have PEP 440 == semver, so the PyPI tag
-        # IS the semver tag — gh skill publish would refuse to reuse it. Split
-        # validation from release creation.
+      - name: Publish to GitHub skills — stable (validate only)
+        # Stable versions: release-please creates the GitHub Release with the
+        # generated changelog when its PR is merged. We only need to validate
+        # the skill bundle here.
         if: steps.semver.outputs.is_stable == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh skill publish --dry-run
-          gh release create "${{ steps.semver.outputs.tag }}" \
-            --generate-notes \
-            --latest \
-            --title "${{ steps.semver.outputs.tag }}"
+        run: gh skill publish --dry-run
