@@ -22,7 +22,7 @@ from deepvista_cli.output.formatter import format_output, output_error
 DAILY_PLANNING_SKILL = "deepvista-daily-planning"
 # Stable title used to find this job again (activate is idempotent on it).
 JOB_TITLE = "Daily Planning"
-# 08:00 every day / 08:00 every Monday (5-field cron, validated server-side).
+# Cron is evaluated in UTC server-side (no per-user timezone yet — see DV-879).
 DEFAULT_DAILY_CRON = "0 8 * * *"
 DEFAULT_WEEKLY_CRON = "0 8 * * 1"
 
@@ -53,8 +53,8 @@ def schedule_group() -> None:
 
 
 @schedule_group.command("activate")
-@click.option("--cron", "cron_schedule", default=None, help="5-field cron (default: daily 08:00).")
-@click.option("--weekly", is_flag=True, default=False, help="Run weekly (Mon 08:00) instead of daily.")
+@click.option("--cron", "cron_schedule", default=None, help="5-field cron in UTC (default: daily 08:00 UTC).")
+@click.option("--weekly", is_flag=True, default=False, help="Run weekly (Mon 08:00 UTC) instead of daily.")
 @click.pass_context
 def schedule_activate(ctx: click.Context, cron_schedule: str | None, weekly: bool) -> None:
     """Activate the recurring daily-planning job.
