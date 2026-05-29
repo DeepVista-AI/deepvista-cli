@@ -164,6 +164,135 @@ def test_skill_load_rejects_non_uuid(
     assert "Invalid skill ID" in result.output or "Invalid skill ID" in (result.stderr or "")
 
 
+# ---------------------------------------------------------------------------
+# skill preflight — DV-869
+# ---------------------------------------------------------------------------
+
+_PREFLIGHT_SKILL_ID = "11111111-2222-3333-4444-555555555555"
+
+# A workflow body with two accordion phases:
+#  - Phase 1: server-only tool_plan + done_when contract + a placeholder input
+#  - Phase 2: a host tool (run_command) + an imperative cue, no done_when
+_PREFLIGHT_BODY = """\
+<accordion checked="false" open="true">
+Phase 1: Gather context
+
+Look up the topic <topic name> in the knowledge base.
+
+```yaml
+tool_plan:
+  - grep_context_cards: "search"
+  - read_context_card: "read"
+done_when: "a context summary card is written"
+```
+</accordion>
+
+<accordion checked="false" open="false">
+Phase 2: Build it
+
+Ask the user for the target directory, then scaffold.
+
+```yaml
+tool_plan:
+  - run_command: "shell"
+```
+</accordion>
+"""
+
+
+def test_skill_preflight_emits_summary_header_and_body(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    stub.queue(
+        "/get_context_card",
+        {
+            "id": _PREFLIGHT_SKILL_ID,
+            "title": "Demo Workflow",
+            "status": "queued",
+            "description": _PREFLIGHT_BODY,
+        },
+    )
+    _install_stub_client(monkeypatch, stub)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["skill", "preflight", _PREFLIGHT_SKILL_ID])
+    assert result.exit_code == 0, result.output
+
+    header_line = result.output.splitlines()[0]
+    header = json.loads(header_line)
+    assert header["type"] == "preflight_summary"
+    assert header["skill_id"] == _PREFLIGHT_SKILL_ID
+    assert header["needs_local_agent"] is True
+    assert len(header["phases"]) == 2
+
+    # All three sections present in the human-readable body.
+    assert "Likely inputs (heuristic):" in result.output
+    assert "Likely permissions:" in result.output
+    assert "Expected output:" in result.output
+
+    # Read-only: no write endpoint was hit.
+    assert "/update_context_card" not in stub.responses
+    assert stub.responses.get("/workflow_phase") is None
+
+
+def test_skill_preflight_rejects_non_uuid(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()  # empty queue — any API call fails loudly
+    _install_stub_client(monkeypatch, stub)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["skill", "preflight", "not-a-uuid"])
+    assert result.exit_code == 3
+    assert "Invalid skill ID" in result.output or "Invalid skill ID" in (result.stderr or "")
+
+
+# ---------------------------------------------------------------------------
+# WorkflowDocument.analyze_preflight — unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_analyze_preflight_server_only_phase_needs_no_local_perms() -> None:
+    from deepvista_cli.workflow_doc import PERMISSION_SERVER, WorkflowDocument
+
+    report = WorkflowDocument(_PREFLIGHT_BODY).analyze_preflight()
+    phase1 = report.phases[0]
+    assert phase1.runs_on_deepvista is True
+    assert phase1.permission == PERMISSION_SERVER
+
+
+def test_analyze_preflight_run_command_phase_needs_local_agent() -> None:
+    from deepvista_cli.workflow_doc import PERMISSION_LOCAL, WorkflowDocument
+
+    report = WorkflowDocument(_PREFLIGHT_BODY).analyze_preflight()
+    phase2 = report.phases[1]
+    assert phase2.runs_on_deepvista is False
+    assert phase2.permission == PERMISSION_LOCAL
+
+
+def test_analyze_preflight_detects_placeholder_and_cue_inputs() -> None:
+    from deepvista_cli.workflow_doc import WorkflowDocument
+
+    report = WorkflowDocument(_PREFLIGHT_BODY).analyze_preflight()
+    # Phase 1 angle-bracket placeholder.
+    assert any("<topic name>" in i for i in report.phases[0].inputs)
+    # Phase 2 imperative cue.
+    assert any(i.lower().startswith("ask the user") for i in report.phases[1].inputs)
+
+
+def test_analyze_preflight_uses_done_when_then_title_fallback() -> None:
+    from deepvista_cli.workflow_doc import WorkflowDocument
+
+    report = WorkflowDocument(_PREFLIGHT_BODY).analyze_preflight()
+    # Phase 1 has a done_when contract.
+    assert report.phases[0].expected_output == "a context summary card is written"
+    # Phase 2 has none → falls back to the phase title.
+    assert report.phases[1].expected_output == "Phase 2: Build it"
+
+
 def test_skill_sync_exits_zero_on_network_error(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -21,6 +21,7 @@ from deepvista_cli import skill_catalog
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.output.formatter import format_output, output_error
 from deepvista_cli.workflow_doc import (
+    PreflightReport,
     WorkflowDocument,
     is_phase_server_routable,
 )
@@ -109,6 +110,101 @@ def skill_get(ctx: click.Context, skill_id: str) -> None:
     format_output(
         data, ctx.obj.output_format, title=f"Skill: {skill_id}", entity_type="skill", base_url=ctx.obj.auth_url
     )
+
+
+@skill_group.command("preflight")
+@click.argument("skill_id")
+@click.pass_context
+def skill_preflight(ctx: click.Context, skill_id: str) -> None:
+    """Preview a workflow Skill before running it — likely inputs, permissions, and outputs.
+
+    Read-only — does NOT acquire the run lock and never writes to the card.
+    Fetches the Skill card, parses its phases, and prints a Preflight Summary
+    so the user gets a high-level view before kicking off ``skill run``:
+
+    \b
+    - likely INPUTS per phase (heuristic over the phase body)
+    - likely PERMISSIONS — server-only phases run on DeepVista (no local
+      perms); the rest need a configured local agent
+    - expected OUTPUT per phase (the phase's ``done_when``, else its title)
+
+    Output is a JSON header (``type: "preflight_summary"``) followed by a
+    human-readable body, mirroring ``skill run``'s header+body convention.
+    """
+    if not _UUID_RE.match(skill_id):
+        output_error(3, "Invalid skill ID", f"Expected UUID format, got: {skill_id!r}")
+
+    card = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
+    if not card or not card.get("description"):
+        output_error(3, "Skill not found or has empty description", f"skill_id={skill_id}")
+
+    doc = WorkflowDocument(card["description"])
+    if not doc.phases():
+        output_error(3, "Skill has no <accordion> phases", f"skill_id={skill_id}")
+
+    report = doc.analyze_preflight()
+
+    needs_local = any(not p.runs_on_deepvista for p in report.phases)
+    header = {
+        "type": "preflight_summary",
+        "skill_id": skill_id,
+        "skill_title": card.get("title", ""),
+        "skill_status": card.get("status", ""),
+        "needs_local_agent": needs_local,
+        "phases": [
+            {
+                "index": p.index,
+                "title": p.title,
+                "inputs": p.inputs,
+                "permission": p.permission,
+                "runs_on_deepvista": p.runs_on_deepvista,
+                "expected_output": p.expected_output,
+            }
+            for p in report.phases
+        ],
+    }
+
+    click.echo(json.dumps(header, default=str))
+    click.echo()  # blank line so agents can split header from body cheaply
+    click.echo(_render_preflight_body(card.get("title", ""), report, needs_local=needs_local))
+
+
+def _render_preflight_body(skill_title: str, report: PreflightReport, *, needs_local: bool) -> str:
+    """Render the human-readable Preflight Summary body for `skill preflight`."""
+    lines: list[str] = []
+    lines.append(f"# Preflight Summary — {skill_title}" if skill_title else "# Preflight Summary")
+    lines.append("")
+    lines.append("> Inputs are heuristic (no formal `inputs:` schema yet) — review before running.")
+    lines.append("")
+
+    for p in report.phases:
+        # Titles often already carry a "Phase N:" prefix — don't double it.
+        heading = p.title if re.match(r"^\s*phase\b", p.title, re.IGNORECASE) else f"Phase {p.index}: {p.title}"
+        lines.append(f"## {heading}")
+        lines.append("")
+
+        lines.append("- Likely inputs (heuristic):")
+        if p.inputs:
+            for item in p.inputs:
+                lines.append(f"  - {item}")
+        else:
+            lines.append("  - (none detected)")
+
+        lines.append(f"- Likely permissions: {p.permission}")
+        lines.append(f"- Expected output: {p.expected_output}")
+        lines.append("")
+
+    if needs_local:
+        lines.append("---")
+        lines.append("")
+        lines.append(
+            "Some phases need a local agent (Claude Code / Cursor / OpenClaw). "
+            "Configure one: https://www.deepvista.ai/landing/cli"
+        )
+        lines.append("")
+
+    lines.append("When ready, run: `deepvista skill run --mode host <skill_id>`")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

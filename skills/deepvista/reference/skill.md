@@ -5,14 +5,14 @@ Run `deepvista skill --help` or `deepvista skill <cmd> --help` for full flag ref
 
 ## Commands
 
-`list` · `get` · `run` · `phase` · `complete` · `status`
+`list` · `get` · `preflight` · `run` · `phase` · `complete` · `status`
 `create-from-note` · `discover` · `install` · `sync` · `load`
 
 ## Agent conventions
 
 > [!CAUTION] `run`, `phase`, `complete`, `install` are writes. Confirm first.
 
-Read-only: `list`, `get`, `status`, `discover`, `sync --dry-run`, `load`.
+Read-only: `list`, `get`, `preflight`, `status`, `discover`, `sync --dry-run`, `load`.
 
 Show the app URL after writes: `https://app.deepvista.ai/skills/<id>`
 
@@ -41,6 +41,26 @@ deepvista skill complete <skill_id> --review "<3–6 retrospective bullets>"
 ```
 
 If you called `skill get` and are already mid-workflow without a lock, call `skill run --mode host` now — it is idempotent on an already-in-progress card and will re-emit the correct active phase.
+
+## Preflight before a run
+
+`deepvista skill preflight <skill_id>` is a **read-only** preview — no run lock,
+no card write. It prints a `type: "preflight_summary"` JSON header plus a
+human-readable body summarizing, per phase:
+
+- **likely inputs** — heuristic over the phase body (placeholders like `<...>` /
+  `{{...}}` and cues like "ask the user", "provide", "paste"). No formal
+  `inputs:` schema exists yet, so treat these as hints.
+- **likely permissions** — server-only phases run on DeepVista (no local perms);
+  the rest need a configured local agent (Claude Code / Cursor / OpenClaw).
+- **expected output** — the phase's `done_when` contract, else its title.
+
+Use it to give the user a high-level view before `skill run`. When any phase
+needs a local agent, the body links to <https://www.deepvista.ai/landing/cli>.
+
+```bash
+deepvista skill preflight <skill_id>
+```
 
 ## Non-obvious: `skill run` modes
 
@@ -80,6 +100,7 @@ cache). Called by stubs — rarely needed directly.
 
 ```bash
 deepvista skill list
+deepvista skill preflight <skill_id>                           # read-only preview
 deepvista skill run <skill_id> --input "Focus on Q4"          # host mode
 deepvista skill run <skill_id> --mode deepvista                # server agent
 deepvista skill run <skill_id> --mode auto                     # per-phase routing

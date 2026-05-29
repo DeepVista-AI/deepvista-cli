@@ -55,6 +55,53 @@ class PhaseInfo:
     tool_plan: list[str]
 
 
+@dataclass
+class PreflightPhase:
+    """Per-phase preflight view: likely inputs, permissions, expected output.
+
+    All three fields are best-effort heuristics derived from the phase body
+    (see :meth:`WorkflowDocument.analyze_preflight`). ``inputs`` is labelled
+    heuristic because no formal ``inputs:`` metadata exists in v1.
+    """
+
+    index: int  # 1-based, mirrors PhaseInfo.index
+    title: str
+    inputs: list[str]  # heuristic placeholders / imperative cues, capped per phase
+    permission: str  # human-readable permission requirement
+    runs_on_deepvista: bool  # True => no local perms needed
+    expected_output: str  # done_when contract if present, else falls back to title
+
+
+@dataclass
+class PreflightReport:
+    """Structured result of :meth:`WorkflowDocument.analyze_preflight`."""
+
+    phases: list[PreflightPhase]
+
+
+# Permission labels reused by ``analyze_preflight`` and the CLI body renderer.
+PERMISSION_SERVER = "runs on DeepVista (no local perms)"
+PERMISSION_LOCAL = "needs local agent permissions"
+
+# Cap on heuristic inputs surfaced per phase, so the summary stays scannable.
+_MAX_INPUTS_PER_PHASE = 5
+
+# Angle-bracket (``<...>``) and brace (``{{...}}``) placeholders in a phase body.
+# Angle-bracket match is conservative: no whitespace-only or HTML-tag-like
+# captures (those are accordion/markup, not input slots).
+_BRACE_PLACEHOLDER_RE = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+_ANGLE_PLACEHOLDER_RE = re.compile(r"<([a-z0-9 _./-]{2,60})>", re.IGNORECASE)
+
+# Imperative cues that signal the phase expects something from the user.
+_INPUT_CUE_RE = re.compile(
+    r"(?:provide|ask the user|prompt for|paste|specify)\b[^.\n]{0,80}",
+    re.IGNORECASE,
+)
+
+# ``done_when:`` line(s) inside a yaml block — the phase's expected output.
+_DONE_WHEN_RE = re.compile(r"^\s*done_when:\s*(?P<inline>.*)$", re.MULTILINE)
+
+
 # ---------------------------------------------------------------------------
 # Tool names that only the DeepVista server agent has (not the CLI)
 # ---------------------------------------------------------------------------
@@ -128,6 +175,40 @@ class WorkflowDocument:
             if p.state == "pending":
                 return p
         return None
+
+    def analyze_preflight(self) -> PreflightReport:
+        """Produce a best-effort preflight summary, one entry per phase.
+
+        Pure / read-only: never mutates the document. For each ``<accordion>``
+        phase it derives:
+
+        - ``inputs`` — heuristic placeholders (``<...>`` / ``{{...}}``) and
+          imperative cues ("provide", "ask the user", "prompt for", "paste",
+          "specify") found in the phase body. Deduped, capped per phase.
+        - ``permission`` — reuses ``tool_plan`` + ``is_phase_server_routable``:
+          server-routable phases need no local perms; everything else needs
+          local agent permissions.
+        - ``expected_output`` — the phase's ``done_when`` contract if present,
+          otherwise the phase title.
+        """
+        phase_infos = self.phases()
+        bodies = [m.group("body") for m in _ACCORDION_RE.finditer(self._body)]
+
+        out: list[PreflightPhase] = []
+        for info, body in zip(phase_infos, bodies):
+            server = is_phase_server_routable(info)
+            done_when = _done_when_from_yaml_text(body)
+            out.append(
+                PreflightPhase(
+                    index=info.index,
+                    title=info.title,
+                    inputs=_heuristic_inputs(body),
+                    permission=PERMISSION_SERVER if server else PERMISSION_LOCAL,
+                    runs_on_deepvista=server,
+                    expected_output=done_when or info.title,
+                )
+            )
+        return PreflightReport(phases=out)
 
     # ------------------------------------------------------------------
     # Mutate — accordions
@@ -238,6 +319,75 @@ def _tool_plan_names_from_yaml_text(yaml_text: str) -> list[str]:
         if item_match:
             out.append(item_match.group(1))
     return out
+
+
+def _heuristic_inputs(accordion_body: str) -> list[str]:
+    """Best-effort guess at inputs a phase expects from the user.
+
+    Combines two signals from the phase body, in document order:
+
+    1. Placeholders: ``{{ name }}`` and ``<name>`` slots.
+    2. Imperative cues: short snippets following "provide", "ask the user",
+       "prompt for", "paste", "specify".
+
+    Results are stripped, de-duplicated case-insensitively, and capped at
+    ``_MAX_INPUTS_PER_PHASE``. These are heuristics, not a formal schema.
+    """
+    candidates: list[str] = []
+    for m in _BRACE_PLACEHOLDER_RE.finditer(accordion_body):
+        candidates.append("{{ " + m.group(1).strip() + " }}")
+    for m in _ANGLE_PLACEHOLDER_RE.finditer(accordion_body):
+        candidates.append("<" + m.group(1).strip() + ">")
+    for m in _INPUT_CUE_RE.finditer(accordion_body):
+        snippet = " ".join(m.group(0).split())
+        if snippet:
+            candidates.append(snippet)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for cand in candidates:
+        key = cand.lower()
+        if cand and key not in seen:
+            seen.add(key)
+            out.append(cand)
+        if len(out) >= _MAX_INPUTS_PER_PHASE:
+            break
+    return out
+
+
+def _done_when_from_yaml_text(accordion_body: str) -> str:
+    """Return the phase's ``done_when`` contract if present, else ``""``.
+
+    Mirrors the lightweight, PyYAML-free extraction used for ``tool_plan``:
+    finds the ``done_when:`` key inside any inline ```` ```yaml ```` block in
+    the accordion and returns its value. Supports an inline scalar
+    (``done_when: text``) or a block list of ``- item`` lines joined with
+    "; ".
+    """
+    yaml_match = _INLINE_YAML_RE.search(accordion_body)
+    yaml_text = yaml_match.group("body") if yaml_match else accordion_body
+
+    m = _DONE_WHEN_RE.search(yaml_text)
+    if not m:
+        return ""
+
+    inline = m.group("inline").strip().strip("\"'")
+    if inline:
+        return inline
+
+    # Block form: collect ``- item`` lines indented under ``done_when:``.
+    lines = yaml_text[m.end() :].splitlines()
+    items: list[str] = []
+    for raw in lines:
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        item_match = re.match(r"-\s*(.+)$", stripped)
+        if item_match:
+            items.append(item_match.group(1).strip().strip("\"'"))
+        else:
+            break
+    return "; ".join(items)
 
 
 def is_phase_server_routable(phase: PhaseInfo) -> bool:
