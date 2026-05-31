@@ -37,6 +37,18 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [0.3.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.2.0...v0.3.0) (2026-05-31)
+
+
+### Features
+
+* **DV-871:** move daily-planning to server; add schedule command ([#151](https://github.com/DeepVista-AI/deepvista-cli/issues/151)) ([7c317e7](https://github.com/DeepVista-AI/deepvista-cli/commit/7c317e7d6f71763f6622354b8581ead8b10ef8ea))
+
+
+### Bug Fixes
+
+* **types:** mark output_error as NoReturn to fix Pyright errors in schedule.py ([#153](https://github.com/DeepVista-AI/deepvista-cli/issues/153)) ([7ac8b12](https://github.com/DeepVista-AI/deepvista-cli/commit/7ac8b12f1b10a94cd6dbe8533b122a2cf8489228))
+
 ## [0.2.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.1.18...v0.2.0) (2026-05-28)
 
 
