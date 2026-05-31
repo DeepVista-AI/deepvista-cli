@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, NoReturn
 
 import click
 
@@ -170,7 +170,7 @@ def output_table(data: Any, columns: list[str] | None = None, title: str | None 
         output_json(data)
 
 
-def output_error(code: int, message: str, detail: str = "") -> None:
+def output_error(code: int, message: str, detail: str = "") -> NoReturn:
     """Write structured error to stderr and exit."""
     err = {"error": {"code": code, "message": message}}
     if detail:
