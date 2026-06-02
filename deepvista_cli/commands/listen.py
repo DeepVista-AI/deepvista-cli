@@ -141,7 +141,11 @@ async def _stream_control_channel(
     params = {"agent_id": agent_id}
     headers = {**auth_headers, "Accept": "text/event-stream"}
 
-    async with httpx.AsyncClient(base_url=api_url, timeout=None) as client:
+    # SSE is long-lived: ``read=None`` is required so the stream can idle
+    # between dispatch frames. Every other phase keeps an explicit cap so
+    # a stuck connect / write doesn't wedge the daemon (bandit B113).
+    timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+    async with httpx.AsyncClient(base_url=api_url, timeout=timeout) as client:
         async with client.stream("GET", CONTROL_CHANNEL_PATH, params=params, headers=headers) as resp:
             if resp.status_code >= 400:
                 body = await resp.aread()
