@@ -211,3 +211,53 @@ def test_materialise_dispatch_writes_skill_and_inputs(isolated_home: Path, monke
     assert workspace.exists()
     assert skill_path.read_text() == "# my skill\n\nrun it"
     assert json.loads(inputs_path.read_text()) == {"x": 1, "y": "two"}
+
+
+def test_listen_start_stub_advertises_tools(isolated_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubClient()
+    stub.queue("/agents", {"success": True, "agent": {"id": "agent-tools", "agent_role": "daemon"}})
+    _install_stub_client(monkeypatch, stub)
+
+    import deepvista_cli.commands.agents as agents_module
+
+    monkeypatch.setattr(agents_module, "_install_hooks", lambda _t, _p: False)
+
+    from deepvista_cli.main import cli
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["listen", "start", "--stub", "--tools", "gws,psql,fs"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["tools"] == ["gws", "psql", "fs"]
+
+    # Confirm tools appear in the capability sync payload.
+    sync_calls = [(p, b) for p, b in stub.posts if p == "/agents/agent-tools/sync" and b is not None]
+    assert sync_calls, "expected a /sync call"
+    listener_block = sync_calls[0][1]["config_patch"]["listener"]
+    assert listener_block["tools"] == ["gws", "psql", "fs"]
+
+
+def test_listen_status_reports_last_heartbeat(isolated_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubClient()
+    _install_stub_client(monkeypatch, stub)
+    import deepvista_cli.commands.listen as listen_module
+
+    heartbeat_ts = 1_700_000_100.0
+    listen_module._write_daemon_state(
+        {
+            "agent_id": "agent-hb",
+            "agent_role": "daemon",
+            "pid": os.getpid(),
+            "started_at": 1_700_000_000.0,
+            "last_heartbeat_at": heartbeat_ts,
+        }
+    )
+
+    from deepvista_cli.main import cli
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["listen", "status"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["last_heartbeat_at"] == heartbeat_ts

@@ -62,6 +62,9 @@ RUNS_DIR = LISTEN_STATE_DIR / "runs"
 CONTROL_CHANNEL_PATH = "/listener/stream"
 EVENTS_PATH_TEMPLATE = "/workflow-runs/{run_id}/events"
 
+# How often the daemon POSTs a heartbeat sync to keep last_heartbeat_at fresh.
+HEARTBEAT_INTERVAL_SECONDS = 30
+
 
 # ---------------------------------------------------------------------------
 # Daemon state file (pidfile + agent_id + start time)
@@ -395,6 +398,37 @@ async def _dispatch_loop(
             backoff = min(backoff * 2, 30.0)
 
 
+async def _heartbeat_loop(
+    api_url: str,
+    auth_headers: dict[str, str],
+    agent_id: str,
+) -> None:
+    """POST a periodic sync to keep ``last_heartbeat_at`` fresh on the server.
+
+    Also writes ``last_heartbeat_at`` to the local daemon state file so
+    ``listen status`` can report it without a network round-trip.
+    """
+    import httpx
+
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+        now = time.time()
+        try:
+            async with httpx.AsyncClient(base_url=api_url, timeout=10.0) as client:
+                await client.post(
+                    f"/agents/{agent_id}/sync",
+                    json={"status": "online", "sync_type": "heartbeat"},
+                    headers=auth_headers,
+                )
+        except httpx.HTTPError:
+            pass  # best-effort — a dropped heartbeat is not fatal
+        # Update the local state file so `listen status` can report freshness.
+        state = _read_daemon_state()
+        if state:
+            state["last_heartbeat_at"] = now
+            _write_daemon_state(state)
+
+
 # ---------------------------------------------------------------------------
 # Click group
 # ---------------------------------------------------------------------------
@@ -424,6 +458,12 @@ def listen_group() -> None:
     help="Functional role this daemon owns (free-text, e.g. engineering).",
 )
 @click.option(
+    "--tools",
+    default=None,
+    help="Comma-separated list of extra tool names to advertise (e.g. gws,psql,fs). "
+    "Merged into the capability snapshot so the UI knows which tools are available.",
+)
+@click.option(
     "--name",
     default=None,
     help="Display name for this daemon (defaults to hostname-derived label).",
@@ -445,6 +485,7 @@ def listen_group() -> None:
 def listen_start(
     ctx: click.Context,
     agent_role: str,
+    tools: str | None,
     name: str | None,
     cwd: str | None,
     stub: bool,
@@ -470,7 +511,10 @@ def listen_start(
     config_patch["agent_role"] = agent_role
     if cwd:
         config_patch["working_directory"] = cwd
-    config_patch["listener"] = {"version": 1, "transport": "sse"}
+    # Parse the comma-separated --tools list and include in the listener block
+    # so the UI's capability picker can show which tools this machine can run.
+    extra_tools = [t.strip() for t in tools.split(",") if t.strip()] if tools else []
+    config_patch["listener"] = {"version": 1, "transport": "sse", "tools": extra_tools}
 
     _client(ctx).post(
         f"/agents/{agent_id}/sync",
@@ -478,28 +522,35 @@ def listen_start(
     )
 
     # 3. Persist daemon state so `status` / `stop` can find us.
-    state = {
+    now = time.time()
+    state: dict[str, Any] = {
         "agent_id": agent_id,
         "agent_role": agent_role,
         "pid": os.getpid(),
-        "started_at": time.time(),
+        "started_at": now,
+        "last_heartbeat_at": now,
         "api_url": ctx.obj.api_url,
     }
     if name:
         state["name"] = name
     if cwd:
         state["cwd"] = cwd
+    if extra_tools:
+        state["tools"] = extra_tools
     _write_daemon_state(state)
 
     if stub:
+        out: dict[str, Any] = {
+            "daemon": "registered",
+            "agent_id": agent_id,
+            "agent_role": agent_role,
+            "stub": True,
+            "note": "TODO(DV-921): dispatch loop disabled by --stub.",
+        }
+        if extra_tools:
+            out["tools"] = extra_tools
         format_output(
-            {
-                "daemon": "registered",
-                "agent_id": agent_id,
-                "agent_role": agent_role,
-                "stub": True,
-                "note": "TODO(DV-921): dispatch loop disabled by --stub.",
-            },
+            out,
             ctx.obj.output_format,
             title="Listen (stub mode)",
             entity_type="agent",
@@ -517,12 +568,16 @@ def listen_start(
 
 
 async def _run_until_signaled(api_url: str, auth_headers: dict[str, str], agent_id: str) -> None:
-    """Run the dispatch loop until SIGTERM / SIGINT cancels it."""
+    """Run the dispatch + heartbeat loops until SIGTERM / SIGINT cancels them."""
     loop = asyncio.get_running_loop()
-    task = asyncio.create_task(_dispatch_loop(api_url, auth_headers, agent_id))
+    tasks = [
+        asyncio.create_task(_dispatch_loop(api_url, auth_headers, agent_id)),
+        asyncio.create_task(_heartbeat_loop(api_url, auth_headers, agent_id)),
+    ]
 
     def _cancel(*_: Any) -> None:
-        task.cancel()
+        for t in tasks:
+            t.cancel()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
@@ -532,7 +587,7 @@ async def _run_until_signaled(api_url: str, auth_headers: dict[str, str], agent_
             signal.signal(sig, _cancel)
 
     try:
-        await task
+        await asyncio.gather(*tasks)
     except asyncio.CancelledError:
         return
 
@@ -573,16 +628,20 @@ def listen_status(ctx: click.Context) -> None:
             if child.is_dir() and not (child / ".finalized").exists():
                 active.append(child.name)
 
+    status_data: dict[str, Any] = {
+        "online": alive,
+        "pid": pid,
+        "agent_id": state.get("agent_id"),
+        "agent_role": state.get("agent_role"),
+        "started_at": state.get("started_at"),
+        "last_heartbeat_at": state.get("last_heartbeat_at"),
+        "active_runs": active,
+        "active_count": len(active),
+    }
+    if state.get("tools"):
+        status_data["tools"] = state["tools"]
     format_output(
-        {
-            "online": alive,
-            "pid": pid,
-            "agent_id": state.get("agent_id"),
-            "agent_role": state.get("agent_role"),
-            "started_at": state.get("started_at"),
-            "active_runs": active,
-            "active_count": len(active),
-        },
+        status_data,
         ctx.obj.output_format,
         title="Listen status",
         entity_type="agent",
