@@ -29,6 +29,7 @@ from deepvista_cli.commands.card import card_group
 from deepvista_cli.commands.chat import chat_group
 from deepvista_cli.commands.config import config_group
 from deepvista_cli.commands.lint import lint_command
+from deepvista_cli.commands.listen import listen_group
 from deepvista_cli.commands.memory import vistabase_group
 from deepvista_cli.commands.notes import notes_group
 from deepvista_cli.commands.schedule import schedule_group
@@ -88,6 +89,8 @@ for _name, _cmd in card_group.commands.items():
 cli.add_command(vistabase_group, name="memory")
 # Agent orchestration
 cli.add_command(agents_group)
+# Workflow execution daemon (DV-921) — `listen start/status/stop`
+cli.add_command(listen_group)
 # Opt-in recurring daily-planning job
 cli.add_command(schedule_group)
 # Agent session transcripts (DV-742) — `init` / `tick` / `finalize`
