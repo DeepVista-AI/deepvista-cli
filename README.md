@@ -135,13 +135,51 @@ then `deepvista auth login`).
 
 ### For non-Claude-Code agents (Cursor, OpenCode, OpenClaw, …)
 
+**macOS / Linux (bash):**
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.ps1 | iex"
 ```
 
 The script auto-detects your package manager (`uv`, `pipx`, or `pip`) and copies the consolidated `deepvista` skill into your agent's skill directory (Cursor, OpenCode, OpenClaw, and Claude Code as a fallback). If you upgraded from an earlier release, it also sweeps out the 12 legacy `deepvista-*` skills so you don't end up with both.
 
 Prefer GitHub's CLI? `gh skill install DeepVista-AI/deepvista-cli` works too (GitHub CLI ≥ 2.90, preview).
+
+#### Windows troubleshooting: `uv trampoline failed to canonicalize script path`
+
+On Windows, running `deepvista` may fail with:
+
+```
+error: uv trampoline failed to canonicalize script path
+```
+
+This is a [known uv-on-Windows issue](https://github.com/astral-sh/uv/issues): the launcher (trampoline) that `uv tool install` creates can fail to resolve its own path. It is aggravated by working directories that contain **spaces** (e.g. `C:\Users\you\Claude Folder`) or are inside **OneDrive**-synced folders.
+
+Fixes, in order of preference:
+
+1. **Update uv and reinstall the launcher:**
+
+   ```powershell
+   uv self update
+   uv tool install --reinstall "deepvista-cli[ui]"
+   ```
+
+2. **Run via `uv tool run` as a fallback** (bypasses the broken trampoline entirely):
+
+   ```powershell
+   uv tool run deepvista auth login
+   uv tool run deepvista notes +quick "My first note"
+   ```
+
+3. **Avoid spaces / OneDrive in your working directory.** Run from a path without spaces, e.g. `C:\dev`, rather than `C:\Users\you\Claude Folder`.
+
+The `install.ps1` script performs this check automatically: after installing it runs `deepvista --version`, and if it hits the trampoline error it falls back to `uv tool run deepvista` and prints the guidance above. It also adds `%USERPROFILE%\.local\bin` (uv's tool bin directory) to your user PATH if it isn't already there — restart your shell afterward so new terminals pick it up.
 
 ### Get Started
 
