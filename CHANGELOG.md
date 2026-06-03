@@ -37,6 +37,14 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [0.4.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.3.0...v0.4.0) (2026-06-03)
+
+
+### Features
+
+* **DV-941:** add windows install script and trampoline troubleshooting docs ([#156](https://github.com/DeepVista-AI/deepvista-cli/issues/156)) ([eed7335](https://github.com/DeepVista-AI/deepvista-cli/commit/eed7335ffdc1dfcfd84523ed0e77be066b7fe9c3))
+* **DV-942:** print next-step hints after auth login ([#157](https://github.com/DeepVista-AI/deepvista-cli/issues/157)) ([0fca6c9](https://github.com/DeepVista-AI/deepvista-cli/commit/0fca6c9309623ee690c2c9e16870d528b558fd80))
+
 ## [0.3.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.2.0...v0.3.0) (2026-05-31)
 
 
