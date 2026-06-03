@@ -324,13 +324,13 @@ if ($verify.Ok) {
     if ($isTrampoline) {
         Write-Warn 'Hit the known uv trampoline bug: "uv trampoline failed to canonicalize script path".'
     } else {
-        Write-Warn ("`deepvista --version` did not run cleanly: " + ($verify.Output.Trim()))
+        Write-Warn ('deepvista --version did not run cleanly: ' + ($verify.Output.Trim()))
     }
 
     # Fall back to `uv tool run deepvista`.
     $fallback = Invoke-DeepvistaVersion -Prefix @('uv', 'tool', 'run', 'deepvista')
     if ($fallback.Ok) {
-        Write-Sub ("Fallback works: `uv tool run deepvista` -> " + ($fallback.Output.Trim()))
+        Write-Sub ('Fallback works: uv tool run deepvista -> ' + ($fallback.Output.Trim()))
         $DeepvistaRunner = @('uv', 'tool', 'run', 'deepvista')
         Write-Host ''
         Write-Sub 'The `deepvista` launcher is broken but `uv tool run deepvista` works. To fix the launcher:'
