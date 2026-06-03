@@ -14,6 +14,7 @@ from deepvista_cli.auth.tokens import (
     remove_account,
     switch_active_account,
 )
+from deepvista_cli.client.origin import detect_agent_tool
 from deepvista_cli.config import credentials_path
 from deepvista_cli.output.formatter import format_output, output_error
 
@@ -21,6 +22,37 @@ from deepvista_cli.output.formatter import format_output, output_error
 @click.group("auth")
 def auth_group() -> None:
     """Authenticate with DeepVista."""
+
+
+def _print_next_steps() -> None:
+    """Print actionable next-step options after a successful login (DV-942).
+
+    Written to stderr so the JSON result on stdout stays machine-parseable.
+    Suggestions adapt to whoever is driving the CLI (agent vs. terminal).
+    """
+    tool, _version = detect_agent_tool()
+    if tool == "claude-code":
+        steps = [
+            "/refresh-skills — sync the DeepVista skill catalog",
+            'say "Help me get started with DeepVista."',
+            'deepvista notes +quick "<fact>" — capture your first note',
+        ]
+    elif tool == "deepvista-cli":  # direct terminal usage
+        steps = [
+            'deepvista notes +quick "My first note" — capture a note',
+            "deepvista skill list — browse your workflow skills",
+            "deepvista ui — launch the terminal UI",
+            "deepvista chat — talk to your DeepVista agent",
+        ]
+    else:  # some other AI agent is driving us
+        steps = [
+            'deepvista notes +quick "<fact>" — capture a note for the user',
+            "deepvista skill list — discover available workflow skills",
+            'deepvista vistabase +search "<topic>" — recall the user\'s stored context',
+        ]
+    click.echo("\n  What's next? Pick one:", err=True)
+    for step in steps:
+        click.echo(f"    - {step}", err=True)
 
 
 @auth_group.command("login")
@@ -64,6 +96,7 @@ def auth_login(ctx: click.Context, code: str | None, dry_run: bool) -> None:
     }
     format_output(result, ctx.obj.output_format)
     click.echo(f"  Logged in as {tokens.email or tokens.user_id}", err=True)
+    _print_next_steps()
 
 
 @auth_group.command("status")
