@@ -34,6 +34,7 @@ from deepvista_cli.commands.notes import notes_group
 from deepvista_cli.commands.schedule import schedule_group
 from deepvista_cli.commands.session import session_group
 from deepvista_cli.commands.skill import skill_group
+from deepvista_cli.commands.task_queue import task_queue_group
 from deepvista_cli.commands.upgrade import upgrade_command
 from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 
@@ -92,6 +93,8 @@ cli.add_command(agents_group)
 cli.add_command(schedule_group)
 # Agent session transcripts (DV-742) — `init` / `tick` / `finalize`
 cli.add_command(session_group)
+# Pull-based task queue for this machine's agent (DV-936)
+cli.add_command(task_queue_group)
 # Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)
