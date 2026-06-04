@@ -1,4 +1,4 @@
-"""Click-level tests for `deepvista task_queue run` / `list` / `setup` (DV-936)."""
+"""Click-level tests for `deepvista task_queue run` / `list` / `complete` / `setup` (DV-936/DV-955)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,19 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from deepvista_cli.commands.task_queue import CRON_MARKER, _cron_entry, _validate_command
+from deepvista_cli.commands.task_queue import (
+    CRON_MARKER,
+    _cron_entry,
+    _is_workflow_task,
+    _parse_workflow_command,
+    _validate_command,
+)
 from deepvista_cli.main import cli
+
+WORKFLOW_COMMAND = (
+    "deepvista skill run --mode host 00000000-0000-0000-0000-000000000001 "
+    '--input \'{"name": "Ada"}\' --webhook --best-effort'
+)
 
 
 class _StubCtxClient:
@@ -200,6 +211,197 @@ def test_run_errors_when_no_agent_registered(
 
     result = CliRunner().invoke(cli, ["task_queue", "run"])
     assert result.exit_code == 3
+    assert stub.calls == []
+
+
+# ---------------------------------------------------------------------------
+# workflow tasks (DV-955)
+# ---------------------------------------------------------------------------
+
+
+def test_is_workflow_task_by_source_and_command_shape():
+    assert _is_workflow_task({"source": "webhook", "command": "deepvista notes list"})
+    assert _is_workflow_task({"command": WORKFLOW_COMMAND})
+    assert not _is_workflow_task({"command": "deepvista notes list"})
+    assert not _is_workflow_task({"command": "deepvista skill run abc"})  # no --webhook
+
+
+def test_parse_workflow_command_extracts_fields():
+    parsed = _parse_workflow_command(WORKFLOW_COMMAND)
+    assert parsed == {
+        "skill_id": "00000000-0000-0000-0000-000000000001",
+        "user_input": '{"name": "Ada"}',
+        "best_effort": True,
+    }
+    assert _parse_workflow_command("deepvista notes list") is None
+    assert _parse_workflow_command("deepvista skill run --webhook") is None  # no skill id
+
+
+def test_run_headless_claims_command_only(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.task_queue as tq_module
+
+    monkeypatch.setattr(tq_module, "_detect_host_agent", lambda: False)
+
+    result = CliRunner().invoke(cli, ["task_queue", "run"])
+    assert result.exit_code == 0, result.output
+    method, path, body = stub.calls[0]
+    assert (method, path) == ("POST", "/agents/agent-uuid-1/task-queue/claim")
+    # Headless cron ticks must leave workflow tasks pending for a host run.
+    assert body == {"command_only": True}
+
+
+def test_run_host_emits_workflow_packet_and_leaves_task_running(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    stub.queue(
+        "/agents/agent-uuid-1/task-queue/claim",
+        {
+            "success": True,
+            "tasks": [{"id": "t-wf", "command": WORKFLOW_COMMAND, "status": "running", "source": "webhook"}],
+        },
+    )
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.task_queue as tq_module
+
+    emitted: list[dict] = []
+
+    def fake_emit(ctx, skill_id, user_input, mode="host", **kwargs):  # type: ignore[no-untyped-def]
+        emitted.append({"skill_id": skill_id, "user_input": user_input, **kwargs})
+
+    monkeypatch.setattr(tq_module, "emit_host_run_packet", fake_emit)
+
+    def explode(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("workflow tasks must not be subprocess-executed")
+
+    monkeypatch.setattr(tq_module.subprocess, "run", explode)
+
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--host"])
+    assert result.exit_code == 0, result.output
+
+    # Claim body None (full claim), packet emitted with task threading.
+    assert stub.calls[0][2] is None
+    assert emitted == [
+        {
+            "skill_id": "00000000-0000-0000-0000-000000000001",
+            "user_input": '{"name": "Ada"}',
+            "webhook": True,
+            "best_effort": True,
+            "task_id": "t-wf",
+        }
+    ]
+    assert "=== DEEPVISTA WORKFLOW TASK t-wf" in result.output
+
+    # No result report: the task stays `running` until `task_queue complete`.
+    assert all("/result" not in c[1] for c in stub.calls)
+
+
+def test_run_host_fails_unparseable_workflow_task(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    stub.queue(
+        "/agents/agent-uuid-1/task-queue/claim",
+        {
+            "success": True,
+            # source says webhook but the command isn't a skill run — nobody
+            # could ever drive this; it must be failed, not left running.
+            "tasks": [{"id": "t-bad", "command": "deepvista notes list", "status": "running", "source": "webhook"}],
+        },
+    )
+    stub.queue("/agents/agent-uuid-1/task-queue/t-bad/result", {"success": True})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--host"])
+    assert result.exit_code == 0, result.output
+
+    method, path, body = stub.calls[-1]
+    assert (method, path) == ("POST", "/agents/agent-uuid-1/task-queue/t-bad/result")
+    assert body is not None and body["status"] == "failed"
+
+
+def test_run_headless_ignores_workflow_tasks_that_slip_through(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    stub.queue(
+        "/agents/agent-uuid-1/task-queue/claim",
+        {
+            "success": True,
+            "tasks": [{"id": "t-wf", "command": WORKFLOW_COMMAND, "status": "running", "source": "webhook"}],
+        },
+    )
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.task_queue as tq_module
+
+    monkeypatch.setattr(tq_module, "_detect_host_agent", lambda: False)
+
+    def explode(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("workflow tasks must not be subprocess-executed")
+
+    monkeypatch.setattr(tq_module.subprocess, "run", explode)
+
+    result = CliRunner().invoke(cli, ["task_queue", "run"])
+    assert result.exit_code == 0, result.output
+    # No packet for a cron log, no subprocess, no terminal report.
+    assert "DEEPVISTA WORKFLOW TASK" not in result.output
+    assert all("/result" not in c[1] for c in stub.calls)
+
+
+# ---------------------------------------------------------------------------
+# complete
+# ---------------------------------------------------------------------------
+
+
+def test_complete_reports_terminal_status(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    stub.queue(
+        "/agents/agent-uuid-1/task-queue/t-wf/result",
+        {"success": True, "task": {"id": "t-wf", "status": "completed"}},
+    )
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    result = CliRunner().invoke(
+        cli,
+        ["task_queue", "complete", "t-wf", "--status", "completed", "--note", "lead brief shipped"],
+    )
+    assert result.exit_code == 0, result.output
+
+    method, path, body = stub.calls[-1]
+    assert (method, path) == ("POST", "/agents/agent-uuid-1/task-queue/t-wf/result")
+    assert body == {"status": "completed", "exit_code": 0, "output_tail": "lead brief shipped"}
+
+
+def test_complete_rejects_unknown_status(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    result = CliRunner().invoke(cli, ["task_queue", "complete", "t-wf", "--status", "running"])
+    assert result.exit_code != 0
     assert stub.calls == []
 
 

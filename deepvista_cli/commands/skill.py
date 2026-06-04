@@ -133,9 +133,37 @@ def skill_get(ctx: click.Context, skill_id: str) -> None:
         "tool_plan."
     ),
 )
+@click.option(
+    "--webhook",
+    is_flag=True,
+    default=False,
+    help=(
+        "Mark this as a webhook-queued run (DV-955). Appends the task-queue "
+        "completion contract so the host agent reports the queue task after "
+        "`skill complete`. Set automatically on commands the webhook enqueues."
+    ),
+)
+@click.option(
+    "--best-effort",
+    is_flag=True,
+    default=False,
+    help=(
+        "Unattended run: instruct the host agent to answer open questions "
+        "from the vistabase instead of stalling, note assumptions, and only "
+        "pause on hard blockers (DV-955)."
+    ),
+)
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @click.pass_context
-def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, mode: str, dry_run: bool) -> None:
+def skill_run(
+    ctx: click.Context,
+    skill_id: str,
+    user_input: str | None,
+    mode: str,
+    webhook: bool,
+    best_effort: bool,
+    dry_run: bool,
+) -> None:
     """Run a Skill — host mode by default; ``--mode deepvista`` delegates the whole run server-side.
 
     > [!CAUTION] This is a write command — host mode acquires the parent
@@ -160,6 +188,36 @@ def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, mode: s
         _skill_run_deepvista(ctx, skill_id, user_input, dry_run=dry_run)
         return
 
+    emit_host_run_packet(
+        ctx,
+        skill_id,
+        user_input,
+        mode,
+        dry_run=dry_run,
+        webhook=webhook,
+        best_effort=best_effort,
+    )
+
+
+def emit_host_run_packet(
+    ctx: click.Context,
+    skill_id: str,
+    user_input: str | None,
+    mode: str = "host",
+    *,
+    dry_run: bool = False,
+    webhook: bool = False,
+    best_effort: bool = False,
+    task_id: str | None = None,
+) -> None:
+    """Fetch the skill, acquire the run lock, and print the host run packet.
+
+    Shared by ``skill run`` (host / auto modes) and ``task_queue run --host``
+    (DV-955), which emits packets for webhook-queued workflow tasks instead
+    of subprocess-executing them — a queued workflow needs the surrounding
+    host agent to drive it. ``task_id`` (only known on the task-queue path)
+    threads the queue entry into the completion contract.
+    """
     # host / auto: fetch the card, optionally acquire the lock, and emit a
     # run packet the host agent drives.
     card = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
@@ -196,7 +254,11 @@ def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, mode: s
         "phase_routes": phase_routes,
         "user_input": user_input or "",
         "skill_status": card.get("status", ""),
+        "webhook": webhook,
+        "best_effort": best_effort,
     }
+    if task_id:
+        run_header["task_id"] = task_id
 
     if dry_run:
         format_output(
@@ -222,6 +284,12 @@ def skill_run(ctx: click.Context, skill_id: str, user_input: str | None, mode: s
     click.echo("---")
     click.echo()
     click.echo(_load_host_runtime_contract())
+    if best_effort:
+        click.echo()
+        click.echo(_BEST_EFFORT_STANZA)
+    if webhook:
+        click.echo()
+        click.echo(_webhook_task_stanza(task_id))
 
 
 def _skill_run_deepvista(
@@ -256,6 +324,45 @@ def _skill_run_deepvista(
 def _load_host_runtime_contract() -> str:
     """Return the embedded host-mode runtime contract markdown."""
     return resources.files("deepvista_cli.resources").joinpath("workflow_host_runtime.md").read_text(encoding="utf-8")
+
+
+# Appended to the runtime contract for unattended runs (DV-955). The run was
+# triggered by a webhook — there is no human in the loop to answer questions.
+_BEST_EFFORT_STANZA = """\
+## Best-effort mode (unattended run)
+
+This run was triggered without a human in the loop. Do NOT stall waiting
+for answers:
+
+- When a step needs information, search the vistabase first:
+  `deepvista card +search "…"`, `deepvista vistabase +search "…"`,
+  `deepvista notes list`. Prefer an answer found there over asking.
+- When nothing answers, make the most reasonable assumption, state it in
+  the phase's artifact note, and move to the next step.
+- Reserve `deepvista skill phase pause` for hard blockers only (missing
+  credentials, unavailable tools) — never for open questions.
+- Anything that would normally be sent externally (emails, invites) must
+  be left as a DRAFT for human review, never dispatched."""
+
+
+def _webhook_task_stanza(task_id: str | None) -> str:
+    """Completion contract for webhook-queued runs (DV-955).
+
+    The queue entry stays ``running`` until the host agent reports it —
+    nothing else will, so skipping this leaves a permanently stuck task.
+    """
+    task_ref = task_id or "<task_id from `deepvista task_queue list`>"
+    return f"""\
+## Webhook task completion
+
+This run came off the agent task queue. The queue entry stays `running`
+until YOU report it — after `deepvista skill complete` (or on failure):
+
+```
+deepvista task_queue complete {task_ref} --status completed
+# or, when the run could not finish:
+deepvista task_queue complete {task_ref} --status failed --note "<one short sentence>"
+```"""
 
 
 # ---------------------------------------------------------------------------

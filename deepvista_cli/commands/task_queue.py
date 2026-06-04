@@ -3,9 +3,18 @@
 The web app enqueues DeepVista CLI commands onto a managed agent's
 `task_queue`; this command group lets the agent's machine poll and run them:
 
-  deepvista task_queue run    — claim pending tasks and execute them
-  deepvista task_queue list   — show this machine's queue
-  deepvista task_queue setup  — install a crontab entry that polls periodically
+  deepvista task_queue run      — claim pending tasks and execute them
+  deepvista task_queue list     — show this machine's queue
+  deepvista task_queue complete — report a workflow task's outcome (host agent)
+  deepvista task_queue setup    — install a crontab entry that polls periodically
+
+Workflow tasks (DV-955): webhook-queued `deepvista skill run` entries can't
+be subprocess-executed — a workflow needs the surrounding host agent (Claude
+Code etc.) to drive its phases. `task_queue run --host` claims them and
+emits their run packets to stdout for the host agent; headless runs (cron)
+claim command-only so workflow tasks stay pending until a host run. The
+host agent reports the outcome via `task_queue complete` after
+`skill complete`.
 
 Safety: only commands whose first token is `deepvista` are executed
 (shlex-parsed, shell=False). The backend enforces the same allowlist at
@@ -26,6 +35,7 @@ import click
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
 from deepvista_cli.commands.agents import AGENTS_DIR, _load_agent_id
+from deepvista_cli.commands.skill import emit_host_run_packet
 from deepvista_cli.config import CONFIG_DIR
 from deepvista_cli.output.formatter import format_output, output_error
 
@@ -127,6 +137,107 @@ def _validate_command(command: str) -> str | None:
     return None
 
 
+def _is_workflow_task(task: dict) -> bool:
+    """True when the task is a webhook-queued workflow run (DV-955).
+
+    Primary signal is the advisory ``source: "webhook"`` key the backend
+    stamps at enqueue time; the command-shape fallback covers queues
+    written before that key existed.
+    """
+    if task.get("source") == "webhook":
+        return True
+    try:
+        tokens = shlex.split(str(task.get("command", "")))
+    except ValueError:
+        return False
+    return tokens[:3] == [ALLOWED_COMMAND_BINARY, "skill", "run"] and "--webhook" in tokens
+
+
+def _parse_workflow_command(command: str) -> dict | None:
+    """Extract skill_id / --input / --best-effort from a queued skill-run command.
+
+    The webhook composes these commands with a fixed shape
+    (``deepvista skill run --mode host <id> --input <json> --webhook
+    [--best-effort]``); parse defensively anyway since queue rows are data.
+    Returns None when the command isn't a recognizable skill run.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    if tokens[:3] != [ALLOWED_COMMAND_BINARY, "skill", "run"]:
+        return None
+
+    value_opts = {"--mode", "--input"}
+    values: dict[str, str] = {}
+    skill_id: str | None = None
+    i = 3
+    while i < len(tokens):
+        token = tokens[i]
+        if token in value_opts:
+            if i + 1 < len(tokens):
+                values[token] = tokens[i + 1]
+            i += 2
+        elif token.startswith("--"):
+            i += 1
+        elif skill_id is None:
+            skill_id = token
+            i += 1
+        else:
+            i += 1
+
+    if not skill_id:
+        return None
+    return {
+        "skill_id": skill_id,
+        "user_input": values.get("--input"),
+        "best_effort": "--best-effort" in tokens,
+    }
+
+
+def _emit_workflow_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
+    """Print a claimed workflow task's run packet for the host agent (DV-955).
+
+    The task is left ``running`` on purpose — the host agent drives the
+    workflow and reports the outcome via ``task_queue complete``. Only an
+    unparseable/unloadable task is failed here, since no agent could ever
+    pick it up.
+    """
+    task_id = str(task.get("id", ""))
+    command = str(task.get("command", ""))
+
+    parsed = _parse_workflow_command(command)
+    if parsed is None:
+        _client(ctx).post(
+            f"/agents/{agent_id}/task-queue/{task_id}/result",
+            {"status": "failed", "exit_code": None, "output_tail": "Unparseable workflow task command"},
+        )
+        return {"task_id": task_id, "command": command, "status": "failed", "exit_code": None}
+
+    click.echo()
+    click.echo(f"=== DEEPVISTA WORKFLOW TASK {task_id} (skill {parsed['skill_id']}) ===")
+    click.echo()
+    try:
+        emit_host_run_packet(
+            ctx,
+            parsed["skill_id"],
+            parsed["user_input"],
+            "host",
+            webhook=True,
+            best_effort=parsed["best_effort"],
+            task_id=task_id,
+        )
+    except SystemExit:
+        # Skill gone / empty / phaseless — no host agent can ever run this
+        # task, so fail it instead of leaving it stuck in `running`.
+        _client(ctx).post(
+            f"/agents/{agent_id}/task-queue/{task_id}/result",
+            {"status": "failed", "exit_code": None, "output_tail": "Skill not found or not runnable"},
+        )
+        return {"task_id": task_id, "command": command, "status": "failed", "exit_code": None}
+    return {"task_id": task_id, "command": command, "status": "running", "exit_code": None}
+
+
 def _execute_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
     """Run one claimed task and report its terminal result to the backend."""
     task_id = str(task.get("id", ""))
@@ -170,20 +281,47 @@ def task_queue_group() -> None:
     """Run CLI commands queued for this machine's agent."""
 
 
+def _detect_host_agent() -> bool:
+    """True when an AI agent host (Claude Code, OpenClaw, …) drives this CLI."""
+    try:
+        detected, _ = detect_agent_tool()
+    except Exception:
+        return False
+    return bool(detected) and detected != "deepvista-cli"
+
+
 @task_queue_group.command("run")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
+@click.option(
+    "--host",
+    "host_mode",
+    is_flag=True,
+    default=False,
+    help=(
+        "Claim workflow tasks too and emit their run packets for the host "
+        "agent to drive (DV-955). Auto-enabled when an agent host is "
+        "detected; headless runs claim command tasks only."
+    ),
+)
 @click.pass_context
-def task_queue_run(ctx: click.Context, agent_type: str | None, agent_role: str | None) -> None:
+def task_queue_run(ctx: click.Context, agent_type: str | None, agent_role: str | None, host_mode: bool) -> None:
     """Claim pending tasks for this machine's agent and execute them.
 
     Returns immediately when the queue is empty, so it's cheap as a cron
-    tick. Each claimed task runs sequentially via subprocess and its result
-    (status, exit code, output tail) is reported back to the backend.
+    tick. Plain command tasks run sequentially via subprocess and their
+    results are reported back. Workflow tasks (webhook-queued skill runs)
+    are only claimed in host mode: their run packets are printed for the
+    surrounding agent to drive, and the entries stay ``running`` until the
+    agent calls ``task_queue complete``.
     """
     agent_id = _require_machine_agent_id(agent_type, agent_role)
+    host_mode = host_mode or _detect_host_agent()
 
-    data = _client(ctx).post(f"/agents/{agent_id}/task-queue/claim")
+    data = _client(ctx).post(
+        f"/agents/{agent_id}/task-queue/claim",
+        None if host_mode else {"command_only": True},
+    )
     if not data.get("success"):
         output_error(1, "Failed to claim tasks", data.get("error", "Unknown error"))
         raise SystemExit(1)
@@ -193,13 +331,30 @@ def task_queue_run(ctx: click.Context, agent_type: str | None, agent_role: str |
         _output(ctx, {"agent_id": agent_id, "tasks_run": 0}, title="Task Queue")
         return
 
-    results = [_execute_task(ctx, agent_id, task) for task in tasks]
+    command_tasks = [t for t in tasks if not _is_workflow_task(t)]
+    # Workflow tasks only reach this list in host mode (headless claims are
+    # command_only) — the guard below covers a backend that predates the
+    # filter, so a cron tick never swallows a packet nobody will read.
+    workflow_tasks = [t for t in tasks if _is_workflow_task(t)] if host_mode else []
+
+    results = [_execute_task(ctx, agent_id, task) for task in command_tasks]
     failed = sum(1 for r in results if r["status"] == "failed")
     _output(
         ctx,
-        {"agent_id": agent_id, "tasks_run": len(results), "failed": failed, "results": results},
+        {
+            "agent_id": agent_id,
+            "tasks_run": len(results),
+            "failed": failed,
+            "results": results,
+            "workflow_tasks": len(workflow_tasks),
+        },
         title="Task Queue",
     )
+
+    # Workflow packets go last so the runtime contract (and its completion
+    # instructions) is the freshest thing in the host agent's context.
+    for task in workflow_tasks:
+        _emit_workflow_task(ctx, agent_id, task)
 
 
 @task_queue_group.command("list")
@@ -223,6 +378,44 @@ def task_queue_list(ctx: click.Context, agent_type: str | None, agent_role: str 
         columns=TASK_COLUMNS,
         title="Task Queue",
     )
+
+
+@task_queue_group.command("complete")
+@click.argument("task_id")
+@click.option(
+    "--status",
+    type=click.Choice(["completed", "failed"]),
+    required=True,
+    help="Terminal outcome of the workflow task.",
+)
+@click.option("--note", default=None, help="Short outcome note stored as the task's output tail.")
+@click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
+@click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
+@click.pass_context
+def task_queue_complete(
+    ctx: click.Context,
+    task_id: str,
+    status: str,
+    note: str | None,
+    agent_type: str | None,
+    agent_role: str | None,
+) -> None:
+    """Report the terminal outcome of a claimed workflow task (DV-955).
+
+    Called by the host agent after driving a webhook-queued workflow run to
+    its end (`deepvista skill complete`) — or to its failure. Plain command
+    tasks report automatically; this is only needed for workflow tasks,
+    which stay ``running`` until someone reports them.
+    """
+    agent_id = _require_machine_agent_id(agent_type, agent_role)
+    data = _client(ctx).post(
+        f"/agents/{agent_id}/task-queue/{task_id}/result",
+        {"status": status, "exit_code": 0 if status == "completed" else 1, "output_tail": note},
+    )
+    if not data.get("success"):
+        output_error(1, "Failed to report task result", data.get("error", "Unknown error"))
+        raise SystemExit(1)
+    _output(ctx, {"agent_id": agent_id, "task": data.get("task")}, title="Task Queue")
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +476,10 @@ def task_queue_setup(ctx: click.Context, interval: int, remove: bool) -> None:
     Idempotent — re-running replaces any existing entry. Use --remove to
     uninstall. Crontab only (macOS/Linux); on Windows, schedule
     `deepvista task_queue run` with Task Scheduler instead.
+
+    Cron runs are headless: they execute plain command tasks only and
+    leave workflow tasks (webhook-queued skill runs) pending. Drive those
+    from an agent session with `deepvista task_queue run --host`.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
