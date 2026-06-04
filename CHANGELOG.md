@@ -37,6 +37,13 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [0.5.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.4.0...v0.5.0) (2026-06-04)
+
+
+### Features
+
+* **DV-936:** task_queue run/list/setup commands ([#155](https://github.com/DeepVista-AI/deepvista-cli/issues/155)) ([0d90691](https://github.com/DeepVista-AI/deepvista-cli/commit/0d9069106d14068d657e16415be80dec95f12085))
+
 ## [0.4.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.3.0...v0.4.0) (2026-06-03)
 
 
