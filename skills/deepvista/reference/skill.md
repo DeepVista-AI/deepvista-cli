@@ -98,8 +98,39 @@ deepvista skill sync --dry-run
 deepvista chat +send "Add one more step" --chat-id <run_chat_id>
 ```
 
+## Importing a skill from a downloaded markdown file
+
+When the user downloads a SKILL.md from another account and wants to import it
+**without AI re-synthesis**, write the content directly as a `type=skill` card.
+This is the right path when the markdown is already a complete, finished skill —
+no processing needed.
+
+> [!CAUTION] Write — confirm before running.
+
+```bash
+deepvista card create --type skill \
+  --title "<Skill Name>" \
+  --content-file /absolute/path/to/downloaded-skill.md \
+  --no-enrich
+```
+
+`--no-enrich` skips entity enrichment. Use it here because the skill body is
+already structured — enrichment would add latency and noise without value.
+
+After creation, verify with:
+
+```bash
+deepvista card get <new_card_id>
+# https://app.deepvista.ai/vistabase/<new_card_id>
+```
+
+Do **not** use `skill create-from-note` for this — that command runs the
+DeepVista agent to synthesize a skill from raw notes, which is unnecessary
+(and slow) when the SKILL.md content is already ready.
+
 ## See also
 
 - [skill-create-from-note.md](skill-create-from-note.md) — synthesize a skill from notes
 - [skill-research-to-skill.md](skill-research-to-skill.md) — research then run pattern
 - [skill-analyze-notes.md](skill-analyze-notes.md) — notes synthesis pattern
+- [vistabase-card.md](vistabase-card.md) — `card create` full flag reference
