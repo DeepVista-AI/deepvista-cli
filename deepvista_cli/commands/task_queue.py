@@ -3,10 +3,16 @@
 The web app enqueues DeepVista CLI commands onto a managed agent's
 `task_queue`; this command group lets the agent's machine poll and run them:
 
-  deepvista task_queue run      — claim pending tasks and execute them
+  deepvista task_queue run      — poll for pending tasks and execute them
   deepvista task_queue list     — show this machine's queue
   deepvista task_queue complete — report a workflow task's outcome (host agent)
   deepvista task_queue setup    — install a crontab entry that polls periodically
+
+Polling (DV-1079): `run` polls in the foreground by default (--poll-interval,
+bounded by --total-time when given); --run-once does a single claim/execute
+pass, which is what the cron entry installed by `setup` uses. A PID lock file
+allows only one `task_queue run` per machine at a time, so a foreground
+poller and cron ticks never double-claim.
 
 Workflow tasks (DV-955): webhook-queued `deepvista skill run` entries can't
 be subprocess-executed — a workflow needs the surrounding host agent (Claude
@@ -24,10 +30,12 @@ enqueue time; the check here guards against tampered queue rows.
 from __future__ import annotations
 
 import json as _json
+import os
 import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -54,6 +62,12 @@ OUTPUT_TAIL_MAX_CHARS = 2000
 CRON_MARKER = "# deepvista-task-queue"
 
 CRON_LOG_PATH = CONFIG_DIR / "task_queue.log"
+
+# Seconds between polls when `run` is left in its default polling mode.
+DEFAULT_POLL_INTERVAL_SECONDS = 60
+
+# Single-instance lock for `task_queue run` (DV-1079) — holds the owner PID.
+RUN_LOCK_PATH = CONFIG_DIR / "task_queue.run.lock"
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +252,51 @@ def _emit_workflow_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
     return {"task_id": task_id, "command": command, "status": "running", "exit_code": None}
 
 
+def _pid_alive(pid: int) -> bool:
+    """Best-effort liveness probe for a PID (signal 0, no actual signal sent)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Exists but owned by someone else — still alive.
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _read_lock_pid() -> int | None:
+    try:
+        return int(RUN_LOCK_PATH.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _acquire_run_lock() -> bool:
+    """Take the machine-wide single-instance lock for `task_queue run` (DV-1079).
+
+    Overlapping pollers would double-claim the queue, so only one `run` may
+    be active at a time — a foreground poller and a cron tick included. A
+    lock whose owner PID is dead (crash, reboot) is stale and reclaimed.
+    """
+    pid = _read_lock_pid()
+    if pid is not None and pid != os.getpid() and _pid_alive(pid):
+        return False
+    RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    RUN_LOCK_PATH.write_text(str(os.getpid()))
+    return True
+
+
+def _release_run_lock() -> None:
+    if _read_lock_pid() != os.getpid():
+        return
+    try:
+        RUN_LOCK_PATH.unlink()
+    except OSError:
+        pass
+
+
 def _execute_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
     """Run one claimed task and report its terminal result to the backend."""
     task_id = str(task.get("id", ""))
@@ -290,6 +349,27 @@ def _detect_host_agent() -> bool:
     return bool(detected) and detected != "deepvista-cli"
 
 
+def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[list[dict], list[dict]]:
+    """One claim/execute pass; returns (command task results, workflow tasks)."""
+    data = _client(ctx).post(
+        f"/agents/{agent_id}/task-queue/claim",
+        None if host_mode else {"command_only": True},
+    )
+    if not data.get("success"):
+        output_error(1, "Failed to claim tasks", data.get("error", "Unknown error"))
+        raise SystemExit(1)
+
+    tasks = data.get("tasks") or []
+    command_tasks = [t for t in tasks if not _is_workflow_task(t)]
+    # Workflow tasks only reach this list in host mode (headless claims are
+    # command_only) — the guard below covers a backend that predates the
+    # filter, so a cron tick never swallows a packet nobody will read.
+    workflow_tasks = [t for t in tasks if _is_workflow_task(t)] if host_mode else []
+
+    results = [_execute_task(ctx, agent_id, task) for task in command_tasks]
+    return results, workflow_tasks
+
+
 @task_queue_group.command("run")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
@@ -304,57 +384,117 @@ def _detect_host_agent() -> bool:
         "detected; headless runs claim command tasks only."
     ),
 )
+@click.option(
+    "--run-once",
+    "--run_once",
+    "run_once",
+    is_flag=True,
+    default=False,
+    help="Do a single claim/execute pass and exit (what the `setup` cron entry uses).",
+)
+@click.option(
+    "--poll-interval",
+    default=DEFAULT_POLL_INTERVAL_SECONDS,
+    show_default=True,
+    type=click.IntRange(1, 3600),
+    help="Seconds to wait between polls.",
+)
+@click.option(
+    "--total-time",
+    default=None,
+    type=click.IntRange(1),
+    help="Stop polling after this many seconds (default: poll until interrupted).",
+)
 @click.pass_context
-def task_queue_run(ctx: click.Context, agent_type: str | None, agent_role: str | None, host_mode: bool) -> None:
-    """Claim pending tasks for this machine's agent and execute them.
+def task_queue_run(
+    ctx: click.Context,
+    agent_type: str | None,
+    agent_role: str | None,
+    host_mode: bool,
+    run_once: bool,
+    poll_interval: int,
+    total_time: int | None,
+) -> None:
+    """Poll this machine's agent queue and execute claimed tasks (DV-1079).
 
-    Returns immediately when the queue is empty, so it's cheap as a cron
-    tick. Plain command tasks run sequentially via subprocess and their
-    results are reported back. Workflow tasks (webhook-queued skill runs)
-    are only claimed in host mode: their run packets are printed for the
-    surrounding agent to drive, and the entries stay ``running`` until the
-    agent calls ``task_queue complete``.
+    Default mode polls in the foreground — claim, execute, sleep
+    --poll-interval, repeat — until --total-time elapses (or forever when
+    unset), which keeps every registered agent on this machine picking up
+    work without a cron job. --run-once does a single pass and exits; the
+    cron entry installed by `task_queue setup` uses it.
+
+    Only one `task_queue run` may be active per machine — concurrent
+    invocations exit with an error instead of double-claiming the queue.
+
+    Plain command tasks run sequentially via subprocess and their results
+    are reported back. Workflow tasks (webhook-queued skill runs) are only
+    claimed in host mode: their run packets are printed for the surrounding
+    agent to drive — polling stops at that point so the host agent can act —
+    and the entries stay ``running`` until the agent calls
+    ``task_queue complete``.
     """
     agent_id = _require_machine_agent_id(agent_type, agent_role)
     host_mode = host_mode or _detect_host_agent()
 
-    data = _client(ctx).post(
-        f"/agents/{agent_id}/task-queue/claim",
-        None if host_mode else {"command_only": True},
-    )
-    if not data.get("success"):
-        output_error(1, "Failed to claim tasks", data.get("error", "Unknown error"))
-        raise SystemExit(1)
+    if not _acquire_run_lock():
+        output_error(
+            2,
+            "Another `task_queue run` is already active on this machine",
+            f"Stop it first or wait for it to finish (lock: {RUN_LOCK_PATH}, pid: {_read_lock_pid()}).",
+        )
+        raise SystemExit(2)
 
-    tasks = data.get("tasks") or []
-    if not tasks:
-        _output(ctx, {"agent_id": agent_id, "tasks_run": 0}, title="Task Queue")
-        return
+    started = time.monotonic()
+    polls = 0
+    total_results: list[dict] = []
+    try:
+        while True:
+            polls += 1
+            results, workflow_tasks = _claim_and_run(ctx, agent_id, host_mode)
+            total_results.extend(results)
 
-    command_tasks = [t for t in tasks if not _is_workflow_task(t)]
-    # Workflow tasks only reach this list in host mode (headless claims are
-    # command_only) — the guard below covers a backend that predates the
-    # filter, so a cron tick never swallows a packet nobody will read.
-    workflow_tasks = [t for t in tasks if _is_workflow_task(t)] if host_mode else []
+            # A polling loop stays quiet on empty passes; --run-once always
+            # reports so cron logs show every tick.
+            if run_once or results or workflow_tasks:
+                _output(
+                    ctx,
+                    {
+                        "agent_id": agent_id,
+                        "tasks_run": len(results),
+                        "failed": sum(1 for r in results if r["status"] == "failed"),
+                        "results": results,
+                        "workflow_tasks": len(workflow_tasks),
+                    },
+                    title="Task Queue",
+                )
 
-    results = [_execute_task(ctx, agent_id, task) for task in command_tasks]
-    failed = sum(1 for r in results if r["status"] == "failed")
-    _output(
-        ctx,
-        {
-            "agent_id": agent_id,
-            "tasks_run": len(results),
-            "failed": failed,
-            "results": results,
-            "workflow_tasks": len(workflow_tasks),
-        },
-        title="Task Queue",
-    )
+            # Workflow packets go last so the runtime contract (and its
+            # completion instructions) is the freshest thing in the host
+            # agent's context.
+            for task in workflow_tasks:
+                _emit_workflow_task(ctx, agent_id, task)
 
-    # Workflow packets go last so the runtime contract (and its completion
-    # instructions) is the freshest thing in the host agent's context.
-    for task in workflow_tasks:
-        _emit_workflow_task(ctx, agent_id, task)
+            if run_once:
+                return
+            if workflow_tasks:
+                # The host agent has packets to drive; blocking it inside the
+                # poll loop would deadlock the run. Hand control back.
+                return
+            if total_time is not None and (time.monotonic() - started) + poll_interval > total_time:
+                _output(
+                    ctx,
+                    {
+                        "agent_id": agent_id,
+                        "polls": polls,
+                        "tasks_run": len(total_results),
+                        "failed": sum(1 for r in total_results if r["status"] == "failed"),
+                    },
+                    title="Task Queue (polling finished)",
+                )
+                return
+            time.sleep(poll_interval)
+    finally:
+        _release_run_lock()
 
 
 @task_queue_group.command("list")
@@ -457,7 +597,9 @@ def _write_crontab(lines: list[str]) -> bool:
 def _cron_entry(interval: int, profile: str) -> str:
     binary = _deepvista_binary()
     profile_flag = f" --profile {profile}" if profile and profile != "default" else ""
-    return f"*/{interval} * * * * {binary}{profile_flag} task_queue run >> {CRON_LOG_PATH} 2>&1 {CRON_MARKER}"
+    return (
+        f"*/{interval} * * * * {binary}{profile_flag} task_queue run --run-once >> {CRON_LOG_PATH} 2>&1 {CRON_MARKER}"
+    )
 
 
 @task_queue_group.command("setup")
@@ -471,11 +613,14 @@ def _cron_entry(interval: int, profile: str) -> str:
 @click.option("--remove", is_flag=True, default=False, help="Uninstall the cron entry instead.")
 @click.pass_context
 def task_queue_setup(ctx: click.Context, interval: int, remove: bool) -> None:
-    """Install a crontab entry that runs `deepvista task_queue run` periodically.
+    """Install a crontab entry that runs `deepvista task_queue run --run-once` periodically.
 
-    Idempotent — re-running replaces any existing entry. Use --remove to
-    uninstall. Crontab only (macOS/Linux); on Windows, schedule
-    `deepvista task_queue run` with Task Scheduler instead.
+    An alternative to leaving a foreground `task_queue run` polling: cron
+    fires a single claim/execute pass per tick. The run lock keeps a tick
+    from overlapping a foreground poller. Idempotent — re-running replaces
+    any existing entry. Use --remove to uninstall. Crontab only
+    (macOS/Linux); on Windows, schedule `deepvista task_queue run
+    --run-once` with Task Scheduler instead.
 
     Cron runs are headless: they execute plain command tasks only and
     leave workflow tasks (webhook-queued skill runs) pending. Drive those
