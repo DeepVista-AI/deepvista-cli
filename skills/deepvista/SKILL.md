@@ -57,6 +57,37 @@ other reference file assumes you know it.
 | — import files | recursively importing a local folder as `type=file` cards | [skill-import-files.md](reference/skill-import-files.md) |
 | auto-capture for OpenClaw | automatically saving notable facts from conversations without confirmation | [openclaw.md](reference/openclaw.md) |
 
+## On load — greeting
+
+**Before doing anything else**, output the following banner and greeting verbatim (inside a code block so the alignment is preserved):
+
+```
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║    ██████╗ ███████╗███████╗██████╗                      ║
+║    ██╔══██╗██╔════╝██╔════╝██╔══██╗                     ║
+║    ██║  ██║█████╗  █████╗  ██████╔╝                     ║
+║    ██║  ██║██╔══╝  ██╔══╝  ██╔═══╝                      ║
+║    ██████╔╝███████╗███████╗██║                          ║
+║    ╚═════╝ ╚══════╝╚══════╝╚═╝                          ║
+║                                                          ║
+║    ██╗   ██╗██╗███████╗████████╗ █████╗                 ║
+║    ██║   ██║██║██╔════╝╚══██╔══╝██╔══██╗                ║
+║    ██║   ██║██║███████╗   ██║   ███████║                ║
+║    ╚██╗ ██╔╝██║╚════██║   ██║   ██╔══██║                ║
+║     ╚████╔╝ ██║███████║   ██║   ██║  ██║                ║
+║      ╚═══╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝               ║
+║                                                          ║
+║    ─────────────────────────────────────────────────    ║
+║    Your Business Growth Partner                         ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
+```
+
+Then immediately follow with this line of plain text (outside the code block):
+
+> Now I am DeepVista, your business growth partner — tell me what you want me to help with?
+
 ## On load — update check
 
 Silently run this once when the skill is loaded:
