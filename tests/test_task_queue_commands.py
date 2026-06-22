@@ -99,9 +99,20 @@ class _FakeClock:
     def monotonic(self) -> float:
         return self.now
 
+    def time(self) -> float:
+        return self.now
+
     def sleep(self, seconds: int) -> None:
         self.sleeps.append(seconds)
         self.now += seconds
+
+    def strftime(self, fmt: str, t: object = None) -> str:  # type: ignore[override]
+        return "00:00:00"
+
+    def localtime(self, secs: float | None = None) -> object:
+        import time as _time
+
+        return _time.localtime(0)
 
 
 def _install_fake_clock(monkeypatch: pytest.MonkeyPatch) -> _FakeClock:
@@ -113,18 +124,36 @@ def _install_fake_clock(monkeypatch: pytest.MonkeyPatch) -> _FakeClock:
 
 
 def _parse_json_objects(output: str) -> list[dict]:
-    """Parse a stream of concatenated (pretty-printed) JSON objects."""
+    """Parse a stream of (pretty-printed) JSON objects, skipping non-JSON lines.
+
+    Non-JSON text (e.g. the startup banner printed by `task_queue run`) is
+    silently skipped by advancing to the next ``{`` character before each
+    decode attempt.
+    """
     decoder = json.JSONDecoder()
     text = output.strip()
     objs: list[dict] = []
     idx = 0
     while idx < len(text):
-        obj, end = decoder.raw_decode(text, idx)
-        objs.append(obj)
-        while end < len(text) and text[end].isspace():
-            end += 1
-        idx = end
+        brace = text.find("{", idx)
+        if brace == -1:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, brace)
+            objs.append(obj)
+            idx = end
+            while idx < len(text) and text[idx].isspace():
+                idx += 1
+        except json.JSONDecodeError:
+            idx = brace + 1
     return objs
+
+
+def _parse_first_json(output: str) -> dict:
+    """Return the first JSON object from output (banner lines are ignored)."""
+    objs = _parse_json_objects(output)
+    assert objs, f"No JSON object found in output:\n{output}"
+    return objs[0]
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +184,7 @@ def test_run_once_exits_immediately_when_queue_empty(
 
     result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
+    payload = _parse_first_json(result.output)
     assert payload["tasks_run"] == 0
     # Only the claim call — no execution, no result reports.
     assert [c[1] for c in stub.calls] == ["/agents/agent-uuid-1/task-queue/claim"]
@@ -191,7 +220,7 @@ def test_run_executes_claimed_task_and_reports_result(
 
     result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
+    payload = _parse_first_json(result.output)
     assert payload["tasks_run"] == 1
     assert payload["failed"] == 0
     assert payload["results"][0]["status"] == "completed"
@@ -227,7 +256,7 @@ def test_run_rejects_non_deepvista_command_without_executing(
 
     result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
+    payload = _parse_first_json(result.output)
     assert payload["failed"] == 1
     assert payload["results"][0]["status"] == "failed"
 
@@ -428,7 +457,7 @@ def test_run_polls_until_total_time(
     assert clock.sleeps == [10, 10]
 
     # Empty passes are quiet; only the final summary is printed.
-    payload = json.loads(result.output)
+    payload = _parse_first_json(result.output)
     assert payload == {"agent_id": "agent-uuid-1", "polls": 3, "tasks_run": 0, "failed": 0}
 
 
@@ -597,7 +626,7 @@ def test_list_shows_queue(
 
     result = CliRunner().invoke(cli, ["task_queue", "list"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
+    payload = _parse_first_json(result.output)
     assert payload["count"] == 1
     assert payload["tasks"][0]["id"] == "t-1"
 
@@ -625,7 +654,7 @@ def test_setup_dry_run_previews_cron_entry(
 
     result = CliRunner().invoke(cli, ["--dry-run", "task_queue", "setup", "--interval", "10"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
+    payload = _parse_first_json(result.output)
     assert payload["dry_run"] is True
     assert "*/10 * * * *" in payload["entry"]
     assert CRON_MARKER in payload["entry"]
@@ -650,7 +679,7 @@ def test_setup_installs_and_replaces_entry_idempotently(
 
     result = CliRunner().invoke(cli, ["task_queue", "setup", "--interval", "15"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
+    payload = _parse_first_json(result.output)
     assert payload["installed"] is True
     assert payload["interval_minutes"] == 15
 
@@ -681,7 +710,7 @@ def test_setup_remove_uninstalls_entry(
 
     result = CliRunner().invoke(cli, ["task_queue", "setup", "--remove"])
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
+    payload = _parse_first_json(result.output)
     assert payload["removed"] is True
     assert written[0] == ["0 0 * * * /bin/true"]
 

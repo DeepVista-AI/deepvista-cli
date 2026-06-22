@@ -56,48 +56,99 @@ _AGENT_TYPE_LABELS = {
 # ---------------------------------------------------------------------------
 
 
-def _agent_id_path(agent_type: str, agent_role: str | None = None) -> Path:
-    """Path to the local agent registration file for a given (type, role).
+def _agent_id_path(agent_type: str, agent_role: str | None = None, project_id: str | None = None) -> Path:
+    """Path to the local agent registration file for a given (type, role[, project]).
 
-    DV-832: cache key is now ``<type>__<role>.json`` so a single machine can
-    host multiple roles (e.g. an engineering Claude and a marketing Claude
-    against different projects). When ``agent_role`` is omitted we fall back
-    to the legacy ``<type>.json`` filename for read-only adoption — see
-    ``_load_agent_id``.
+    DV-832: cache key is ``<type>__<role>.json`` so a single machine can host
+    multiple roles. When ``project_id`` is supplied the key becomes
+    ``<type>__<role>__<project_id>.json`` so a machine can also host the same
+    role for multiple projects without one overwriting the other. When
+    ``agent_role`` is omitted we fall back to the legacy ``<type>.json``
+    filename for read-only adoption — see ``_load_agent_id``.
     """
+    if agent_role and project_id:
+        return AGENTS_DIR / f"{agent_type}__{agent_role}__{project_id}.json"
     if agent_role:
         return AGENTS_DIR / f"{agent_type}__{agent_role}.json"
     return AGENTS_DIR / f"{agent_type}.json"
 
 
-def _save_agent_id(agent_type: str, agent_id: str, agent_role: str = DEFAULT_AGENT_ROLE) -> None:
+def _save_agent_id(
+    agent_type: str,
+    agent_id: str,
+    agent_role: str = DEFAULT_AGENT_ROLE,
+    project_id: str | None = None,
+) -> None:
     """Persist agent ID locally after registration."""
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = _agent_id_path(agent_type, agent_role)
-    path.write_text(_json.dumps({"agent_id": agent_id, "agent_type": agent_type, "agent_role": agent_role}))
+    path = _agent_id_path(agent_type, agent_role, project_id)
+    data: dict = {"agent_id": agent_id, "agent_type": agent_type, "agent_role": agent_role}
+    if project_id:
+        data["project_id"] = project_id
+    path.write_text(_json.dumps(data))
     os.chmod(path, 0o600)
 
 
-def _load_agent_id(agent_type: str, agent_role: str | None = None) -> str | None:
-    """Load locally stored agent ID for a given (type, [role]).
+def _load_agent_id(
+    agent_type: str,
+    agent_role: str | None = None,
+    project_id: str | None = None,
+) -> str | None:
+    """Load locally stored agent ID for a given (type, [role], [project_id]).
 
-    DV-832: prefers the new ``<type>__<role>.json`` cache key. When
-    ``agent_role`` is None, returns the most recently modified
-    registration for this type (covers Stop hook calls that don't yet
-    pass --role). Migrates the legacy ``<type>.json`` file on first read
-    by treating it as the ``misc`` role.
+    Resolution order:
+    1. Exact ``<type>__<role>__<project_id>.json`` when both role and project_id given.
+    2. ``<type>__<role>.json`` when only role given (DV-832).
+    3. Most-recently-modified file matching the type (no role/project filter).
+
+    When ``project_id`` is supplied without a role the scan is filtered to
+    files whose JSON content has a matching ``project_id``.
+    Migrates the legacy ``<type>.json`` file on first read by treating it as
+    the ``misc`` role.
     """
+    if agent_role and project_id:
+        # Prefer the project-keyed file; fall back to the role-only file (old
+        # registrations that pre-date project_id storage).
+        for path in [
+            _agent_id_path(agent_type, agent_role, project_id),
+            _agent_id_path(agent_type, agent_role),
+        ]:
+            if not path.exists():
+                continue
+            try:
+                data = _json.loads(path.read_text())
+                stored_project = data.get("project_id")
+                # Accept role-only files only when their project_id matches or is absent.
+                if stored_project and stored_project != project_id:
+                    continue
+                if aid := data.get("agent_id"):
+                    return aid
+            except (_json.JSONDecodeError, KeyError):
+                continue
+        return None
+
     if agent_role:
-        path = _agent_id_path(agent_type, agent_role)
-        if not path.exists():
-            return None
-        try:
-            return _json.loads(path.read_text()).get("agent_id")
-        except (_json.JSONDecodeError, KeyError):
-            return None
+        # Any project for this role — prefer the newest project-keyed file,
+        # fall back to the role-only file.
+        candidates: list[tuple[float, Path]] = []
+        if AGENTS_DIR.exists():
+            for p in AGENTS_DIR.glob(f"{agent_type}__{agent_role}*.json"):
+                try:
+                    candidates.append((p.stat().st_mtime, p))
+                except OSError:
+                    continue
+        candidates.sort(reverse=True)
+        for _, path in candidates:
+            try:
+                if aid := _json.loads(path.read_text()).get("agent_id"):
+                    return aid
+            except (_json.JSONDecodeError, KeyError):
+                continue
+        return None
 
     # No role specified — scan all per-role files for this type, prefer newest.
-    candidates: list[tuple[float, Path]] = []
+    # When project_id is given, filter to matching entries.
+    candidates = []
     if AGENTS_DIR.exists():
         for p in AGENTS_DIR.glob(f"{agent_type}__*.json"):
             try:
@@ -119,7 +170,13 @@ def _load_agent_id(agent_type: str, agent_role: str | None = None) -> str | None
     candidates.sort(reverse=True)
     for _, path in candidates:
         try:
-            return _json.loads(path.read_text()).get("agent_id")
+            data = _json.loads(path.read_text())
+            if project_id:
+                stored = data.get("project_id")
+                if stored and stored != project_id:
+                    continue
+            if aid := data.get("agent_id"):
+                return aid
         except (_json.JSONDecodeError, KeyError):
             continue
     return None
@@ -144,22 +201,34 @@ def load_agent_id_for_active_agent() -> str | None:
     return _load_agent_id(agent_type)
 
 
-def _remove_agent_id(agent_type: str, agent_role: str | None = None) -> None:
+def _remove_agent_id(
+    agent_type: str,
+    agent_role: str | None = None,
+    project_id: str | None = None,
+) -> None:
     """Remove local agent registration file(s) for this type.
 
-    When ``agent_role`` is given, only that role's cache file is removed.
-    Without a role, every cache for this type (including the legacy
-    ``<type>.json``) is cleared — used when a stale local record needs to
-    be wiped before re-registration (DV-751).
+    When ``agent_role`` and ``project_id`` are both given, only that exact
+    project-keyed file is removed. When only ``agent_role`` is given, all
+    files for that role (across all projects) are removed. Without either,
+    every cache for this type (including the legacy ``<type>.json``) is
+    cleared — used when a stale local record needs to be wiped before
+    re-registration (DV-751).
     """
-    if agent_role:
-        path = _agent_id_path(agent_type, agent_role)
-        if path.exists():
-            path.unlink()
+    if agent_role and project_id:
+        _agent_id_path(agent_type, agent_role, project_id).unlink(missing_ok=True)
         return
 
-    for path in AGENTS_DIR.glob(f"{agent_type}__*.json"):
-        path.unlink(missing_ok=True)
+    if agent_role:
+        # Remove all project-keyed and role-only files for this role.
+        if AGENTS_DIR.exists():
+            for path in AGENTS_DIR.glob(f"{agent_type}__{agent_role}*.json"):
+                path.unlink(missing_ok=True)
+        return
+
+    if AGENTS_DIR.exists():
+        for path in AGENTS_DIR.glob(f"{agent_type}__*.json"):
+            path.unlink(missing_ok=True)
     legacy = AGENTS_DIR / f"{agent_type}.json"
     if legacy.exists():
         legacy.unlink(missing_ok=True)
@@ -597,7 +666,7 @@ def _register_agent_via_api(
     )
     agent = data.get("agent")
     if agent and agent.get("id"):
-        _save_agent_id(agent_type, agent["id"], agent.get("agent_role", agent_role))
+        _save_agent_id(agent_type, agent["id"], agent.get("agent_role", agent_role), agent.get("project_id"))
         return agent["id"], None
     return None, data.get("error", "Registration failed")
 
@@ -763,7 +832,7 @@ def agents_register(
         output_error(1, "Registration failed", "Backend did not return an agent")
         return
 
-    _save_agent_id(agent_type, agent["id"], agent.get("agent_role", agent_role))
+    _save_agent_id(agent_type, agent["id"], agent.get("agent_role", agent_role), agent.get("project_id"))
 
     # Auto-install heartbeat hooks
     profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"

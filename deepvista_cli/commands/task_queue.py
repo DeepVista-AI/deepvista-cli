@@ -84,23 +84,51 @@ def _output(ctx: click.Context, data: object, **kwargs: object) -> None:
     format_output(data, ctx.obj.output_format, **kwargs)  # type: ignore[arg-type]
 
 
-def _resolve_machine_agent_id(agent_type: str | None, agent_role: str | None) -> str | None:
+def _resolve_machine_agent_id(
+    agent_type: str | None,
+    agent_role: str | None,
+    project_id: str | None = None,
+) -> tuple[str, str | None] | None:
     """Find the registered agent this machine's queue belongs to.
 
-    Resolution order: explicit --type/--role, then the detected host tool,
-    then the most recently registered agent of any type on this machine.
+    Resolution order: explicit --type/--role/--project, then the detected host
+    tool, then the most recently registered agent of any type on this machine.
+
+    Returns ``(agent_id, project_id)`` so callers can surface the project in
+    banners without a second file read, or ``None`` when nothing is found.
     """
+
+    def _read(path: Path) -> tuple[str, str | None] | None:
+        try:
+            data = _json.loads(path.read_text())
+            aid = data.get("agent_id")
+            return (aid, data.get("project_id")) if aid else None
+        except (OSError, _json.JSONDecodeError):
+            return None
+
     if agent_type:
-        return _load_agent_id(agent_type, agent_role)
+        agent_id = _load_agent_id(agent_type, agent_role, project_id)
+        if not agent_id:
+            return None
+        # Re-read the file to get project_id alongside the agent_id.
+        for path in AGENTS_DIR.glob(f"{agent_type}__*.json"):
+            result = _read(path)
+            if result and result[0] == agent_id:
+                return result
+        return (agent_id, project_id)
 
     try:
         detected, _ = detect_agent_tool()
     except Exception:
         detected = None
     if detected:
-        agent_id = _load_agent_id(detected, agent_role)
+        agent_id = _load_agent_id(detected, agent_role, project_id)
         if agent_id:
-            return agent_id
+            for path in AGENTS_DIR.glob(f"{detected}__*.json"):
+                result = _read(path)
+                if result and result[0] == agent_id:
+                    return result
+            return (agent_id, project_id)
 
     # Cron runs outside any agent host — fall back to the newest registration.
     candidates: list[tuple[float, Path]] = []
@@ -113,20 +141,27 @@ def _resolve_machine_agent_id(agent_type: str | None, agent_role: str | None) ->
     candidates.sort(reverse=True)
     for _, path in candidates:
         try:
-            agent_id = _json.loads(path.read_text()).get("agent_id")
+            data = _json.loads(path.read_text())
         except (OSError, _json.JSONDecodeError):
             continue
-        if agent_id:
-            return agent_id
+        if project_id and data.get("project_id") and data["project_id"] != project_id:
+            continue
+        aid = data.get("agent_id")
+        if aid:
+            return (aid, data.get("project_id"))
     return None
 
 
-def _require_machine_agent_id(agent_type: str | None, agent_role: str | None) -> str:
-    agent_id = _resolve_machine_agent_id(agent_type, agent_role)
-    if not agent_id:
+def _require_machine_agent_id(
+    agent_type: str | None,
+    agent_role: str | None,
+    project_id: str | None = None,
+) -> tuple[str, str | None]:
+    result = _resolve_machine_agent_id(agent_type, agent_role, project_id)
+    if not result:
         output_error(3, "No registered agent on this machine", "Run 'deepvista agents register' first.")
         raise SystemExit(3)
-    return agent_id
+    return result
 
 
 def _deepvista_binary() -> str:
@@ -351,7 +386,13 @@ def _detect_host_agent() -> bool:
 
 
 def _print_run_header(
-    ctx: click.Context, agent_id: str, host_mode: bool, run_once: bool, poll_interval: int, total_time: int | None
+    ctx: click.Context,
+    agent_id: str,
+    project_id: str | None,
+    host_mode: bool,
+    run_once: bool,
+    poll_interval: int,
+    total_time: int | None,
 ) -> None:
     """Print a startup banner summarising the account, agent, and polling config."""
     tokens = get_valid_token(credentials_path(getattr(ctx.obj, "profile", "default")))
@@ -368,6 +409,7 @@ def _print_run_header(
 
     click.echo(f"account : {account}")
     click.echo(f"agent   : {agent_id}")
+    click.echo(f"project : {project_id or '(unknown — re-register to capture)'}")
     click.echo(f"profile : {profile}  ({api_url})")
     click.echo(f"mode    : {mode}")
     click.echo(f"host    : {'yes (workflow tasks included)' if host_mode else 'no (command tasks only)'}")
@@ -398,6 +440,7 @@ def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[
 @task_queue_group.command("run")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
+@click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
 @click.option(
     "--host",
     "host_mode",
@@ -435,6 +478,7 @@ def task_queue_run(
     ctx: click.Context,
     agent_type: str | None,
     agent_role: str | None,
+    project_id: str | None,
     host_mode: bool,
     run_once: bool,
     poll_interval: int,
@@ -458,7 +502,7 @@ def task_queue_run(
     and the entries stay ``running`` until the agent calls
     ``task_queue complete``.
     """
-    agent_id = _require_machine_agent_id(agent_type, agent_role)
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, project_id)
     host_mode = host_mode or _detect_host_agent()
 
     if not _acquire_run_lock():
@@ -469,7 +513,7 @@ def task_queue_run(
         )
         raise SystemExit(2)
 
-    _print_run_header(ctx, agent_id, host_mode, run_once, poll_interval, total_time)
+    _print_run_header(ctx, agent_id, resolved_project_id, host_mode, run_once, poll_interval, total_time)
 
     started = time.monotonic()
     polls = 0
@@ -544,13 +588,14 @@ def task_queue_run(
 @task_queue_group.command("list")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
+@click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
 @click.pass_context
-def task_queue_list(ctx: click.Context, agent_type: str | None, agent_role: str | None) -> None:
+def task_queue_list(ctx: click.Context, agent_type: str | None, agent_role: str | None, project_id: str | None) -> None:
     """Show the task queue for this machine's agent.
 
     Read-only.
     """
-    agent_id = _require_machine_agent_id(agent_type, agent_role)
+    agent_id, _ = _require_machine_agent_id(agent_type, agent_role, project_id)
     data = _client(ctx).get(f"/agents/{agent_id}/task-queue")
     if data.get("error"):
         output_error(1, "Failed to list tasks", data["error"])
@@ -575,6 +620,7 @@ def task_queue_list(ctx: click.Context, agent_type: str | None, agent_role: str 
 @click.option("--note", default=None, help="Short outcome note stored as the task's output tail.")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
+@click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
 @click.pass_context
 def task_queue_complete(
     ctx: click.Context,
@@ -583,6 +629,7 @@ def task_queue_complete(
     note: str | None,
     agent_type: str | None,
     agent_role: str | None,
+    project_id: str | None,
 ) -> None:
     """Report the terminal outcome of a claimed workflow task (DV-955).
 
@@ -591,7 +638,7 @@ def task_queue_complete(
     tasks report automatically; this is only needed for workflow tasks,
     which stay ``running`` until someone reports them.
     """
-    agent_id = _require_machine_agent_id(agent_type, agent_role)
+    agent_id, _ = _require_machine_agent_id(agent_type, agent_role, project_id)
     data = _client(ctx).post(
         f"/agents/{agent_id}/task-queue/{task_id}/result",
         {"status": status, "exit_code": 0 if status == "completed" else 1, "output_tail": note},
