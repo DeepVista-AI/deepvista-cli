@@ -40,11 +40,12 @@ from pathlib import Path
 
 import click
 
+from deepvista_cli.auth.tokens import get_valid_token
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
 from deepvista_cli.commands.agents import AGENTS_DIR, _load_agent_id
 from deepvista_cli.commands.skill import emit_host_run_packet
-from deepvista_cli.config import CONFIG_DIR
+from deepvista_cli.config import CONFIG_DIR, credentials_path
 from deepvista_cli.output.formatter import format_output, output_error
 
 TASK_COLUMNS = ["id", "status", "command", "created_at", "finished_at", "exit_code"]
@@ -349,6 +350,30 @@ def _detect_host_agent() -> bool:
     return bool(detected) and detected != "deepvista-cli"
 
 
+def _print_run_header(
+    ctx: click.Context, agent_id: str, host_mode: bool, run_once: bool, poll_interval: int, total_time: int | None
+) -> None:
+    """Print a startup banner summarising the account, agent, and polling config."""
+    tokens = get_valid_token(credentials_path(getattr(ctx.obj, "profile", "default")))
+    account = (tokens.email or tokens.user_id or "unknown") if tokens else "not authenticated"
+    profile = getattr(ctx.obj, "profile", "default")
+    api_url = getattr(ctx.obj, "api_url", "")
+
+    if run_once:
+        mode = "single pass (--run-once)"
+    elif total_time:
+        mode = f"every {poll_interval}s for up to {total_time}s"
+    else:
+        mode = f"every {poll_interval}s until interrupted"
+
+    click.echo(f"account : {account}")
+    click.echo(f"agent   : {agent_id}")
+    click.echo(f"profile : {profile}  ({api_url})")
+    click.echo(f"mode    : {mode}")
+    click.echo(f"host    : {'yes (workflow tasks included)' if host_mode else 'no (command tasks only)'}")
+    click.echo("")
+
+
 def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[list[dict], list[dict]]:
     """One claim/execute pass; returns (command task results, workflow tasks)."""
     data = _client(ctx).post(
@@ -444,17 +469,34 @@ def task_queue_run(
         )
         raise SystemExit(2)
 
+    _print_run_header(ctx, agent_id, host_mode, run_once, poll_interval, total_time)
+
     started = time.monotonic()
     polls = 0
     total_results: list[dict] = []
     try:
         while True:
             polls += 1
+            ts = time.strftime("%H:%M:%S")
             results, workflow_tasks = _claim_and_run(ctx, agent_id, host_mode)
             total_results.extend(results)
 
-            # A polling loop stays quiet on empty passes; --run-once always
-            # reports so cron logs show every tick.
+            # Print a per-poll status line so the operator can see the poller
+            # is alive and whether new events arrived.
+            if results or workflow_tasks:
+                failed = sum(1 for r in results if r["status"] == "failed")
+                task_count = len(results) + len(workflow_tasks)
+                detail = f"{task_count} task(s) claimed"
+                if workflow_tasks:
+                    detail += f" ({len(workflow_tasks)} workflow)"
+                if failed:
+                    detail += f", {failed} failed"
+                click.echo(f"[{ts}] poll #{polls} → {detail}")
+            else:
+                click.echo(f"[{ts}] poll #{polls} → no new tasks")
+
+            # Emit structured output for non-empty passes (and always for
+            # --run-once so cron logs capture every tick).
             if run_once or results or workflow_tasks:
                 _output(
                     ctx,
@@ -492,6 +534,8 @@ def task_queue_run(
                     title="Task Queue (polling finished)",
                 )
                 return
+            next_ts = time.strftime("%H:%M:%S", time.localtime(time.time() + poll_interval))
+            click.echo(f"  sleeping {poll_interval}s — next poll at {next_ts}")
             time.sleep(poll_interval)
     finally:
         _release_run_lock()
