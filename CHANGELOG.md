@@ -37,6 +37,18 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [0.6.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.5.0...v0.6.0) (2026-06-22)
+
+
+### Features
+
+* **DV-1079:** poll by default in task_queue run with single-instance lock ([#162](https://github.com/DeepVista-AI/deepvista-cli/issues/162)) ([eef464e](https://github.com/DeepVista-AI/deepvista-cli/commit/eef464e3ab6cb1591130b79903238a1a7327bc61))
+
+
+### Documentation
+
+* add direct import path for downloaded skill markdown files ([#160](https://github.com/DeepVista-AI/deepvista-cli/issues/160)) ([31b35b9](https://github.com/DeepVista-AI/deepvista-cli/commit/31b35b9608e75759547d1bb803cc04b3bed2fea1))
+
 ## [0.5.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.4.0...v0.5.0) (2026-06-04)
 
 
