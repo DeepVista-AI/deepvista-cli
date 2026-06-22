@@ -1,4 +1,4 @@
-"""Click-level tests for `deepvista task_queue run` / `list` / `complete` / `setup` (DV-936/DV-955)."""
+"""Click-level tests for `deepvista task_queue run` / `list` / `complete` / `setup` (DV-936/DV-955/DV-1079)."""
 
 from __future__ import annotations
 
@@ -85,6 +85,46 @@ def _register_local_agent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, agent
 
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
+    # Keep the run lock inside the pytest tmp dir, away from ~/.config.
+    monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", tmp_path / ".config" / "deepvista" / "task_queue.run.lock")
+
+
+class _FakeClock:
+    """Deterministic stand-in for the `time` module inside the poll loop."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[int] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: int) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _install_fake_clock(monkeypatch: pytest.MonkeyPatch) -> _FakeClock:
+    import deepvista_cli.commands.task_queue as tq_module
+
+    clock = _FakeClock()
+    monkeypatch.setattr(tq_module, "time", clock)
+    return clock
+
+
+def _parse_json_objects(output: str) -> list[dict]:
+    """Parse a stream of concatenated (pretty-printed) JSON objects."""
+    decoder = json.JSONDecoder()
+    text = output.strip()
+    objs: list[dict] = []
+    idx = 0
+    while idx < len(text):
+        obj, end = decoder.raw_decode(text, idx)
+        objs.append(obj)
+        while end < len(text) and text[end].isspace():
+            end += 1
+        idx = end
+    return objs
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +144,7 @@ def test_validate_command_allows_only_deepvista():
 # ---------------------------------------------------------------------------
 
 
-def test_run_exits_immediately_when_queue_empty(
+def test_run_once_exits_immediately_when_queue_empty(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -113,7 +153,7 @@ def test_run_exits_immediately_when_queue_empty(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run"])
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["tasks_run"] == 0
@@ -149,7 +189,7 @@ def test_run_executes_claimed_task_and_reports_result(
 
     monkeypatch.setattr(tq_module.subprocess, "run", fake_run)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run"])
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["tasks_run"] == 1
@@ -185,7 +225,7 @@ def test_run_rejects_non_deepvista_command_without_executing(
 
     monkeypatch.setattr(tq_module.subprocess, "run", explode)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run"])
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["failed"] == 1
@@ -250,7 +290,7 @@ def test_run_headless_claims_command_only(
 
     monkeypatch.setattr(tq_module, "_detect_host_agent", lambda: False)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run"])
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     method, path, body = stub.calls[0]
     assert (method, path) == ("POST", "/agents/agent-uuid-1/task-queue/claim")
@@ -357,11 +397,144 @@ def test_run_headless_ignores_workflow_tasks_that_slip_through(
 
     monkeypatch.setattr(tq_module.subprocess, "run", explode)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run"])
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     # No packet for a cron log, no subprocess, no terminal report.
     assert "DEEPVISTA WORKFLOW TASK" not in result.output
     assert all("/result" not in c[1] for c in stub.calls)
+
+
+# ---------------------------------------------------------------------------
+# polling + single-instance lock (DV-1079)
+# ---------------------------------------------------------------------------
+
+
+def test_run_polls_until_total_time(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    for _ in range(3):
+        stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+    clock = _install_fake_clock(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--poll-interval", "10", "--total-time", "25"])
+    assert result.exit_code == 0, result.output
+
+    # Passes at t=0, 10, 20; a fourth pass would start past the 25s budget.
+    assert [c[1] for c in stub.calls] == ["/agents/agent-uuid-1/task-queue/claim"] * 3
+    assert clock.sleeps == [10, 10]
+
+    # Empty passes are quiet; only the final summary is printed.
+    payload = json.loads(result.output)
+    assert payload == {"agent_id": "agent-uuid-1", "polls": 3, "tasks_run": 0, "failed": 0}
+
+
+def test_run_polling_executes_tasks_across_passes(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    stub.queue(
+        "/agents/agent-uuid-1/task-queue/claim",
+        {"success": True, "tasks": [{"id": "t-1", "command": "deepvista notes list", "status": "running"}]},
+    )
+    stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
+    stub.queue("/agents/agent-uuid-1/task-queue/t-1/result", {"success": True})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+    _install_fake_clock(monkeypatch)
+
+    import deepvista_cli.commands.task_queue as tq_module
+
+    class _FakeProc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr(tq_module.subprocess, "run", lambda argv, **kwargs: _FakeProc())
+
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--poll-interval", "30", "--total-time", "45"])
+    assert result.exit_code == 0, result.output
+
+    # Pass 1 ran the task (and printed it); pass 2 was empty; summary totals 1.
+    payloads = _parse_json_objects(result.output)
+    assert payloads[0]["tasks_run"] == 1
+    assert payloads[-1] == {"agent_id": "agent-uuid-1", "polls": 2, "tasks_run": 1, "failed": 0}
+
+
+def test_run_host_polling_hands_back_after_workflow_packet(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    stub.queue(
+        "/agents/agent-uuid-1/task-queue/claim",
+        {
+            "success": True,
+            "tasks": [{"id": "t-wf", "command": WORKFLOW_COMMAND, "status": "running", "source": "webhook"}],
+        },
+    )
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+    clock = _install_fake_clock(monkeypatch)
+
+    import deepvista_cli.commands.task_queue as tq_module
+
+    monkeypatch.setattr(tq_module, "emit_host_run_packet", lambda *args, **kwargs: None)
+
+    # No --run-once: the loop must still exit so the host agent can drive
+    # the packet instead of sitting behind a blocked foreground poll.
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--host"])
+    assert result.exit_code == 0, result.output
+    assert [c[1] for c in stub.calls] == ["/agents/agent-uuid-1/task-queue/claim"]
+    assert clock.sleeps == []
+
+
+def test_run_refuses_when_another_run_holds_the_lock(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.task_queue as tq_module
+
+    # PID 1 (launchd/init) is always alive and never this process.
+    tq_module.RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tq_module.RUN_LOCK_PATH.write_text("1")
+
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    assert result.exit_code == 2
+    # No claim — the queue must not be touched by a second instance.
+    assert stub.calls == []
+    # The foreign lock is left in place.
+    assert tq_module.RUN_LOCK_PATH.read_text() == "1"
+
+
+def test_run_reclaims_stale_lock_and_releases_on_exit(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.task_queue as tq_module
+
+    tq_module.RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tq_module.RUN_LOCK_PATH.write_text("99999999")
+    monkeypatch.setattr(tq_module, "_pid_alive", lambda pid: False)
+
+    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    assert result.exit_code == 0, result.output
+    assert [c[1] for c in stub.calls] == ["/agents/agent-uuid-1/task-queue/claim"]
+    # Lock was reclaimed for the run and removed afterwards.
+    assert not tq_module.RUN_LOCK_PATH.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -517,3 +690,9 @@ def test_cron_entry_includes_profile_flag():
     entry = _cron_entry(5, "staging")
     assert "--profile staging" in entry
     assert _cron_entry(5, "default").find("--profile") == -1
+
+
+def test_cron_entry_runs_once_per_tick():
+    # Cron provides the schedule; each tick must be a single pass, not a
+    # second long-lived poller fighting the foreground one for the lock.
+    assert "task_queue run --run-once" in _cron_entry(5, "default")
