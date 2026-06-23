@@ -40,7 +40,7 @@ deepvista tasks run --project <id>     # restrict to one project's Machine
 - **All projects by default**: with no `--type/--role/--project`, the loop
   ensures this Machine is registered in every project you can access and polls
   all of them, so nothing is missed. Each claim stamps the Machine's
-  `last_polled`, so it shows **online** in Settings → Machines while polling.
+  `last_heartbeat_at`, so it shows **online** in Settings → Machines while polling.
 - **Single instance**: a PID lock (`~/.config/deepvista/task_queue.run.lock`)
   means only one `tasks run` is active per Machine — a foreground poller and a
   cron tick never double-claim.
