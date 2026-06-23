@@ -16,9 +16,13 @@ from dataclasses import dataclass
 # ---------------------------------------------------------------------------
 
 # Match a full <accordion ...>...</accordion> block, capturing attrs + body.
-# Non-greedy body so multiple accordions in a body each match.
+# Non-greedy body so multiple accordions in a body each match. The backend
+# normalizes phase accordions to the chevron-only `<accordion-plain>` variant
+# (DV-1084), so accept both spellings — without `-plain` the close tag
+# `</accordion-plain>` never matched `</accordion>`, so `phases()` came back
+# empty and `task_queue run --host` couldn't emit packets for normalized skills.
 _ACCORDION_RE = re.compile(
-    r"<accordion(?P<attrs>[^>]*)>(?P<body>.*?)</accordion>",
+    r"<accordion(?:-plain)?(?P<attrs>[^>]*)>(?P<body>.*?)</accordion(?:-plain)?>",
     re.DOTALL,
 )
 
