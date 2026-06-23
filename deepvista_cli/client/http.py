@@ -111,9 +111,18 @@ class DeepVistaClient:
 
     # -- Public request methods -----------------------------------------------
 
-    def _request(self, method: str, path: str, body: dict | None = None, params: dict | None = None) -> Any:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: dict | None = None,
+        params: dict | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> Any:
         """Unified request method with network error handling."""
         headers = self._auth_headers()
+        if extra_headers:
+            headers.update(extra_headers)
         self._log_request(method, path, body)
         if self.config.dry_run:
             click.echo(
@@ -148,9 +157,9 @@ class DeepVistaClient:
         """HTTP GET, returns parsed JSON."""
         return self._request("GET", path, params=params)
 
-    def post(self, path: str, body: dict | None = None) -> Any:
+    def post(self, path: str, body: dict | None = None, extra_headers: dict[str, str] | None = None) -> Any:
         """HTTP POST, returns parsed JSON."""
-        return self._request("POST", path, body=body)
+        return self._request("POST", path, body=body, extra_headers=extra_headers)
 
     def patch(self, path: str, body: dict | None = None) -> Any:
         """HTTP PATCH, returns parsed JSON."""
