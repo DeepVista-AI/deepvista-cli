@@ -93,8 +93,11 @@ cli.add_command(agents_group)
 cli.add_command(schedule_group)
 # Agent session transcripts (DV-742) — `init` / `tick` / `finalize`
 cli.add_command(session_group)
-# Pull-based task queue for this machine's agent (DV-936)
+# Tasks dispatched to this Machine: web-chat task cards (DV-1247) + the
+# pull-based CLI-command / workflow queue (DV-936). Primary name is `tasks`;
+# `task_queue` stays registered as a deprecated alias for existing cron jobs.
 cli.add_command(task_queue_group)
+cli.add_command(task_queue_group, name="task_queue")
 # Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)

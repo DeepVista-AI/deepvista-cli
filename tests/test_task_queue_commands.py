@@ -38,6 +38,13 @@ class _StubCtxClient:
         self.calls.append((method, path, body))
         q = self.responses.get(path)
         if not q:
+            # DV-1247 task-card endpoints are claimed on every poll pass; tests
+            # that don't exercise task cards get an empty default so the legacy
+            # task-queue assertions stay focused.
+            if "/tasks/claim" in path:
+                return {"success": True, "tasks": []}
+            if path.endswith("/tasks") or "/tasks/" in path:
+                return {"success": True, "tasks": []}
             raise AssertionError(f"no response queued for {method} {path}")
         return q.pop(0)
 
@@ -74,7 +81,11 @@ def _install_stub_client(monkeypatch: pytest.MonkeyPatch, stub: _StubCtxClient) 
         "post",
         lambda self, path, body=None, extra_headers=None: stub.post(path, body),
     )
-    monkeypatch.setattr(http_module.DeepVistaClient, "get", lambda self, path, params=None: stub.get(path, params))
+    monkeypatch.setattr(
+        http_module.DeepVistaClient,
+        "get",
+        lambda self, path, params=None, extra_headers=None: stub.get(path, params),
+    )
 
 
 def _register_local_agent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, agent_id: str = "agent-uuid-1") -> None:
@@ -191,7 +202,7 @@ def test_run_once_exits_immediately_when_queue_empty(
     assert result.exit_code == 0, result.output
     payload = _parse_first_json(result.output)
     assert payload["tasks_run"] == 0
-    non_setup_calls = [c[1] for c in stub.calls if c[1] != "/projects"]
+    non_setup_calls = [c[1] for c in stub.calls if c[1] != "/projects" and "/tasks" not in c[1]]
     assert non_setup_calls == ["/agents/agent-uuid-1/task-queue/claim"]
 
 
@@ -238,6 +249,57 @@ def test_run_executes_claimed_task_and_reports_result(
     method, path, body = stub.calls[-1]
     assert (method, path) == ("POST", "/agents/agent-uuid-1/task-queue/t-1/result")
     assert body == {"status": "completed", "exit_code": 0, "output_tail": "ok"}
+
+
+def test_run_executes_task_card_via_claude_and_reports_output(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DV-1247: a claimed task card runs `claude -p "/deepvista <prompt>"`; stdout
+    is reported as the output and the run completes."""
+    stub = _StubCtxClient()
+    stub.queue("/projects", [])
+    stub.queue(
+        "/agents/agent-uuid-1/tasks/claim",
+        {"success": True, "tasks": [{"id": "tc-1", "prompt": "reply hello world", "title": "Say hello"}]},
+    )
+    stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
+    stub.queue("/agents/agent-uuid-1/tasks/tc-1/result", {"success": True, "output_card_id": "out-1"})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.task_queue as tq_module
+
+    class _FakeProc:
+        returncode = 0
+        stdout = "Hello, world!"
+        stderr = ""
+
+    executed: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):  # type: ignore[no-untyped-def]
+        executed.append(argv)
+        return _FakeProc()
+
+    monkeypatch.setattr(tq_module.subprocess, "run", fake_run)
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
+    assert result.exit_code == 0, result.output
+
+    # Claude was invoked headless with the /deepvista-prefixed prompt.
+    assert executed, "claude was not launched"
+    argv = executed[0]
+    assert argv[1] == "-p"
+    assert argv[2] == "/deepvista reply hello world"
+    assert "--permission-mode" in argv
+
+    # The result (with captured stdout) was reported to the task-card endpoint.
+    result_calls = [c for c in stub.calls if c[1] == "/agents/agent-uuid-1/tasks/tc-1/result"]
+    assert result_calls, "no result reported"
+    _, _, body = result_calls[-1]
+    assert body["status"] == "completed"
+    assert body["exit_code"] == 0
+    assert body["output"] == "Hello, world!"
 
 
 def test_run_rejects_non_deepvista_command_without_executing(
@@ -468,7 +530,7 @@ def test_run_polls_until_total_time(
     assert result.exit_code == 0, result.output
 
     # Passes at t=0, 10, 20; a fourth pass would start past the 25s budget.
-    claim_calls = [c[1] for c in stub.calls if c[1] != "/projects"]
+    claim_calls = [c[1] for c in stub.calls if c[1] != "/projects" and "/tasks" not in c[1]]
     assert claim_calls == ["/agents/agent-uuid-1/task-queue/claim"] * 3
     assert clock.sleeps == [10, 10]
 
@@ -536,7 +598,7 @@ def test_run_host_polling_hands_back_after_workflow_packet(
     # the packet instead of sitting behind a blocked foreground poll.
     result = CliRunner().invoke(cli, ["task_queue", "run", "--host"])
     assert result.exit_code == 0, result.output
-    assert [c[1] for c in stub.calls if c[1] != "/projects"] == ["/agents/agent-uuid-1/task-queue/claim"]
+    assert [c[1] for c in stub.calls if c[1] != "/projects" and "/tasks" not in c[1]] == ["/agents/agent-uuid-1/task-queue/claim"]
     assert clock.sleeps == []
 
 
@@ -580,7 +642,7 @@ def test_run_reclaims_stale_lock_and_releases_on_exit(
 
     result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
     assert result.exit_code == 0, result.output
-    assert [c[1] for c in stub.calls if c[1] != "/projects"] == ["/agents/agent-uuid-1/task-queue/claim"]
+    assert [c[1] for c in stub.calls if c[1] != "/projects" and "/tasks" not in c[1]] == ["/agents/agent-uuid-1/task-queue/claim"]
     # Lock was reclaimed for the run and removed afterwards.
     assert not tq_module.RUN_LOCK_PATH.exists()
 
@@ -636,14 +698,15 @@ def test_list_shows_queue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
+    # DV-1247: `tasks list` now lists task cards (GET /agents/{id}/tasks).
     stub.queue(
-        "/agents/agent-uuid-1/task-queue",
-        {"tasks": [{"id": "t-1", "command": "deepvista notes list", "status": "pending"}]},
+        "/agents/agent-uuid-1/tasks",
+        {"success": True, "tasks": [{"id": "t-1", "title": "Say hello", "status": "pending"}]},
     )
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    result = CliRunner().invoke(cli, ["task_queue", "list"])
+    result = CliRunner().invoke(cli, ["tasks", "list"])
     assert result.exit_code == 0, result.output
     payload = _parse_first_json(result.output)
     assert payload["count"] == 1
@@ -743,7 +806,7 @@ def test_cron_entry_includes_profile_flag():
 def test_cron_entry_runs_once_per_tick():
     # Cron provides the schedule; each tick must be a single pass, not a
     # second long-lived poller fighting the foreground one for the lock.
-    assert "task_queue run --run-once" in _cron_entry(5, "default")
+    assert "tasks run --run-once" in _cron_entry(5, "default")
 
 
 # ---------------------------------------------------------------------------
@@ -873,7 +936,7 @@ def test_run_type_filter_restricts_to_single_agent(
     result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once", "--type", "claude-code", "--project", "proj-1"])
     assert result.exit_code == 0, result.output
 
-    claimed_paths = [c[1] for c in stub.calls]
+    claimed_paths = [c[1] for c in stub.calls if "/tasks" not in c[1]]
     assert claimed_paths == ["/agents/agent-proj-1/task-queue/claim"]
 
 

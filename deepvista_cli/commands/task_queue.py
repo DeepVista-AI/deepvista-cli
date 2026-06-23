@@ -375,13 +375,117 @@ def _execute_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Task cards (DV-1247) — plain prompts dispatched from the web chat, run
+# headlessly via `claude -p "/deepvista <prompt>"`.
+# ---------------------------------------------------------------------------
+
+# A task prompt may legitimately drive a long Claude Code session (research,
+# multi-tool work), so it gets a more generous budget than a queued CLI command.
+TASK_RUN_TIMEOUT_SECONDS = 1800
+
+# Headless permission posture for unattended task runs. ``bypassPermissions``
+# skips every approval prompt — appropriate for a Machine the user has
+# deliberately set polling. Override per-machine with the env var.
+DEFAULT_TASK_PERMISSION_MODE = "bypassPermissions"
+
+
+def _claude_binary() -> str:
+    """Resolve the Claude Code binary (override with DEEPVISTA_CLAUDE_BIN).
+
+    The override doubles as the test seam: point it at a stub script to drive
+    the whole claim -> run -> report loop without a real Claude Code install.
+    """
+    override = os.environ.get("DEEPVISTA_CLAUDE_BIN", "").strip()
+    if override:
+        return override
+    return shutil.which("claude") or "claude"
+
+
+def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, task: dict) -> dict:
+    """Run one claimed task card via `claude -p` and report the result back.
+
+    The prompt is handed to Claude Code as ``/deepvista <prompt>`` so the run
+    boots with the DeepVista skill context (knowledge base, notes, the CLI).
+    stdout becomes the run's output (a linked output card is created backend-side
+    when non-empty); the exit code decides completed vs. failed.
+    """
+    task_id = str(task.get("id", ""))
+    prompt = str(task.get("prompt", "")).strip()
+    headers = {"X-Project-Id": project_id} if project_id else None
+
+    if not prompt:
+        _client(ctx).post(
+            f"/agents/{agent_id}/tasks/{task_id}/result",
+            {"status": "failed", "exit_code": None, "output": "Task has an empty prompt."},
+            extra_headers=headers,
+        )
+        return {"task_id": task_id, "status": "failed", "title": task.get("title")}
+
+    permission_mode = os.environ.get("DEEPVISTA_TASK_PERMISSION_MODE", DEFAULT_TASK_PERMISSION_MODE)
+    cwd = os.environ.get("DEEPVISTA_TASK_CWD") or os.getcwd()
+    argv = [_claude_binary(), "-p", f"/deepvista {prompt}", "--permission-mode", permission_mode]
+
+    click.echo(f"  ▶ running task {task_id} via claude -p (project {project_id or '?'})", err=True)
+    try:
+        proc = subprocess.run(  # noqa: S603 — argv built from a fixed binary + literal flags
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=TASK_RUN_TIMEOUT_SECONDS,
+            cwd=cwd,
+        )
+        exit_code = proc.returncode
+        status = "completed" if exit_code == 0 else "failed"
+        output = (proc.stdout or "").strip()
+        if not output and proc.stderr:
+            output = proc.stderr.strip()
+    except subprocess.TimeoutExpired:
+        status, exit_code, output = "failed", None, f"claude run timed out after {TASK_RUN_TIMEOUT_SECONDS}s"
+    except FileNotFoundError:
+        status, exit_code, output = (
+            "failed",
+            None,
+            "Claude Code binary not found. Install it or set DEEPVISTA_CLAUDE_BIN.",
+        )
+    except OSError as exc:
+        status, exit_code, output = "failed", None, str(exc)
+
+    _client(ctx).post(
+        f"/agents/{agent_id}/tasks/{task_id}/result",
+        {"status": status, "exit_code": exit_code, "output": output, "output_title": task.get("title")},
+        extra_headers=headers,
+    )
+    return {"task_id": task_id, "title": task.get("title"), "status": status, "exit_code": exit_code}
+
+
+def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
+    """Claim this Machine's pending task cards in ``project_id`` and run each headless."""
+    headers = {"X-Project-Id": project_id} if project_id else None
+    data = _client(ctx).post(f"/agents/{agent_id}/tasks/claim", None, extra_headers=headers)
+    if not data.get("success", True):
+        click.echo(
+            f"  [warn] could not claim task cards for agent {agent_id}: {data.get('error', 'unknown')}",
+            err=True,
+        )
+        return []
+    tasks = data.get("tasks") or []
+    return [_run_task_card(ctx, agent_id, project_id, task) for task in tasks]
+
+
+# ---------------------------------------------------------------------------
 # Command group
 # ---------------------------------------------------------------------------
 
 
-@click.group("task_queue")
+@click.group("tasks")
 def task_queue_group() -> None:
-    """Run CLI commands queued for this machine's agent."""
+    """Run tasks dispatched to this Machine (DV-1247).
+
+    `tasks run` polls for work and executes it: **task cards** (plain prompts
+    enqueued from the web chat) are run headless via `claude -p`; queued CLI
+    commands and host-driven workflow runs are handled as before. Registered as
+    `tasks`; `task_queue` remains as a deprecated alias for existing cron jobs.
+    """
 
 
 def _detect_host_agent() -> bool:
@@ -472,7 +576,12 @@ def _ensure_agents_for_all_projects(ctx: click.Context) -> list[tuple[str, str |
             config = _build_config_snapshot(agent_type)
             data = _client(ctx).post(
                 "/agents",
-                {"name": _default_agent_name(agent_type), "agent_type": agent_type, "agent_role": DEFAULT_AGENT_ROLE, "config": config},
+                {
+                    "name": _default_agent_name(agent_type),
+                    "agent_type": agent_type,
+                    "agent_role": DEFAULT_AGENT_ROLE,
+                    "config": config,
+                },
                 extra_headers={"X-Project-Id": project_id},
             )
             agent = data.get("agent")
@@ -587,7 +696,15 @@ def _claim_and_run_all(
     """
     all_results: list[dict] = []
     all_workflow_tasks: list[tuple[str, dict]] = []
-    for agent_id, _ in agents:
+    for agent_id, project_id in agents:
+        # DV-1247: task cards (plain prompts run via `claude -p`) — independent
+        # of host mode; a Machine runs them headless without a host agent.
+        try:
+            all_results.extend(_claim_and_run_task_cards(ctx, agent_id, project_id))
+        except SystemExit:
+            click.echo(f"  [warn] failed to claim task cards for agent {agent_id} — skipping", err=True)
+
+        # DV-936 / DV-955: queued CLI commands + host-driven workflow runs.
         try:
             results, wf_tasks = _claim_and_run(ctx, agent_id, host_mode)
         except SystemExit:
@@ -763,27 +880,42 @@ def task_queue_run(
         _release_run_lock()
 
 
+TASK_CARD_COLUMNS = ["id", "status", "title", "agent_id", "created_at"]
+
+
 @task_queue_group.command("list")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
 @click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
+@click.option(
+    "--status", "status_filter", default=None, help="Filter task cards by status (pending/running/completed/failed)."
+)
 @click.pass_context
-def task_queue_list(ctx: click.Context, agent_type: str | None, agent_role: str | None, project_id: str | None) -> None:
-    """Show the task queue for this machine's agent.
+def task_queue_list(
+    ctx: click.Context,
+    agent_type: str | None,
+    agent_role: str | None,
+    project_id: str | None,
+    status_filter: str | None,
+) -> None:
+    """Show the tasks dispatched to this Machine (DV-1247).
 
-    Read-only.
+    Lists **task cards** (web-chat prompts) claimable by this Machine in its
+    project. Read-only.
     """
-    agent_id, _ = _require_machine_agent_id(agent_type, agent_role, project_id)
-    data = _client(ctx).get(f"/agents/{agent_id}/task-queue")
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, project_id)
+    headers = {"X-Project-Id": resolved_project_id} if resolved_project_id else None
+    params = {"status": status_filter} if status_filter else None
+    data = _client(ctx).get(f"/agents/{agent_id}/tasks", params=params, extra_headers=headers)
     if data.get("error"):
         output_error(1, "Failed to list tasks", data["error"])
         raise SystemExit(1)
     tasks = data.get("tasks", [])
     _output(
         ctx,
-        {"agent_id": agent_id, "tasks": tasks, "count": len(tasks)},
-        columns=TASK_COLUMNS,
-        title="Task Queue",
+        {"agent_id": agent_id, "project_id": resolved_project_id, "tasks": tasks, "count": len(tasks)},
+        columns=TASK_CARD_COLUMNS,
+        title="Tasks",
     )
 
 
@@ -866,9 +998,7 @@ def _write_crontab(lines: list[str]) -> bool:
 def _cron_entry(interval: int, profile: str) -> str:
     binary = _deepvista_binary()
     profile_flag = f" --profile {profile}" if profile and profile != "default" else ""
-    return (
-        f"*/{interval} * * * * {binary}{profile_flag} task_queue run --run-once >> {CRON_LOG_PATH} 2>&1 {CRON_MARKER}"
-    )
+    return f"*/{interval} * * * * {binary}{profile_flag} tasks run --run-once >> {CRON_LOG_PATH} 2>&1 {CRON_MARKER}"
 
 
 @task_queue_group.command("setup")

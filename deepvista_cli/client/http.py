@@ -153,9 +153,9 @@ class DeepVistaClient:
             self._handle_error(resp)
         return resp.json()
 
-    def get(self, path: str, params: dict | None = None) -> Any:
+    def get(self, path: str, params: dict | None = None, extra_headers: dict[str, str] | None = None) -> Any:
         """HTTP GET, returns parsed JSON."""
-        return self._request("GET", path, params=params)
+        return self._request("GET", path, params=params, extra_headers=extra_headers)
 
     def post(self, path: str, body: dict | None = None, extra_headers: dict[str, str] | None = None) -> Any:
         """HTTP POST, returns parsed JSON."""

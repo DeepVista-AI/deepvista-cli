@@ -51,6 +51,7 @@ other reference file assumes you know it.
 | `deepvista vistabase` (alias: `memory`) | viewing or semantic-searching implicit memory accumulated from chat | [vistabase.md](reference/vistabase.md) · [memory.md](reference/memory.md) |
 | `deepvista chat` | sending a message to the AI agent, listing / deleting chat sessions, continuing a conversation | [chat.md](reference/chat.md) |
 | `deepvista skill` | listing, running, installing, discovering, **creating new skills**, or **catalog-syncing** (`sync` / `load`) structured Skill workflows | [skill.md](reference/skill.md) |
+| `deepvista tasks` | running this **Machine**'s dispatched work: `tasks run` polls for tasks (web-chat prompts run headless via `claude -p`, plus queued CLI commands / workflow runs) and `tasks list` shows them | [tasks.md](reference/tasks.md) |
 | — analyze notes | searching → reading → synthesizing notes to surface themes / patterns | [skill-analyze-notes.md](reference/skill-analyze-notes.md) |
 | — research → run | finding context in the knowledge base, then running a Skill with synthesized input | [skill-research-to-skill.md](reference/skill-research-to-skill.md) |
 | — create from note | synthesizing a workflow skill from a podcast / interview / book note; batch-converting a corpus | [skill-create-from-note.md](reference/skill-create-from-note.md) |
