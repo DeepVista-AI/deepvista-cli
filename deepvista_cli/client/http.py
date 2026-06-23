@@ -161,6 +161,36 @@ class DeepVistaClient:
         """HTTP POST, returns parsed JSON."""
         return self._request("POST", path, body=body, extra_headers=extra_headers)
 
+    def post_nofatal(self, path: str, body: dict | None = None, extra_headers: dict[str, str] | None = None) -> Any:
+        """HTTP POST that returns the parsed response body for both success and API errors.
+
+        Unlike post(), 4xx/5xx responses are returned as-is (the server's JSON body) rather
+        than printed to stderr and raised as SystemExit. Network errors still raise SystemExit.
+        """
+        headers = self._auth_headers()
+        if extra_headers:
+            headers.update(extra_headers)
+        self._log_request("POST", path, body)
+        if self.config.dry_run:
+            click.echo(
+                json.dumps({"dry_run": True, "method": "POST", "path": path, "body": body}, default=str),
+                err=True,
+            )
+            sys.exit(0)
+        try:
+            client = self._get_client()
+            resp = client.post(path, headers=headers, json=body or {})
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            self._handle_network_error(exc)
+        self._log_response(resp)
+        try:
+            data = resp.json()
+            if isinstance(data, dict):
+                data["_status_code"] = resp.status_code
+            return data
+        except Exception:
+            return {"error": resp.text, "status_code": resp.status_code, "_status_code": resp.status_code}
+
     def patch(self, path: str, body: dict | None = None) -> Any:
         """HTTP PATCH, returns parsed JSON."""
         return self._request("PATCH", path, body=body)

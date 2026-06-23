@@ -35,6 +35,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -82,6 +83,10 @@ RUN_LOCK_PATH = CONFIG_DIR / "task_queue.run.lock"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+class _StaleAgentError(Exception):
+    """Raised when an agent's project no longer exists and its local file has been deleted."""
 
 
 def _client(ctx: click.Context) -> DeepVistaClient:
@@ -425,7 +430,19 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
     cwd = os.environ.get("DEEPVISTA_TASK_CWD") or os.getcwd()
     argv = [_claude_binary(), "-p", f"/deepvista {prompt}", "--permission-mode", permission_mode]
 
-    click.echo(f"  ▶ running task {task_id} via claude -p (project {project_id or '?'})", err=True)
+    short_id = task_id[:8]
+    click.echo(f"  ▶ running task {short_id}… via claude -p (project {project_id or '?'})", err=True)
+
+    _done = threading.Event()
+    _start = time.monotonic()
+
+    def _progress() -> None:
+        while not _done.wait(10):
+            elapsed = int(time.monotonic() - _start)
+            click.echo(f"    task {short_id}… still running ({elapsed}s elapsed)", err=True)
+
+    _t = threading.Thread(target=_progress, daemon=True)
+    _t.start()
     try:
         proc = subprocess.run(  # noqa: S603 — argv built from a fixed binary + literal flags
             argv,
@@ -449,6 +466,13 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         )
     except OSError as exc:
         status, exit_code, output = "failed", None, str(exc)
+    finally:
+        _done.set()
+        _t.join()
+
+    elapsed = int(time.monotonic() - _start)
+    icon = "✓" if status == "completed" else "✗"
+    click.echo(f"  {icon} task {short_id}… {status} (exit {exit_code}, {elapsed}s)", err=True)
 
     _client(ctx).post(
         f"/agents/{agent_id}/tasks/{task_id}/result",
@@ -459,12 +483,35 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
 
 
 def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
-    """Claim this Machine's pending task cards in ``project_id`` and run each headless."""
+    """Claim this Machine's pending task cards in ``project_id`` and run each headless.
+
+    Raises ``_StaleAgentError`` when the server returns ``project_not_found`` and the
+    local registration file has been deleted, so the caller can drop this agent_id
+    from the live poll list and avoid repeated 404 warnings.
+    """
     headers = {"X-Project-Id": project_id} if project_id else None
-    data = _client(ctx).post(f"/agents/{agent_id}/tasks/claim", None, extra_headers=headers)
-    if not data.get("success", True):
+    data = _client(ctx).post_nofatal(f"/agents/{agent_id}/tasks/claim", None, extra_headers=headers)
+    status_code = data.get("_status_code", 200) if isinstance(data, dict) else 200
+    error_code = data.get("error") if isinstance(data.get("error"), str) else None
+    # FastAPI 4xx errors use "detail" not "error"; treat any non-2xx as failure.
+    if not error_code and status_code >= 400:
+        error_code = data.get("detail") or str(status_code)
+    if error_code or not data.get("success", True):
+        if error_code == "project_not_found":
+            for aid, _, path in _iter_agent_files():
+                if aid == agent_id:
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+                    break
+            click.echo(
+                f"  removed stale agent {agent_id} (project {project_id} no longer accessible)",
+                err=True,
+            )
+            raise _StaleAgentError(agent_id)
         click.echo(
-            f"  [warn] could not claim task cards for agent {agent_id}: {data.get('error', 'unknown')}",
+            f"  [warn] could not claim task cards for agent {agent_id}: {error_code or 'unknown'}",
             err=True,
         )
         return []
@@ -497,24 +544,23 @@ def _detect_host_agent() -> bool:
     return bool(detected) and detected != "deepvista-cli"
 
 
-def _list_all_machine_agents() -> list[tuple[str, str | None]]:
-    """Return (agent_id, project_id) for every locally registered agent.
+def _iter_agent_files() -> list[tuple[str, str | None, Path]]:
+    """Return (agent_id, project_id, path) for every locally registered agent, newest-first.
 
     Deduplicates by agent_id so a registration file collision never causes
     double-claiming.
     """
-    seen: set[str] = set()
-    results: list[tuple[str, str | None]] = []
     if not AGENTS_DIR.exists():
-        return results
+        return []
+    seen: set[str] = set()
     candidates: list[tuple[float, Path]] = []
     for path in AGENTS_DIR.glob("*.json"):
         try:
             candidates.append((path.stat().st_mtime, path))
         except OSError:
             continue
-    candidates.sort(reverse=True)
-    for _, path in candidates:
+    result: list[tuple[str, str | None, Path]] = []
+    for _, path in sorted(candidates, reverse=True):
         try:
             data = _json.loads(path.read_text())
         except (OSError, _json.JSONDecodeError):
@@ -523,22 +569,31 @@ def _list_all_machine_agents() -> list[tuple[str, str | None]]:
         if not aid or aid in seen:
             continue
         seen.add(aid)
-        results.append((aid, data.get("project_id")))
-    return results
+        result.append((aid, data.get("project_id"), path))
+    return result
 
 
-def _ensure_agents_for_all_projects(ctx: click.Context) -> list[tuple[str, str | None]]:
+def _list_all_machine_agents() -> list[tuple[str, str | None]]:
+    """Return (agent_id, project_id) for every locally registered agent."""
+    return [(aid, proj_id) for aid, proj_id, _ in _iter_agent_files()]
+
+
+def _ensure_agents_for_all_projects(
+    ctx: click.Context,
+) -> tuple[list[tuple[str, str | None]], dict[str, str]]:
     """Fetch all projects and ensure a local agent is registered for each one.
 
     For projects that already have a local registration the existing agent_id
     is reused; for new projects a fresh agent is registered on-the-fly using
-    the detected host agent type (or ``deepvista-cli`` as a fallback).  Any
-    locally registered agents whose project no longer appears in the API
-    response are appended at the end so nothing is silently dropped.
+    the detected host agent type (or ``deepvista-cli`` as a fallback).
 
-    Returns ``(agent_id, project_id)`` for every project, deduped by agent_id.
-    On network failure falls back to the local-only list so offline/cron runs
-    still work.
+    Stale local registrations whose project_id no longer appears in the API
+    response are deleted so they stop producing 404 warnings on every poll.
+    Agents with no project_id (legacy global registrations) are kept.
+
+    Returns ``((agent_id, project_id), project_names)`` where ``project_names``
+    maps project_id → human-readable name.  On network failure falls back to
+    the local-only list with an empty name map so offline/cron runs still work.
     """
     try:
         detected, _ = detect_agent_tool()
@@ -550,10 +605,18 @@ def _ensure_agents_for_all_projects(ctx: click.Context) -> list[tuple[str, str |
         projects_raw = _client(ctx).get("/projects")
     except SystemExit:
         click.echo("  [warn] could not fetch projects — using locally registered agents only", err=True)
-        return _list_all_machine_agents()
+        return _list_all_machine_agents(), {}
 
     # Backend returns a JSON array directly for GET /projects.
     projects: list[dict] = projects_raw if isinstance(projects_raw, list) else projects_raw.get("projects", [])
+
+    # Build project_id → name map from the API response.
+    project_names: dict[str, str] = {}
+    for project in projects:
+        pid = project.get("id")
+        name = project.get("name") or project.get("title") or ""
+        if pid and name:
+            project_names[pid] = name
 
     seen_agent_ids: set[str] = set()
     result: list[tuple[str, str | None]] = []
@@ -562,6 +625,7 @@ def _ensure_agents_for_all_projects(ctx: click.Context) -> list[tuple[str, str |
         project_id = project.get("id")
         if not project_id:
             continue
+        project_name = project_names.get(project_id, "")
 
         # Reuse an existing local registration for this project.
         existing_id = _load_agent_id(agent_type, DEFAULT_AGENT_ROLE, project_id)
@@ -593,7 +657,7 @@ def _ensure_agents_for_all_projects(ctx: click.Context) -> list[tuple[str, str |
                 continue
             agent_id: str = agent["id"]
             agent_role_saved = agent.get("agent_role", DEFAULT_AGENT_ROLE)
-            _save_agent_id(agent_type, agent_id, agent_role_saved, project_id)
+            _save_agent_id(agent_type, agent_id, agent_role_saved, project_id, project_name or None)
 
             # Mirror what `agents register` does: install hooks + initial sync.
             profile = getattr(ctx.obj, "profile", "default")
@@ -616,19 +680,57 @@ def _ensure_agents_for_all_projects(ctx: click.Context) -> list[tuple[str, str |
             seen_agent_ids.add(agent_id)
             result.append((agent_id, project_id))
 
-    # Append any locally registered agents whose project wasn't in the API
-    # response (e.g. old registrations, shared projects that were later removed).
-    for agent_id, proj_id in _list_all_machine_agents():
-        if agent_id not in seen_agent_ids:
-            seen_agent_ids.add(agent_id)
-            result.append((agent_id, proj_id))
+    # Prune stale registrations and append any remaining local agents.
+    # An agent file is stale if it has a project_id that no longer appears in
+    # the API response; deleting it prevents repeated 404 warnings each poll.
+    # Agents with no project_id (legacy global registrations) are kept.
+    api_project_ids = {p.get("id") for p in projects if p.get("id")}
+    for agent_id, proj_id, path in _iter_agent_files():
+        if agent_id in seen_agent_ids:
+            continue
+        if proj_id and proj_id not in api_project_ids:
+            try:
+                path.unlink()
+                click.echo(
+                    f"  removed stale agent {agent_id} (project {proj_id} no longer accessible)",
+                    err=True,
+                )
+            except OSError:
+                pass
+            continue
+        seen_agent_ids.add(agent_id)
+        result.append((agent_id, proj_id))
 
-    return result
+    return result, project_names
+
+
+def _agent_type_label(agent_id: str) -> str:
+    """Return the agent_type stored in the local registration file for this agent."""
+    if not AGENTS_DIR.exists():
+        return ""
+    for path in AGENTS_DIR.glob("*.json"):
+        try:
+            data = _json.loads(path.read_text())
+            if data.get("agent_id") == agent_id:
+                return data.get("agent_type", "")
+        except (OSError, _json.JSONDecodeError):
+            continue
+    return ""
+
+
+def _project_display(project_id: str | None, project_names: dict[str, str]) -> str:
+    """Format a project ID as 'Name (short-id)' when a name is known, else just the ID."""
+    if not project_id:
+        return "unknown"
+    name = project_names.get(project_id, "")
+    short = project_id[:8] + "…"
+    return f"{name}  ({short})" if name else project_id
 
 
 def _print_run_header(
     ctx: click.Context,
     agents: list[tuple[str, str | None]],
+    project_names: dict[str, str],
     host_mode: bool,
     run_once: bool,
     poll_interval: int,
@@ -650,12 +752,16 @@ def _print_run_header(
     click.echo(f"account  : {account}")
     if len(agents) == 1:
         agent_id, project_id = agents[0]
-        click.echo(f"agent    : {agent_id}")
-        click.echo(f"project  : {project_id or '(unknown — re-register to capture)'}")
+        agent_type = _agent_type_label(agent_id)
+        click.echo(f"agent    : {agent_id}" + (f"  [{agent_type}]" if agent_type else ""))
+        click.echo(f"project  : {_project_display(project_id, project_names)}")
     else:
         click.echo(f"agents   : {len(agents)} (all registered on this machine)")
         for agent_id, project_id in agents:
-            click.echo(f"  {agent_id}  project={project_id or 'unknown'}")
+            agent_type = _agent_type_label(agent_id)
+            proj = _project_display(project_id, project_names)
+            type_tag = f"  [{agent_type}]" if agent_type else ""
+            click.echo(f"  {agent_id[:8]}…{type_tag}  →  {proj}")
     click.echo(f"profile  : {profile}  ({api_url})")
     click.echo(f"mode     : {mode}")
     click.echo(f"host     : {'yes (workflow tasks included)' if host_mode else 'no (command tasks only)'}")
@@ -687,20 +793,27 @@ def _claim_and_run_all(
     ctx: click.Context,
     agents: list[tuple[str, str | None]],
     host_mode: bool,
-) -> tuple[list[dict], list[tuple[str, dict]]]:
+) -> tuple[list[dict], list[tuple[str, dict]], set[str]]:
     """Claim and execute tasks for all agents in one poll pass.
 
-    Returns ``(command_results, [(agent_id, workflow_task)])``.
+    Returns ``(command_results, [(agent_id, workflow_task)], pruned_agent_ids)``.
+    ``pruned_agent_ids`` contains agent_ids whose local registration was deleted
+    because the project no longer exists; the caller should remove them from the
+    live agents list so they are not retried on subsequent polls.
     Per-agent claim failures are logged and skipped so a single stale
     registration does not prevent the others from being serviced.
     """
     all_results: list[dict] = []
     all_workflow_tasks: list[tuple[str, dict]] = []
+    pruned: set[str] = set()
     for agent_id, project_id in agents:
         # DV-1247: task cards (plain prompts run via `claude -p`) — independent
         # of host mode; a Machine runs them headless without a host agent.
         try:
             all_results.extend(_claim_and_run_task_cards(ctx, agent_id, project_id))
+        except _StaleAgentError:
+            pruned.add(agent_id)
+            continue  # skip the CLI-command claim for a pruned agent
         except SystemExit:
             click.echo(f"  [warn] failed to claim task cards for agent {agent_id} — skipping", err=True)
 
@@ -712,7 +825,7 @@ def _claim_and_run_all(
             continue
         all_results.extend(results)
         all_workflow_tasks.extend((agent_id, t) for t in wf_tasks)
-    return all_results, all_workflow_tasks
+    return all_results, all_workflow_tasks, pruned
 
 
 @task_queue_group.command("run")
@@ -792,6 +905,7 @@ def task_queue_run(
         )
         raise SystemExit(2)
 
+    project_names: dict[str, str] = {}
     if agent_type or agent_role or project_id:
         # Explicit filter — single-agent mode (backward-compatible).
         agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, project_id)
@@ -799,14 +913,14 @@ def task_queue_run(
     else:
         # No filter — auto-register for every project the user has access to,
         # then poll all of them so nothing is missed.
-        agents = _ensure_agents_for_all_projects(ctx)
+        agents, project_names = _ensure_agents_for_all_projects(ctx)
         if not agents:
             output_error(3, "No projects or registered agents found", "Run 'deepvista auth login' then retry.")
             raise SystemExit(3)
 
     host_mode = host_mode or _detect_host_agent()
 
-    _print_run_header(ctx, agents, host_mode, run_once, poll_interval, total_time)
+    _print_run_header(ctx, agents, project_names, host_mode, run_once, poll_interval, total_time)
 
     started = time.monotonic()
     polls = 0
@@ -815,7 +929,9 @@ def task_queue_run(
         while True:
             polls += 1
             ts = time.strftime("%H:%M:%S")
-            results, workflow_tasks = _claim_and_run_all(ctx, agents, host_mode)
+            results, workflow_tasks, pruned = _claim_and_run_all(ctx, agents, host_mode)
+            if pruned:
+                agents = [(aid, pid) for aid, pid in agents if aid not in pruned]
             total_results.extend(results)
 
             # Print a per-poll status line so the operator can see the poller

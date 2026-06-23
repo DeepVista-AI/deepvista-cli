@@ -83,6 +83,11 @@ def _install_stub_client(monkeypatch: pytest.MonkeyPatch, stub: _StubCtxClient) 
     )
     monkeypatch.setattr(
         http_module.DeepVistaClient,
+        "post_nofatal",
+        lambda self, path, body=None, extra_headers=None: stub.post(path, body),
+    )
+    monkeypatch.setattr(
+        http_module.DeepVistaClient,
         "get",
         lambda self, path, params=None, extra_headers=None: stub.get(path, params),
     )
@@ -852,7 +857,7 @@ def test_run_once_polls_all_registered_agents(
     monkeypatch.setattr(
         tq_module,
         "_ensure_agents_for_all_projects",
-        lambda ctx: [("agent-proj-1", "proj-1"), ("agent-proj-2", "proj-2")],
+        lambda ctx: ([("agent-proj-1", "proj-1"), ("agent-proj-2", "proj-2")], {}),
     )
 
     result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
@@ -904,7 +909,8 @@ def test_ensure_agents_for_all_projects_registers_missing_and_reuses_existing(
     @_cli.command("_test_ensure")
     @click.pass_context
     def _test_cmd(ctx):  # type: ignore[no-untyped-def]
-        captured.extend(tq_module._ensure_agents_for_all_projects(ctx))
+        agents, _ = tq_module._ensure_agents_for_all_projects(ctx)
+        captured.extend(agents)
 
     result = _CliRunner().invoke(_cli, ["_test_ensure"])
     assert result.exit_code == 0, result.output
@@ -958,7 +964,7 @@ def test_run_skips_stale_agent_and_continues(
     monkeypatch.setattr(
         tq_module,
         "_ensure_agents_for_all_projects",
-        lambda ctx: [("agent-proj-1", "proj-1"), ("agent-proj-2", "proj-2")],
+        lambda ctx: ([("agent-proj-1", "proj-1"), ("agent-proj-2", "proj-2")], {}),
     )
 
     result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])

@@ -78,6 +78,7 @@ def _save_agent_id(
     agent_id: str,
     agent_role: str = DEFAULT_AGENT_ROLE,
     project_id: str | None = None,
+    project_name: str | None = None,
 ) -> None:
     """Persist agent ID locally after registration."""
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -85,6 +86,8 @@ def _save_agent_id(
     data: dict = {"agent_id": agent_id, "agent_type": agent_type, "agent_role": agent_role}
     if project_id:
         data["project_id"] = project_id
+    if project_name:
+        data["project_name"] = project_name
     path.write_text(_json.dumps(data))
     os.chmod(path, 0o600)
 
