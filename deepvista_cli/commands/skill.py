@@ -549,6 +549,37 @@ def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str) -> None:
     sys.exit(2)
 
 
+@skill_phase_group.command("need-input")
+@click.argument("skill_id")
+@click.argument("phase_label")
+@click.option("--reason", required=True, help="Short sentence describing what input is needed from the user.")
+@click.pass_context
+def skill_phase_need_input(ctx: click.Context, skill_id: str, phase_label: str, reason: str) -> None:
+    """Signal that a phase is blocked waiting for user input (mermaid ``:::dvNeedIntervention``).
+
+    Marks the accordion open and sets the mermaid node to
+    ``:::dvNeedIntervention`` so the DeepVista UI shows the phase as
+    waiting for the user — distinct from a technical blocker (``phase pause``)
+    or an error. Exits non-zero so wrapping scripts notice.
+
+    The user provides the required information and then resumes with:
+
+        deepvista skill run --mode host <skill_id>
+    """
+    result = _phase(ctx, skill_id, phase_label=phase_label, action="need_input", reason=reason)
+    out = {
+        "ok": False,
+        "need_input": True,
+        "skill_id": skill_id,
+        "phase": phase_label,
+        "title": result.get("title", ""),
+        "reason": reason,
+        "resume_with": f"deepvista skill run --mode host {skill_id}",
+    }
+    format_output(out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url)
+    sys.exit(2)
+
+
 @skill_phase_group.command("run-on-deepvista")
 @click.argument("skill_id")
 @click.argument("phase_label")

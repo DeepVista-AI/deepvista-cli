@@ -110,8 +110,25 @@ follow steps 1–3.
 
 ### 5. Graceful exit when you can't continue
 
-If the current phase requires a tool you don't have (the user is offline,
-an MCP is unavailable, credentials are missing, …):
+Two distinct cases:
+
+**User input required** — the phase needs information, a decision, or
+approval from the user before it can proceed:
+
+1. Save whatever partial output you produced as a note card via
+   `deepvista notes create` so DeepVista keeps the artifact.
+2. Run:
+   ```
+   deepvista skill phase need-input <skill_id> "<Phase N: title>" \
+       --reason "<one short sentence describing what's needed>"
+   ```
+   This sets the mermaid node to `:::dvNeedIntervention`, **keeps the
+   run lock held** (`status` stays `in_progress`), and exits non-zero.
+3. Tell the user in plain language what you need and how to resume
+   once they've provided it (e.g. "Please confirm the target audience
+   and re-run `deepvista skill run` to continue Phase 2").
+
+**Technical blocker** — a tool, MCP, or credential is unavailable:
 
 1. Save whatever partial output you produced as a note card via
    `deepvista notes create` so DeepVista keeps the artifact.
@@ -148,8 +165,9 @@ be run again), and emits `<json>{"done": true}</json>`.
 | Open a phase | `deepvista skill phase open <skill_id> "Phase N: …"` |
 | Mark a phase done | `deepvista skill phase done <skill_id> "Phase N: …" [--artifact-card-id ID]…` |
 | Reset phase to pending | `deepvista skill phase reset <skill_id> "Phase N: …"` |
-| Pause (lock held) | `deepvista skill phase pause <skill_id> --reason "…"` |
-| Resume from pause | re-run `deepvista skill run --mode host <skill_id>` |
+| Needs user input (:::dvNeedIntervention) | `deepvista skill phase need-input <skill_id> "Phase N: …" --reason "…"` |
+| Pause — technical blocker (lock held) | `deepvista skill phase pause <skill_id> --reason "…"` |
+| Resume from pause / need-input | re-run `deepvista skill run --mode host <skill_id>` |
 | One-phase fallback to DeepVista | `deepvista skill phase run-on-deepvista <skill_id> "Phase N: …"` |
 | Finalize the run | `deepvista skill complete <skill_id> --review "…"` |
 | Save an artifact (note) | `deepvista notes create --title "…" --content "…"` |
