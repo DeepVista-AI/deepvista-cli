@@ -16,7 +16,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --frozen --extra ui
+        run: uv sync --frozen
 
       - name: Plugin manifest version matches pyproject.toml
         run: python3 scripts/check_plugin_version.py --check
