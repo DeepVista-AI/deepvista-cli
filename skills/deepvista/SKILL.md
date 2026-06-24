@@ -43,7 +43,7 @@ other reference file assumes you know it.
 
 | Subcommand | Use when | Reference |
 |---|---|---|
-| `deepvista auth` / `agents` / `config` / `upgrade` / `ui` | authenticating, registering an agent, switching profiles, checking for updates | [shared.md](reference/shared.md) |
+| `deepvista auth` / `agents` / `config` / `upgrade` | authenticating, registering an agent, switching profiles, checking for updates | [shared.md](reference/shared.md) |
 | `deepvista notes` | taking a note the user **explicitly asked to record**, listing / updating / deleting notes, quick-capture of a single-line fact, re-indexing notes for entity extraction | [notes.md](reference/notes.md) |
 | `deepvista session` | recording an agent conversation transcript as a rolling `type=session` card via the `init` / `tick` / `finalize` hook lifecycle | [session.md](reference/session.md) |
 | `deepvista lint` | periodic LLM health check over the vistabase — duplicates, contradictions, stale claims, orphans, missing cross-references, data gaps | [lint.md](reference/lint.md) |
@@ -80,9 +80,9 @@ If `deepvista` is not on `PATH`, skip silently — do not attempt to install it 
 ## Install
 
 ```bash
-uv tool install 'deepvista-cli[ui]'
+uv tool install deepvista-cli
 # or
-pip install 'deepvista-cli[ui]'
+pip install deepvista-cli
 ```
 
 Then authenticate:

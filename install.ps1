@@ -82,13 +82,13 @@ if (Test-Command 'deepvista') {
     deepvista upgrade
 } else {
     if (Test-Command 'uv') {
-        uv tool install "deepvista-cli[ui]"
+        uv tool install "deepvista-cli"
     } elseif (Test-Command 'pipx') {
-        pipx install "deepvista-cli[ui]"
+        pipx install "deepvista-cli"
     } elseif (Test-Command 'pip3') {
-        pip3 install --user "deepvista-cli[ui]"
+        pip3 install --user "deepvista-cli"
     } elseif (Test-Command 'pip') {
-        pip install --user "deepvista-cli[ui]"
+        pip install --user "deepvista-cli"
     } else {
         Write-Error 'No Python package manager found (pip, pipx, or uv required)'
         exit 1
@@ -335,7 +335,7 @@ if ($verify.Ok) {
         Write-Host ''
         Write-Sub 'The `deepvista` launcher is broken but `uv tool run deepvista` works. To fix the launcher:'
         Write-Sub '  uv self update'
-        Write-Sub '  uv tool install --reinstall "deepvista-cli[ui]"'
+        Write-Sub '  uv tool install --reinstall "deepvista-cli"'
         Write-Sub 'Until then, prefix commands with `uv tool run`, e.g. `uv tool run deepvista auth login`.'
         Write-Sub 'Tip: paths with spaces or OneDrive-synced folders aggravate this bug - run from a path without spaces.'
         Write-Host ''
@@ -343,7 +343,7 @@ if ($verify.Ok) {
         Write-Warn 'Could not run deepvista via the launcher or `uv tool run`.'
         Write-Sub 'Try the following, then re-run this installer:'
         Write-Sub '  uv self update'
-        Write-Sub '  uv tool install --reinstall "deepvista-cli[ui]"'
+        Write-Sub '  uv tool install --reinstall "deepvista-cli"'
         Write-Sub 'Or invoke it directly with: uv tool run deepvista <args>'
         Write-Sub 'Tip: avoid working directories with spaces or OneDrive sync, which trigger the uv trampoline bug.'
     }

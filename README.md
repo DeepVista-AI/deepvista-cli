@@ -31,9 +31,6 @@
 
 <br>
 
-<!-- TODO: Add a GIF/screenshot of the TUI here -->
-<!-- <p align="center"><img src="docs/tui-demo.gif" alt="DeepVista TUI" width="700"></p> -->
-
 ---
 
 ## Who this is for
@@ -66,7 +63,6 @@ Most knowledge tools trap your data in a GUI. DeepVista CLI gives you **full acc
 - 🤖 **Agent-native** — Claude Code, Cursor, OpenCode use it as a skill
 - 📋 **Run Skills** — execute structured AI workflows from the command line
 - 💬 **Chat** — talk to the DeepVista AI agent in your terminal
-- 🖥️ **Full TUI** — four-panel terminal UI for chat, notes, skills, and memory
 
 ## Related Ideas
 
@@ -167,7 +163,7 @@ Fixes, in order of preference:
 
    ```powershell
    uv self update
-   uv tool install --reinstall "deepvista-cli[ui]"
+   uv tool install --reinstall "deepvista-cli"
    ```
 
 2. **Run via `uv tool run` as a fallback** (bypasses the broken trampoline entirely):
@@ -279,30 +275,6 @@ Export my founder playbook Skill as a SKILL.md file so I can share it with my te
 
 ---
 
-## Terminal UI (TUI)
-
-A full four-panel terminal interface — chat, notes, skills, and memory in one view.
-
-```bash
-pip install 'deepvista-cli[ui]'
-deepvista ui
-```
-
-| Panel | Key | Description |
-|-------|-----|-------------|
-| **Chat** | `1` | Talk to the DeepVista AI agent. Stream responses in real time. |
-| **Notes** | `2` | Browse and search your notes. Click to read full content. |
-| **Skills** | `3` | List all Skills. Select one to view details and run it live. |
-| **Memory** | `4` | Read-only view of implicit context from Chat sessions. |
-
-| Key | Action |
-|-----|--------|
-| `1`–`4` | Switch panels |
-| `r` | Refresh |
-| `q` | Quit |
-
----
-
 ## Commands
 
 Primary resources:
@@ -326,7 +298,6 @@ deepvista lint       # Health-check the vistabase with the DeepVista agent
 deepvista auth       # Authenticate with DeepVista
 deepvista config     # Manage CLI profiles (local, staging, production, …)
 deepvista upgrade    # Check for and install CLI + skill updates
-deepvista ui         # Launch the terminal UI (requires the [ui] extra)
 ```
 
 ### card — Knowledge cards
@@ -442,13 +413,6 @@ pipx install deepvista-cli
 uv tool install deepvista-cli
 ```
 
-### With TUI support
-
-```bash
-pip install 'deepvista-cli[ui]'
-uv tool install 'deepvista-cli[ui]'
-```
-
 ### From GitHub
 
 ```bash
@@ -479,7 +443,7 @@ you'll see no errors but no skills either.
 
 ```bash
 uv sync
-uv pip install -e '.[ui]'
+uv pip install -e .
 uv run deepvista --help
 ```
 
@@ -576,7 +540,6 @@ deepvista-cli/
 │   ├── auth/                # Login, token storage, callback server
 │   ├── client/              # HTTP client, SSE streaming
 │   ├── commands/            # card, skill, vistabase, chat, notes, agents, session, tasks, schedule, auth, config, lint, upgrade
-│   ├── tui/                 # Terminal UI (requires [ui] extra)
 │   └── output/              # JSON + table formatters
 └── skills/                  # SKILL.md files for agent integration
 ```

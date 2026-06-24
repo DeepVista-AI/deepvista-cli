@@ -103,25 +103,5 @@ cli.add_command(lint_command)
 cli.add_command(notes_group)  # notes = cards with type=note (explicit knowledge layer)
 
 
-@cli.command("ui")
-@click.pass_context
-def launch_ui(ctx: click.Context) -> None:
-    """Launch the DeepVista terminal UI (TUI).
-
-    Requires: pip install 'deepvista-cli[ui]'
-    """
-    try:
-        from deepvista_cli.tui.app import DeepVistaApp
-    except ImportError:
-        raise click.ClickException(
-            "TUI dependencies not installed.\n"
-            "Run: pip install 'deepvista-cli[ui]'\n"
-            "  or: uv pip install 'deepvista-cli[ui]'"
-        )
-
-    app = DeepVistaApp(cli_config=ctx.obj)
-    app.run()
-
-
 if __name__ == "__main__":
     cli()

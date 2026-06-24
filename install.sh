@@ -17,13 +17,13 @@ if command -v deepvista >/dev/null 2>&1; then
   deepvista upgrade
 else
   if command -v uv >/dev/null 2>&1; then
-    uv tool install "deepvista-cli[ui]"
+    uv tool install "deepvista-cli"
   elif command -v pipx >/dev/null 2>&1; then
-    pipx install "deepvista-cli[ui]"
+    pipx install "deepvista-cli"
   elif command -v pip3 >/dev/null 2>&1; then
-    pip3 install --user "deepvista-cli[ui]"
+    pip3 install --user "deepvista-cli"
   elif command -v pip >/dev/null 2>&1; then
-    pip install --user "deepvista-cli[ui]"
+    pip install --user "deepvista-cli"
   else
     echo "Error: no Python package manager found (pip, pipx, or uv required)" >&2
     exit 1
