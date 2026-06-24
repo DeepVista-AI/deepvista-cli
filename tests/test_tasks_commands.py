@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from deepvista_cli.commands.task_queue import (
+from deepvista_cli.commands.tasks import (
     CRON_MARKER,
     _cron_entry,
     _is_workflow_task,
@@ -101,7 +101,7 @@ def _register_local_agent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, agent
         json.dumps({"agent_id": agent_id, "agent_type": "deepvista-cli", "agent_role": "misc"})
     )
     import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
@@ -136,7 +136,7 @@ class _FakeClock:
 
 
 def _install_fake_clock(monkeypatch: pytest.MonkeyPatch) -> _FakeClock:
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     clock = _FakeClock()
     monkeypatch.setattr(tq_module, "time", clock)
@@ -225,7 +225,7 @@ def test_run_executes_claimed_task_and_reports_result(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     class _FakeProc:
         returncode = 0
@@ -273,7 +273,7 @@ def test_run_executes_task_card_via_claude_and_reports_output(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     class _FakeProc:
         returncode = 0
@@ -321,7 +321,7 @@ def test_run_rejects_non_deepvista_command_without_executing(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     def explode(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("subprocess.run must not be called for disallowed commands")
@@ -347,7 +347,7 @@ def test_run_errors_when_no_agent_registered(
     stub.queue("/projects", [])
     _install_stub_client(monkeypatch, stub)
     import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     empty = isolated_home / ".config" / "deepvista" / "agents"
     monkeypatch.setattr(agents_module, "AGENTS_DIR", empty)
@@ -391,7 +391,7 @@ def test_run_headless_claims_command_only(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(tq_module, "_detect_host_agent", lambda: False)
 
@@ -421,7 +421,7 @@ def test_run_host_emits_workflow_packet_and_leaves_task_running(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     emitted: list[dict] = []
 
@@ -498,7 +498,7 @@ def test_run_headless_ignores_workflow_tasks_that_slip_through(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(tq_module, "_detect_host_agent", lambda: False)
 
@@ -560,7 +560,7 @@ def test_run_polling_executes_tasks_across_passes(
     _register_local_agent(monkeypatch, isolated_home)
     _install_fake_clock(monkeypatch)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     class _FakeProc:
         returncode = 0
@@ -595,7 +595,7 @@ def test_run_host_polling_hands_back_after_workflow_packet(
     _register_local_agent(monkeypatch, isolated_home)
     clock = _install_fake_clock(monkeypatch)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(tq_module, "emit_host_run_packet", lambda *args, **kwargs: None)
 
@@ -617,7 +617,7 @@ def test_run_refuses_when_another_run_holds_the_lock(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     # PID 1 (launchd/init) is always alive and never this process.
     tq_module.RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -641,7 +641,7 @@ def test_run_reclaims_stale_lock_and_releases_on_exit(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     tq_module.RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     tq_module.RUN_LOCK_PATH.write_text("99999999")
@@ -734,7 +734,7 @@ def test_setup_dry_run_previews_cron_entry(
     stub = _StubCtxClient()
     _install_stub_client(monkeypatch, stub)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(tq_module, "_read_crontab", lambda: ["0 0 * * * /bin/true"])
 
@@ -758,7 +758,7 @@ def test_setup_installs_and_replaces_entry_idempotently(
     stub = _StubCtxClient()
     _install_stub_client(monkeypatch, stub)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     written: list[list[str]] = []
     monkeypatch.setattr(
@@ -789,7 +789,7 @@ def test_setup_remove_uninstalls_entry(
     stub = _StubCtxClient()
     _install_stub_client(monkeypatch, stub)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     written: list[list[str]] = []
     monkeypatch.setattr(
@@ -838,7 +838,7 @@ def _register_two_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         )
     )
     import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
@@ -856,7 +856,7 @@ def test_run_once_polls_all_registered_agents(
     _install_stub_client(monkeypatch, stub)
     _register_two_agents(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(
         tq_module,
@@ -902,7 +902,7 @@ def test_ensure_agents_for_all_projects_registers_missing_and_reuses_existing(
     )
 
     import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
@@ -969,7 +969,7 @@ def test_run_skips_stale_agent_and_continues(
     _install_stub_client(monkeypatch, stub)
     _register_two_agents(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(
         tq_module,

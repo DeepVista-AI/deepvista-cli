@@ -33,7 +33,7 @@ from deepvista_cli.commands.notes import notes_group
 from deepvista_cli.commands.schedule import schedule_group
 from deepvista_cli.commands.session import session_group
 from deepvista_cli.commands.skill import skill_group
-from deepvista_cli.commands.task_queue import task_queue_group
+from deepvista_cli.commands.tasks import tasks_group
 from deepvista_cli.commands.upgrade import upgrade_command
 from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 
@@ -92,7 +92,7 @@ cli.add_command(schedule_group)
 cli.add_command(session_group)
 # Tasks dispatched to this Machine: web-chat task cards (DV-1247) + the
 # pull-based CLI-command / workflow queue (DV-936). Registered as `tasks`.
-cli.add_command(task_queue_group)
+cli.add_command(tasks_group)
 # Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)

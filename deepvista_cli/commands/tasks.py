@@ -528,7 +528,7 @@ def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str
 
 
 @click.group("tasks")
-def task_queue_group() -> None:
+def tasks_group() -> None:
     """Run tasks dispatched to this Machine (DV-1247).
 
     `tasks run` polls for work and executes it: **task cards** (plain prompts
@@ -830,7 +830,7 @@ def _claim_and_run_all(
     return all_results, all_workflow_tasks, pruned
 
 
-@task_queue_group.command("run")
+@tasks_group.command("run")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
 @click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
@@ -867,7 +867,7 @@ def _claim_and_run_all(
     help="Stop polling after this many seconds (default: poll until interrupted).",
 )
 @click.pass_context
-def task_queue_run(
+def tasks_run(
     ctx: click.Context,
     agent_type: str | None,
     agent_role: str | None,
@@ -1001,7 +1001,7 @@ def task_queue_run(
 TASK_CARD_COLUMNS = ["id", "status", "title", "agent_id", "created_at"]
 
 
-@task_queue_group.command("list")
+@tasks_group.command("list")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
 @click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
@@ -1009,7 +1009,7 @@ TASK_CARD_COLUMNS = ["id", "status", "title", "agent_id", "created_at"]
     "--status", "status_filter", default=None, help="Filter task cards by status (pending/running/completed/failed)."
 )
 @click.pass_context
-def task_queue_list(
+def tasks_list(
     ctx: click.Context,
     agent_type: str | None,
     agent_role: str | None,
@@ -1037,7 +1037,7 @@ def task_queue_list(
     )
 
 
-@task_queue_group.command("complete")
+@tasks_group.command("complete")
 @click.argument("task_id")
 @click.option(
     "--status",
@@ -1050,7 +1050,7 @@ def task_queue_list(
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
 @click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
 @click.pass_context
-def task_queue_complete(
+def tasks_complete(
     ctx: click.Context,
     task_id: str,
     status: str,
@@ -1119,7 +1119,7 @@ def _cron_entry(interval: int, profile: str) -> str:
     return f"*/{interval} * * * * {binary}{profile_flag} tasks run --run-once >> {CRON_LOG_PATH} 2>&1 {CRON_MARKER}"
 
 
-@task_queue_group.command("setup")
+@tasks_group.command("setup")
 @click.option(
     "--interval",
     default=5,
@@ -1129,7 +1129,7 @@ def _cron_entry(interval: int, profile: str) -> str:
 )
 @click.option("--remove", is_flag=True, default=False, help="Uninstall the cron entry instead.")
 @click.pass_context
-def task_queue_setup(ctx: click.Context, interval: int, remove: bool) -> None:
+def tasks_setup(ctx: click.Context, interval: int, remove: bool) -> None:
     """Install a crontab entry that runs `deepvista tasks run --run-once` periodically.
 
     An alternative to leaving a foreground `tasks run` polling: cron
