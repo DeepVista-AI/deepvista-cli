@@ -28,13 +28,13 @@ from deepvista_cli.commands.card import card_group
 from deepvista_cli.commands.chat import chat_group
 from deepvista_cli.commands.config import config_group
 from deepvista_cli.commands.lint import lint_command
-from deepvista_cli.commands.memory import vistabase_group
 from deepvista_cli.commands.notes import notes_group
 from deepvista_cli.commands.schedule import schedule_group
 from deepvista_cli.commands.session import session_group
 from deepvista_cli.commands.skill import skill_group
 from deepvista_cli.commands.tasks import tasks_group
 from deepvista_cli.commands.upgrade import upgrade_command
+from deepvista_cli.commands.vistabase import vistabase_group
 from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 
 

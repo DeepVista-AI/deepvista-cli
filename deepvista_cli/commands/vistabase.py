@@ -17,7 +17,7 @@ import click
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.output.formatter import format_output
 
-MEMORY_COLUMNS = ["id", "summary", "source", "created_at"]
+VISTABASE_COLUMNS = ["id", "summary", "source", "created_at"]
 
 
 def _client(ctx: click.Context) -> DeepVistaClient:
@@ -32,7 +32,7 @@ def vistabase_group() -> None:
 @vistabase_group.command("show")
 @click.option("--limit", default=20, help="Max memory entries to show (default 20).")
 @click.pass_context
-def memory_show(ctx: click.Context, limit: int) -> None:
+def vistabase_show(ctx: click.Context, limit: int) -> None:
     """Show a summary of your accumulated memory context.
 
     Memory is automatically built from your Chat conversations.
@@ -40,14 +40,14 @@ def memory_show(ctx: click.Context, limit: int) -> None:
     """
     data = _client(ctx).get("/memory/summary", params={"limit": limit})
     # Memory entries don't have web app URLs (implicit context only)
-    format_output(data, ctx.obj.output_format, columns=MEMORY_COLUMNS, title="Memory Context")
+    format_output(data, ctx.obj.output_format, columns=VISTABASE_COLUMNS, title="Memory Context")
 
 
 @vistabase_group.command("search")
 @click.argument("query")
 @click.option("--limit", default=10, help="Max results (default 10).")
 @click.pass_context
-def memory_search(ctx: click.Context, query: str, limit: int) -> None:
+def vistabase_search(ctx: click.Context, query: str, limit: int) -> None:
     """Search through your memory context.
 
     Read-only — never modifies memory.
@@ -56,4 +56,4 @@ def memory_search(ctx: click.Context, query: str, limit: int) -> None:
     data = _client(ctx).post("/memory/search", body)
     entries = data.get("entries", data.get("results", []))
     result = {"query": query, "results": entries, "count": len(entries)}
-    format_output(result, ctx.obj.output_format, columns=MEMORY_COLUMNS, title=f"Memory: {query}")
+    format_output(result, ctx.obj.output_format, columns=VISTABASE_COLUMNS, title=f"Memory: {query}")
