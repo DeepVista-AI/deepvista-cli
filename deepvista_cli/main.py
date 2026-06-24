@@ -2,7 +2,6 @@
 
 Resources: card · skill · vistabase · chat
 Aliases:   notes (shorthand for card --type note)
-           memory (deprecated alias for vistabase)
 
 Usage:
   deepvista <resource> <command> [options]
@@ -85,8 +84,6 @@ for _name, _cmd in card_group.commands.items():
     if _name not in vistabase_group.commands:
         vistabase_group.add_command(_cmd, name=_name)
 
-# Backward compatibility: `memory` is a deprecated alias for `vistabase`
-cli.add_command(vistabase_group, name="memory")
 # Agent orchestration
 cli.add_command(agents_group)
 # Opt-in recurring daily-planning job
@@ -94,10 +91,8 @@ cli.add_command(schedule_group)
 # Agent session transcripts (DV-742) — `init` / `tick` / `finalize`
 cli.add_command(session_group)
 # Tasks dispatched to this Machine: web-chat task cards (DV-1247) + the
-# pull-based CLI-command / workflow queue (DV-936). Primary name is `tasks`;
-# `task_queue` stays registered as a deprecated alias for existing cron jobs.
+# pull-based CLI-command / workflow queue (DV-936). Registered as `tasks`.
 cli.add_command(task_queue_group)
-cli.add_command(task_queue_group, name="task_queue")
 # Supporting commands
 cli.add_command(auth_group)
 cli.add_command(config_group)

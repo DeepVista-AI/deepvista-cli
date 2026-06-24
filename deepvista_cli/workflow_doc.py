@@ -20,7 +20,7 @@ from dataclasses import dataclass
 # normalizes phase accordions to the chevron-only `<accordion-plain>` variant
 # (DV-1084), so accept both spellings — without `-plain` the close tag
 # `</accordion-plain>` never matched `</accordion>`, so `phases()` came back
-# empty and `task_queue run --host` couldn't emit packets for normalized skills.
+# empty and `tasks run --host` couldn't emit packets for normalized skills.
 _ACCORDION_RE = re.compile(
     r"<accordion(?:-plain)?(?P<attrs>[^>]*)>(?P<body>.*?)</accordion(?:-plain)?>",
     re.DOTALL,

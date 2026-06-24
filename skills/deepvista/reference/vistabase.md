@@ -8,9 +8,6 @@ user typed by hand.
   conversation). There is no `vistabase create` / `update` / `delete`.
 - Editing the knowledge base directly? Use [vistabase-card.md](vistabase-card.md).
 
-`deepvista memory` is a deprecated alias for `deepvista vistabase` — it still works
-identically. See [memory.md](memory.md).
-
 ## Commands
 
 ### `show` — read-only
@@ -48,4 +45,3 @@ Users can correct or clarify by asking the agent — never by editing the CLI si
 
 - [chat.md](chat.md) — the only write path into vistabase
 - [vistabase-card.md](vistabase-card.md) — direct card management (explicit knowledge)
-- [memory.md](memory.md) — deprecated `deepvista memory` alias

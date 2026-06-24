@@ -47,8 +47,9 @@ other reference file assumes you know it.
 | `deepvista notes` | taking a note the user **explicitly asked to record**, listing / updating / deleting notes, quick-capture of a single-line fact, re-indexing notes for entity extraction | [notes.md](reference/notes.md) |
 | `deepvista session` | recording an agent conversation transcript as a rolling `type=session` card via the `init` / `tick` / `finalize` hook lifecycle | [session.md](reference/session.md) |
 | `deepvista lint` | periodic LLM health check over the vistabase — duplicates, contradictions, stale claims, orphans, missing cross-references, data gaps | [lint.md](reference/lint.md) |
+| `deepvista schedule` | activating / deactivating / listing the opt-in recurring daily-planning job | `deepvista schedule --help` |
 | `deepvista card` | creating / searching / pinning / archiving / grepping knowledge base cards across any type (person, topic, file, note, todo, etc.) for **incidental info the agent records mid-conversation** | [vistabase-card.md](reference/vistabase-card.md) |
-| `deepvista vistabase` (alias: `memory`) | viewing or semantic-searching implicit memory accumulated from chat | [vistabase.md](reference/vistabase.md) · [memory.md](reference/memory.md) |
+| `deepvista vistabase` | viewing or semantic-searching implicit memory accumulated from chat | [vistabase.md](reference/vistabase.md) |
 | `deepvista chat` | sending a message to the AI agent, listing / deleting chat sessions, continuing a conversation | [chat.md](reference/chat.md) |
 | `deepvista skill` | listing, running, installing, discovering, **creating new skills**, or **catalog-syncing** (`sync` / `load`) structured Skill workflows | [skill.md](reference/skill.md) |
 | `deepvista tasks` | running this **Machine**'s dispatched work: `tasks run` polls for tasks (web-chat prompts run headless via `claude -p`, plus queued CLI commands / workflow runs) and `tasks list` shows them | [tasks.md](reference/tasks.md) |

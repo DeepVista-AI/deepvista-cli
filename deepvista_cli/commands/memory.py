@@ -29,10 +29,6 @@ def vistabase_group() -> None:
     """View implicit memory context accumulated from your conversations."""
 
 
-# Backward-compatible alias: `deepvista memory` still works
-memory_group = vistabase_group
-
-
 @vistabase_group.command("show")
 @click.option("--limit", default=20, help="Max memory entries to show (default 20).")
 @click.pass_context

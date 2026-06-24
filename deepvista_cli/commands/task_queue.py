@@ -1,25 +1,26 @@
-"""deepvista task_queue — pull-based execution of queued CLI commands (DV-936).
+"""deepvista tasks — pull-based execution of work dispatched to this Machine (DV-936/DV-1247).
 
-The web app enqueues DeepVista CLI commands onto a managed agent's
-`task_queue`; this command group lets the agent's machine poll and run them:
+The web app dispatches work onto a managed agent's queue — task cards (plain
+prompts run headless via `claude -p`) and queued CLI commands; this command
+group lets the agent's machine poll and run them:
 
-  deepvista task_queue run      — poll for pending tasks and execute them
-  deepvista task_queue list     — show this machine's queue
-  deepvista task_queue complete — report a workflow task's outcome (host agent)
-  deepvista task_queue setup    — install a crontab entry that polls periodically
+  deepvista tasks run      — poll for pending tasks and execute them
+  deepvista tasks list     — show this machine's queue
+  deepvista tasks complete — report a workflow task's outcome (host agent)
+  deepvista tasks setup    — install a crontab entry that polls periodically
 
 Polling (DV-1079): `run` polls in the foreground by default (--poll-interval,
 bounded by --total-time when given); --run-once does a single claim/execute
 pass, which is what the cron entry installed by `setup` uses. A PID lock file
-allows only one `task_queue run` per machine at a time, so a foreground
+allows only one `tasks run` per machine at a time, so a foreground
 poller and cron ticks never double-claim.
 
 Workflow tasks (DV-955): webhook-queued `deepvista skill run` entries can't
 be subprocess-executed — a workflow needs the surrounding host agent (Claude
-Code etc.) to drive its phases. `task_queue run --host` claims them and
+Code etc.) to drive its phases. `tasks run --host` claims them and
 emits their run packets to stdout for the host agent; headless runs (cron)
 claim command-only so workflow tasks stay pending until a host run. The
-host agent reports the outcome via `task_queue complete` after
+host agent reports the outcome via `tasks complete` after
 `skill complete`.
 
 Safety: only commands whose first token is `deepvista` are executed
@@ -68,7 +69,9 @@ TASK_TIMEOUT_SECONDS = 600
 # Reported output is truncated to a tail (mirrors the backend cap).
 OUTPUT_TAIL_MAX_CHARS = 2000
 
-# Marker comment identifying crontab entries owned by `task_queue setup`.
+# Marker comment identifying crontab entries owned by `tasks setup`.
+# The literal value is unchanged so `setup` still finds and replaces cron
+# entries installed by older versions (when this group was named `task_queue`).
 CRON_MARKER = "# deepvista-task-queue"
 
 CRON_LOG_PATH = CONFIG_DIR / "task_queue.log"
@@ -76,7 +79,7 @@ CRON_LOG_PATH = CONFIG_DIR / "task_queue.log"
 # Seconds between polls when `run` is left in its default polling mode.
 DEFAULT_POLL_INTERVAL_SECONDS = 10
 
-# Single-instance lock for `task_queue run` (DV-1079) — holds the owner PID.
+# Single-instance lock for `tasks run` (DV-1079) — holds the owner PID.
 RUN_LOCK_PATH = CONFIG_DIR / "task_queue.run.lock"
 
 
@@ -262,7 +265,7 @@ def _emit_workflow_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
     """Print a claimed workflow task's run packet for the host agent (DV-955).
 
     The task is left ``running`` on purpose — the host agent drives the
-    workflow and reports the outcome via ``task_queue complete``. Only an
+    workflow and reports the outcome via ``tasks complete``. Only an
     unparseable/unloadable task is failed here, since no agent could ever
     pick it up.
     """
@@ -323,7 +326,7 @@ def _read_lock_pid() -> int | None:
 
 
 def _acquire_run_lock() -> bool:
-    """Take the machine-wide single-instance lock for `task_queue run` (DV-1079).
+    """Take the machine-wide single-instance lock for `tasks run` (DV-1079).
 
     Overlapping pollers would double-claim the queue, so only one `run` may
     be active at a time — a foreground poller and a cron tick included. A
@@ -530,8 +533,7 @@ def task_queue_group() -> None:
 
     `tasks run` polls for work and executes it: **task cards** (plain prompts
     enqueued from the web chat) are run headless via `claude -p`; queued CLI
-    commands and host-driven workflow runs are handled as before. Registered as
-    `tasks`; `task_queue` remains as a deprecated alias for existing cron jobs.
+    commands and host-driven workflow runs are handled as before.
     """
 
 
@@ -885,9 +887,9 @@ def task_queue_run(
     --poll-interval, repeat — until --total-time elapses (or forever when
     unset), which keeps every registered agent on this machine picking up
     work without a cron job. --run-once does a single pass and exits; the
-    cron entry installed by `task_queue setup` uses it.
+    cron entry installed by `tasks setup` uses it.
 
-    Only one `task_queue run` may be active per machine — concurrent
+    Only one `tasks run` may be active per machine — concurrent
     invocations exit with an error instead of double-claiming the queue.
 
     Plain command tasks run sequentially via subprocess and their results
@@ -895,12 +897,12 @@ def task_queue_run(
     claimed in host mode: their run packets are printed for the surrounding
     agent to drive — polling stops at that point so the host agent can act —
     and the entries stay ``running`` until the agent calls
-    ``task_queue complete``.
+    ``tasks complete``.
     """
     if not _acquire_run_lock():
         output_error(
             2,
-            "Another `task_queue run` is already active on this machine",
+            "Another `tasks run` is already active on this machine",
             f"Stop it first or wait for it to finish (lock: {RUN_LOCK_PATH}, pid: {_read_lock_pid()}).",
         )
         raise SystemExit(2)
@@ -1128,18 +1130,19 @@ def _cron_entry(interval: int, profile: str) -> str:
 @click.option("--remove", is_flag=True, default=False, help="Uninstall the cron entry instead.")
 @click.pass_context
 def task_queue_setup(ctx: click.Context, interval: int, remove: bool) -> None:
-    """Install a crontab entry that runs `deepvista task_queue run --run-once` periodically.
+    """Install a crontab entry that runs `deepvista tasks run --run-once` periodically.
 
-    An alternative to leaving a foreground `task_queue run` polling: cron
+    An alternative to leaving a foreground `tasks run` polling: cron
     fires a single claim/execute pass per tick. The run lock keeps a tick
     from overlapping a foreground poller. Idempotent — re-running replaces
-    any existing entry. Use --remove to uninstall. Crontab only
-    (macOS/Linux); on Windows, schedule `deepvista task_queue run
+    any existing entry (including ones installed by older versions under the
+    legacy `task_queue` name). Use --remove to uninstall. Crontab only
+    (macOS/Linux); on Windows, schedule `deepvista tasks run
     --run-once` with Task Scheduler instead.
 
     Cron runs are headless: they execute plain command tasks only and
     leave workflow tasks (webhook-queued skill runs) pending. Drive those
-    from an agent session with `deepvista task_queue run --host`.
+    from an agent session with `deepvista tasks run --host`.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """

@@ -216,12 +216,15 @@ One skill, `deepvista`, with per-subcommand detail under `skills/deepvista/refer
 | `reference/notes.md` | Note capture, CRUD, `+quick` |
 | `reference/vistabase-card.md` | Knowledge-base cards — create, search, pin, edit, grep |
 | `reference/vistabase.md` | Implicit memory — view and search |
-| `reference/memory.md` | Deprecated `deepvista memory` alias mapping |
+| `reference/session.md` | Agent session transcripts — init, tick, finalize |
 | `reference/chat.md` | Chat sessions and NDJSON stream format |
 | `reference/skill.md` | Structured Skill workflows — list, run, discover, install |
+| `reference/skill-create-from-note.md` | Synthesize a Skill from one or more notes |
 | `reference/skill-analyze-notes.md` | Pattern: search → read → synthesize notes |
 | `reference/skill-research-to-skill.md` | Pattern: research the KB, then run a Skill |
 | `reference/skill-import-files.md` | Bulk-import a folder as file cards |
+| `reference/tasks.md` | Run work dispatched to this machine — `tasks run` / `setup` |
+| `reference/lint.md` | Health-check the vistabase for dupes / contradictions / gaps |
 | `reference/openclaw.md` | Auto-capture rules for OpenClaw agents |
 
 The agent loads only the index at first; when a subcommand is needed, it reads the matching reference file on demand.
@@ -302,12 +305,28 @@ deepvista ui
 
 ## Commands
 
+Primary resources:
+
 ```
 deepvista card       # Knowledge cards (all types)
 deepvista skill      # Executable workflows
 deepvista vistabase  # Implicit context from Chat (read-only)
 deepvista chat       # Conversational AI agent
-deepvista notes      # Quick note management (shorthand)
+deepvista notes      # Hand-written notes (cards with type=note)
+```
+
+Supporting commands:
+
+```
+deepvista agents     # Register & manage AI agents connected to DeepVista
+deepvista session    # Agent conversation transcripts (init / tick / finalize)
+deepvista tasks      # Run work dispatched to this machine (task cards, queued commands)
+deepvista schedule   # Manage the recurring daily-planning job (opt-in)
+deepvista lint       # Health-check the vistabase with the DeepVista agent
+deepvista auth       # Authenticate with DeepVista
+deepvista config     # Manage CLI profiles (local, staging, production, …)
+deepvista upgrade    # Check for and install CLI + skill updates
+deepvista ui         # Launch the terminal UI (requires the [ui] extra)
 ```
 
 ### card — Knowledge cards
@@ -351,8 +370,6 @@ deepvista vistabase show [--limit N]
 deepvista vistabase search "query text" [--limit N]
 ```
 
-> `deepvista memory` is a deprecated alias that works identically.
-
 ### chat — AI agent
 
 ```bash
@@ -374,6 +391,44 @@ deepvista notes update <note_id> [--title "..."] [--content "..."]
 deepvista notes delete <note_id>
 deepvista notes +quick "Quick note from a single line of text"
 ```
+
+### session — Agent transcripts
+
+A rolling context card that captures one agent run — created on SessionStart, ticked per turn, finalized on Stop.
+
+```bash
+deepvista session init <session_id>
+deepvista session tick <session_id>
+deepvista session finalize <session_id>
+```
+
+### tasks — Work dispatched to this machine
+
+Polls for work assigned to this machine's agents and runs it: task cards (plain prompts run headless via `claude -p`), queued CLI commands, and host-driven workflow runs.
+
+```bash
+deepvista tasks list
+deepvista tasks run [--run-once] [--host] [--poll-interval N] [--total-time N]
+deepvista tasks setup [--interval N] [--remove]   # install/remove a polling crontab entry
+deepvista tasks complete <task_id> --status completed|failed [--note "…"]
+```
+
+### schedule — Recurring daily-planning job
+
+```bash
+deepvista schedule list
+deepvista schedule activate
+deepvista schedule deactivate
+deepvista schedule delete <job_id>
+```
+
+### lint — Vistabase health check
+
+```bash
+deepvista lint [--limit N]   # surface duplicates, contradictions, stale claims, orphans, gaps
+```
+
+Run `deepvista <command> --help` for the full options of any group, including `agents`, `auth`, `config`, `upgrade`, and `ui`. Auth, profiles, and agent registration are also covered in `skills/deepvista/reference/shared.md`.
 
 ---
 
@@ -520,7 +575,7 @@ deepvista-cli/
 │   ├── config.py            # Config + profiles
 │   ├── auth/                # Login, token storage, callback server
 │   ├── client/              # HTTP client, SSE streaming
-│   ├── commands/            # card, skill, memory, chat, notes, auth, config
+│   ├── commands/            # card, skill, vistabase, chat, notes, agents, session, tasks, schedule, auth, config, lint, upgrade
 │   ├── tui/                 # Terminal UI (requires [ui] extra)
 │   └── output/              # JSON + table formatters
 └── skills/                  # SKILL.md files for agent integration
