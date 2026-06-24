@@ -3,6 +3,9 @@
 `deepvista card` manages every knowledge base entry. Types: `person`, `organization`,
 `message`, `todo`, `topic`, `keypoint`, `file`, `note`, `skill`, `skill_run`.
 
+`deepvista vistabase` is a backward-compatible alias — every `card` subcommand
+works under `vistabase` too (hidden from `--help`).
+
 Run `deepvista card --help` or `deepvista card <cmd> --help` for full flag reference.
 
 `deepvista notes` is a thin convenience wrapper over `card --type note`.
@@ -56,5 +59,4 @@ deepvista card +pin <id>
 ## See also
 
 - [notes.md](notes.md) — `--type note` convenience wrapper
-- [vistabase.md](vistabase.md) — implicit memory (read-only)
 - [skill-import-files.md](skill-import-files.md) — bulk-import files as `type=file` cards

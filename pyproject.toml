@@ -25,11 +25,6 @@ dependencies = [
     "rich>=13.0",
 ]
 
-[project.optional-dependencies]
-ui = [
-    "textual>=0.80",
-]
-
 [project.urls]
 Homepage = "https://deepvista.ai"
 Repository = "https://github.com/DeepVista-AI/deepvista-cli"

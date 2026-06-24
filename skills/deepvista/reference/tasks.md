@@ -23,9 +23,12 @@ pull-based queue (queued `deepvista …` CLI commands + host-driven workflow run
 |---|---|
 | `deepvista tasks run` | Start the poll loop on this Machine. Claims pending tasks across **every project** you can access (Owner/Editor), runs each, reports results. |
 | `deepvista tasks list` | Show the tasks dispatched to this Machine (optionally `--status pending\|running\|completed\|failed`). Read-only. |
+| `deepvista tasks setup` | Install (or `--remove`) a crontab entry that polls on a recurring interval (`--interval N`, macOS/Linux). |
+| `deepvista tasks complete` | Report the terminal outcome of a claimed workflow task — `--status completed\|failed [--note "…"]` (used by host agents). |
 
-> `task_queue` remains as a deprecated alias of `tasks` so existing cron jobs
-> keep working — prefer `tasks`.
+> The command was named `task_queue` in earlier releases. The `task_queue`
+> alias has been removed — use `tasks`. Cron entries installed by an older
+> version are detected and replaced the next time you run `deepvista tasks setup`.
 
 ### `tasks run` — the poll loop
 

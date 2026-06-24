@@ -18,13 +18,10 @@ DeepVista entries and no `@<role>` subagents are generated.
 ## Install
 
 ```bash
-uv tool install 'deepvista-cli[ui]'   # preferred
+uv tool install deepvista-cli   # preferred
 # or
-pip install 'deepvista-cli[ui]'
+pip install deepvista-cli
 ```
-
-The `[ui]` extra adds the optional terminal UI (`deepvista ui`). Omit the
-suffix for a CLI-only install.
 
 ## Authenticate
 

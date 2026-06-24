@@ -31,9 +31,6 @@
 
 <br>
 
-<!-- TODO: Add a GIF/screenshot of the TUI here -->
-<!-- <p align="center"><img src="docs/tui-demo.gif" alt="DeepVista TUI" width="700"></p> -->
-
 ---
 
 ## Who this is for
@@ -66,7 +63,6 @@ Most knowledge tools trap your data in a GUI. DeepVista CLI gives you **full acc
 - 🤖 **Agent-native** — Claude Code, Cursor, OpenCode use it as a skill
 - 📋 **Run Skills** — execute structured AI workflows from the command line
 - 💬 **Chat** — talk to the DeepVista AI agent in your terminal
-- 🖥️ **Full TUI** — four-panel terminal UI for chat, notes, skills, and memory
 
 ## Related Ideas
 
@@ -167,7 +163,7 @@ Fixes, in order of preference:
 
    ```powershell
    uv self update
-   uv tool install --reinstall "deepvista-cli[ui]"
+   uv tool install --reinstall "deepvista-cli"
    ```
 
 2. **Run via `uv tool run` as a fallback** (bypasses the broken trampoline entirely):
@@ -214,14 +210,16 @@ One skill, `deepvista`, with per-subcommand detail under `skills/deepvista/refer
 |-------|---------------------------|
 | `reference/shared.md` | Auth, profiles, global flags, exit codes, agent registration |
 | `reference/notes.md` | Note capture, CRUD, `+quick` |
-| `reference/vistabase-card.md` | Knowledge-base cards — create, search, pin, edit, grep |
-| `reference/vistabase.md` | Implicit memory — view and search |
-| `reference/memory.md` | Deprecated `deepvista memory` alias mapping |
+| `reference/vistabase-card.md` | Knowledge-base cards (`card` / `vistabase`) — create, search, pin, edit, grep |
+| `reference/session.md` | Agent session transcripts — init, tick, finalize |
 | `reference/chat.md` | Chat sessions and NDJSON stream format |
 | `reference/skill.md` | Structured Skill workflows — list, run, discover, install |
+| `reference/skill-create-from-note.md` | Synthesize a Skill from one or more notes |
 | `reference/skill-analyze-notes.md` | Pattern: search → read → synthesize notes |
 | `reference/skill-research-to-skill.md` | Pattern: research the KB, then run a Skill |
 | `reference/skill-import-files.md` | Bulk-import a folder as file cards |
+| `reference/tasks.md` | Run work dispatched to this machine — `tasks run` / `setup` |
+| `reference/lint.md` | Health-check the vistabase for dupes / contradictions / gaps |
 | `reference/openclaw.md` | Auto-capture rules for OpenClaw agents |
 
 The agent loads only the index at first; when a subcommand is needed, it reads the matching reference file on demand.
@@ -276,38 +274,28 @@ Export my founder playbook Skill as a SKILL.md file so I can share it with my te
 
 ---
 
-## Terminal UI (TUI)
-
-A full four-panel terminal interface — chat, notes, skills, and memory in one view.
-
-```bash
-pip install 'deepvista-cli[ui]'
-deepvista ui
-```
-
-| Panel | Key | Description |
-|-------|-----|-------------|
-| **Chat** | `1` | Talk to the DeepVista AI agent. Stream responses in real time. |
-| **Notes** | `2` | Browse and search your notes. Click to read full content. |
-| **Skills** | `3` | List all Skills. Select one to view details and run it live. |
-| **Memory** | `4` | Read-only view of implicit context from Chat sessions. |
-
-| Key | Action |
-|-----|--------|
-| `1`–`4` | Switch panels |
-| `r` | Refresh |
-| `q` | Quit |
-
----
-
 ## Commands
 
+Primary resources:
+
 ```
-deepvista card       # Knowledge cards (all types)
+deepvista card       # Knowledge cards (all types) — alias: `vistabase`
 deepvista skill      # Executable workflows
-deepvista vistabase  # Implicit context from Chat (read-only)
 deepvista chat       # Conversational AI agent
-deepvista notes      # Quick note management (shorthand)
+deepvista notes      # Hand-written notes (cards with type=note)
+```
+
+Supporting commands:
+
+```
+deepvista agents     # Register & manage AI agents connected to DeepVista
+deepvista session    # Agent conversation transcripts (init / tick / finalize)
+deepvista tasks      # Run work dispatched to this machine (task cards, queued commands)
+deepvista schedule   # Manage the recurring daily-planning job (opt-in)
+deepvista lint       # Health-check the vistabase with the DeepVista agent
+deepvista auth       # Authenticate with DeepVista
+deepvista config     # Manage CLI profiles (local, staging, production, …)
+deepvista upgrade    # Check for and install CLI + skill updates
 ```
 
 ### card — Knowledge cards
@@ -326,6 +314,8 @@ deepvista card +archive <card_id>
 
 Card types: `person` · `organization` · `message` · `todo` · `topic` · `keypoint` · `file` · `note` · `skill` · `skill_run`
 
+> `deepvista vistabase` is a backward-compatible alias for `deepvista card` — every `card` subcommand works under `vistabase` too.
+
 ### skill — Executable workflows
 
 ```bash
@@ -341,17 +331,6 @@ deepvista skill status <run_chat_id>
 ```
 
 `skill run` defaults to **host mode** — it prints a JSON header + the workflow's SKILL.md body + a host runtime contract on stdout, and the host agent (Claude Code / OpenClaw / Cursor) drives the run via the `phase` shims and `complete`. Use `--mode deepvista` to keep the legacy behaviour (server agent drives the whole run, NDJSON streamed back). `--mode auto` decides per phase by inspecting each phase's `tool_plan`.
-
-### vistabase — Implicit context
-
-Automatically accumulated from Chat. Read-only — updates happen through conversation.
-
-```bash
-deepvista vistabase show [--limit N]
-deepvista vistabase search "query text" [--limit N]
-```
-
-> `deepvista memory` is a deprecated alias that works identically.
 
 ### chat — AI agent
 
@@ -375,6 +354,44 @@ deepvista notes delete <note_id>
 deepvista notes +quick "Quick note from a single line of text"
 ```
 
+### session — Agent transcripts
+
+A rolling context card that captures one agent run — created on SessionStart, ticked per turn, finalized on Stop.
+
+```bash
+deepvista session init <session_id>
+deepvista session tick <session_id>
+deepvista session finalize <session_id>
+```
+
+### tasks — Work dispatched to this machine
+
+Polls for work assigned to this machine's agents and runs it: task cards (plain prompts run headless via `claude -p`), queued CLI commands, and host-driven workflow runs.
+
+```bash
+deepvista tasks list
+deepvista tasks run [--run-once] [--host] [--poll-interval N] [--total-time N]
+deepvista tasks setup [--interval N] [--remove]   # install/remove a polling crontab entry
+deepvista tasks complete <task_id> --status completed|failed [--note "…"]
+```
+
+### schedule — Recurring daily-planning job
+
+```bash
+deepvista schedule list
+deepvista schedule activate
+deepvista schedule deactivate
+deepvista schedule delete <job_id>
+```
+
+### lint — Vistabase health check
+
+```bash
+deepvista lint [--limit N]   # surface duplicates, contradictions, stale claims, orphans, gaps
+```
+
+Run `deepvista <command> --help` for the full options of any group, including `agents`, `auth`, `config`, `upgrade`, and `ui`. Auth, profiles, and agent registration are also covered in `skills/deepvista/reference/shared.md`.
+
 ---
 
 ## Install Options
@@ -385,13 +402,6 @@ deepvista notes +quick "Quick note from a single line of text"
 pip install deepvista-cli
 pipx install deepvista-cli
 uv tool install deepvista-cli
-```
-
-### With TUI support
-
-```bash
-pip install 'deepvista-cli[ui]'
-uv tool install 'deepvista-cli[ui]'
 ```
 
 ### From GitHub
@@ -424,7 +434,7 @@ you'll see no errors but no skills either.
 
 ```bash
 uv sync
-uv pip install -e '.[ui]'
+uv pip install -e .
 uv run deepvista --help
 ```
 
@@ -520,8 +530,7 @@ deepvista-cli/
 │   ├── config.py            # Config + profiles
 │   ├── auth/                # Login, token storage, callback server
 │   ├── client/              # HTTP client, SSE streaming
-│   ├── commands/            # card, skill, memory, chat, notes, auth, config
-│   ├── tui/                 # Terminal UI (requires [ui] extra)
+│   ├── commands/            # card, skill, chat, notes, agents, session, tasks, schedule, auth, config, lint, upgrade
 │   └── output/              # JSON + table formatters
 └── skills/                  # SKILL.md files for agent integration
 ```

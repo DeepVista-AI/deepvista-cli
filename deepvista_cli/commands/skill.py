@@ -3,7 +3,7 @@
 Skills are structured checklist workflows stored as context cards (type=skill).
 Skill Runs are execution instances (type=skill_run) linked via a master chat session.
 
-Five resources: card · skill · vistabase · chat
+Resources: card · skill · chat
 """
 
 from __future__ import annotations
@@ -212,7 +212,7 @@ def emit_host_run_packet(
 ) -> None:
     """Fetch the skill, acquire the run lock, and print the host run packet.
 
-    Shared by ``skill run`` (host / auto modes) and ``task_queue run --host``
+    Shared by ``skill run`` (host / auto modes) and ``tasks run --host``
     (DV-955), which emits packets for webhook-queued workflow tasks instead
     of subprocess-executing them — a queued workflow needs the surrounding
     host agent to drive it. ``task_id`` (only known on the task-queue path)
@@ -351,7 +351,7 @@ def _webhook_task_stanza(task_id: str | None) -> str:
     The queue entry stays ``running`` until the host agent reports it —
     nothing else will, so skipping this leaves a permanently stuck task.
     """
-    task_ref = task_id or "<task_id from `deepvista task_queue list`>"
+    task_ref = task_id or "<task_id from `deepvista tasks list`>"
     return f"""\
 ## Webhook task completion
 
@@ -359,9 +359,9 @@ This run came off the agent task queue. The queue entry stays `running`
 until YOU report it — after `deepvista skill complete` (or on failure):
 
 ```
-deepvista task_queue complete {task_ref} --status completed
+deepvista tasks complete {task_ref} --status completed
 # or, when the run could not finish:
-deepvista task_queue complete {task_ref} --status failed --note "<one short sentence>"
+deepvista tasks complete {task_ref} --status failed --note "<one short sentence>"
 ```"""
 
 
