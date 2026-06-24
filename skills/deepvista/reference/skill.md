@@ -61,7 +61,7 @@ deepvista skill phase open       <skill_id> "Phase N: <title>"
 deepvista skill phase done       <skill_id> "Phase N: <title>" [--artifact-card-id ID] [--next-phase "…"]
 deepvista skill phase reset      <skill_id> "Phase N: <title>"   # revert a done/active phase to pending
 deepvista skill phase need-input <skill_id> "Phase N: <title>" --reason "<what's needed>"  # :::dvNeedIntervention
-deepvista skill phase pause      <skill_id> --reason "<sentence>"  # technical blocker, no mermaid change
+deepvista skill phase pause      <skill_id> --reason "<sentence>"  # technical blocker → :::dvNeedIntervention
 deepvista skill complete         <skill_id> --review "<3–6 retrospective bullets>"
 ```
 

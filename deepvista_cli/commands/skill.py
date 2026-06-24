@@ -528,14 +528,17 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
 @click.option("--reason", required=True, help="Short sentence explaining what's blocking the run.")
 @click.pass_context
 def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str) -> None:
-    """Pause the run (lock held). Exits non-zero so wrapping scripts notice.
+    """Pause the run (lock held), marking the active phase ``:::dvNeedIntervention``.
 
-    Does NOT change the card's ``status`` — the run lock stays held so a
-    re-run resumes the same phase. The user resumes by re-invoking
-    ``deepvista skill run --mode host <skill_id>``.
+    Sets the active phase's mermaid node to ``:::dvNeedIntervention`` so the
+    DeepVista UI shows the workflow is waiting for human action. Does NOT change
+    the card's ``status`` — the run lock stays held so a re-run resumes the same
+    phase. Exits non-zero so wrapping scripts notice.
     """
     card, doc = _load_skill_doc(ctx, skill_id)
     active = doc.active_phase()
+    if active:
+        _phase(ctx, skill_id, phase_label=active.title, action="need_input", reason=reason)
     out = {
         "ok": False,
         "paused": True,

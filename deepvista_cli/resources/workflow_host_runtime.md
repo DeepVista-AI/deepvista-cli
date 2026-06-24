@@ -136,8 +136,8 @@ approval from the user before it can proceed:
    ```
    deepvista skill phase pause <skill_id> --reason "<one short sentence>"
    ```
-   This **keeps the run lock held** (`status` stays `in_progress`),
-   prints the reason for the user, and exits non-zero.
+   This also sets the active phase's mermaid node to `:::dvNeedIntervention`,
+   **keeps the run lock held** (`status` stays `in_progress`), and exits non-zero.
 3. Tell the user in plain language what's missing and how to resume
    (e.g. "Reconnect Gmail MCP and re-run `deepvista skill run` to
    continue Phase 3"). Do not pretend the phase succeeded.
@@ -166,7 +166,7 @@ be run again), and emits `<json>{"done": true}</json>`.
 | Mark a phase done | `deepvista skill phase done <skill_id> "Phase N: …" [--artifact-card-id ID]…` |
 | Reset phase to pending | `deepvista skill phase reset <skill_id> "Phase N: …"` |
 | Needs user input (:::dvNeedIntervention) | `deepvista skill phase need-input <skill_id> "Phase N: …" --reason "…"` |
-| Pause — technical blocker (lock held) | `deepvista skill phase pause <skill_id> --reason "…"` |
+| Pause — technical blocker (:::dvNeedIntervention, lock held) | `deepvista skill phase pause <skill_id> --reason "…"` |
 | Resume from pause / need-input | re-run `deepvista skill run --mode host <skill_id>` |
 | One-phase fallback to DeepVista | `deepvista skill phase run-on-deepvista <skill_id> "Phase N: …"` |
 | Finalize the run | `deepvista skill complete <skill_id> --review "…"` |
