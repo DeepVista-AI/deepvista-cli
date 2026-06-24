@@ -1,7 +1,8 @@
 """deepvista — CLI entry point.
 
-Resources: card · skill · vistabase · chat
-Aliases:   notes (shorthand for card --type note)
+Resources: card · skill · chat
+Aliases:   notes     (shorthand for card --type note)
+           vistabase (alias for card; hidden from --help)
 
 Usage:
   deepvista <resource> <command> [options]
@@ -34,11 +35,24 @@ from deepvista_cli.commands.session import session_group
 from deepvista_cli.commands.skill import skill_group
 from deepvista_cli.commands.tasks import tasks_group
 from deepvista_cli.commands.upgrade import upgrade_command
-from deepvista_cli.commands.vistabase import vistabase_group
 from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 
 
-@click.group()
+class _RootGroup(click.Group):
+    """Root group that keeps backward-compatible aliases invokable while hiding
+    them from the `--help` listing.
+
+    `vistabase` is an alias for `card` (the same knowledge-base commands); showing
+    both would clutter help with duplicate rows.
+    """
+
+    _HIDDEN_ALIASES = {"vistabase"}
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        return [name for name in super().list_commands(ctx) if name not in self._HIDDEN_ALIASES]
+
+
+@click.group(cls=_RootGroup)
 @click.version_option(__version__, prog_name="deepvista")
 @click.option("--format", "output_format", type=click.Choice(["json", "table"]), default="json", help="Output format.")
 @click.option("--verbose", is_flag=True, default=False, help="Show HTTP request/response details.")
@@ -49,9 +63,9 @@ from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
 def cli(
     ctx: click.Context, output_format: str, verbose: bool, dry_run: bool, api_url: str | None, profile: str
 ) -> None:
-    """DeepVista CLI — chat, notes, skills, and vistabase from your terminal.
+    """DeepVista CLI — chat, notes, skills, and knowledge cards from your terminal.
 
-    Resources: card · skill · vistabase · chat
+    Resources: card · skill · chat
     """
     config = CLIConfig(
         output_format=output_format,
@@ -73,16 +87,13 @@ def cli(
     ctx.obj._client = DeepVistaClient(config)
 
 
-# Primary resources (five resources)
+# Primary resources
+# `card` is the canonical knowledge-base command; `vistabase` is a
+# backward-compatible alias for the same commands (hidden from --help by _RootGroup).
 cli.add_command(card_group)
+cli.add_command(card_group, name="vistabase")
 cli.add_command(skill_group)
-cli.add_command(vistabase_group)
 cli.add_command(chat_group)
-
-# Make `vistabase` a synonym for `card` — all card subcommands work under `vistabase` too
-for _name, _cmd in card_group.commands.items():
-    if _name not in vistabase_group.commands:
-        vistabase_group.add_command(_cmd, name=_name)
 
 # Agent orchestration
 cli.add_command(agents_group)

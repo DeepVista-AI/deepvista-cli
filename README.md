@@ -210,8 +210,7 @@ One skill, `deepvista`, with per-subcommand detail under `skills/deepvista/refer
 |-------|---------------------------|
 | `reference/shared.md` | Auth, profiles, global flags, exit codes, agent registration |
 | `reference/notes.md` | Note capture, CRUD, `+quick` |
-| `reference/vistabase-card.md` | Knowledge-base cards — create, search, pin, edit, grep |
-| `reference/vistabase.md` | Implicit memory — view and search |
+| `reference/vistabase-card.md` | Knowledge-base cards (`card` / `vistabase`) — create, search, pin, edit, grep |
 | `reference/session.md` | Agent session transcripts — init, tick, finalize |
 | `reference/chat.md` | Chat sessions and NDJSON stream format |
 | `reference/skill.md` | Structured Skill workflows — list, run, discover, install |
@@ -280,9 +279,8 @@ Export my founder playbook Skill as a SKILL.md file so I can share it with my te
 Primary resources:
 
 ```
-deepvista card       # Knowledge cards (all types)
+deepvista card       # Knowledge cards (all types) — alias: `vistabase`
 deepvista skill      # Executable workflows
-deepvista vistabase  # Implicit context from Chat (read-only)
 deepvista chat       # Conversational AI agent
 deepvista notes      # Hand-written notes (cards with type=note)
 ```
@@ -316,6 +314,8 @@ deepvista card +archive <card_id>
 
 Card types: `person` · `organization` · `message` · `todo` · `topic` · `keypoint` · `file` · `note` · `skill` · `skill_run`
 
+> `deepvista vistabase` is a backward-compatible alias for `deepvista card` — every `card` subcommand works under `vistabase` too.
+
 ### skill — Executable workflows
 
 ```bash
@@ -331,15 +331,6 @@ deepvista skill status <run_chat_id>
 ```
 
 `skill run` defaults to **host mode** — it prints a JSON header + the workflow's SKILL.md body + a host runtime contract on stdout, and the host agent (Claude Code / OpenClaw / Cursor) drives the run via the `phase` shims and `complete`. Use `--mode deepvista` to keep the legacy behaviour (server agent drives the whole run, NDJSON streamed back). `--mode auto` decides per phase by inspecting each phase's `tool_plan`.
-
-### vistabase — Implicit context
-
-Automatically accumulated from Chat. Read-only — updates happen through conversation.
-
-```bash
-deepvista vistabase show [--limit N]
-deepvista vistabase search "query text" [--limit N]
-```
 
 ### chat — AI agent
 
@@ -539,7 +530,7 @@ deepvista-cli/
 │   ├── config.py            # Config + profiles
 │   ├── auth/                # Login, token storage, callback server
 │   ├── client/              # HTTP client, SSE streaming
-│   ├── commands/            # card, skill, vistabase, chat, notes, agents, session, tasks, schedule, auth, config, lint, upgrade
+│   ├── commands/            # card, skill, chat, notes, agents, session, tasks, schedule, auth, config, lint, upgrade
 │   └── output/              # JSON + table formatters
 └── skills/                  # SKILL.md files for agent integration
 ```

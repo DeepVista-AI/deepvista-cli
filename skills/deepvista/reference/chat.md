@@ -55,5 +55,4 @@ deepvista chat sessions --search "roadmap"
 
 ## See also
 
-- [vistabase.md](vistabase.md) — chat is the only write path into implicit memory
 - [skill.md](skill.md) — `skill run` is a structured variant of `chat +send`

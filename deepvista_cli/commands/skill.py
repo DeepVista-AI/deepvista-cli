@@ -3,7 +3,7 @@
 Skills are structured checklist workflows stored as context cards (type=skill).
 Skill Runs are execution instances (type=skill_run) linked via a master chat session.
 
-Five resources: card · skill · vistabase · chat
+Resources: card · skill · chat
 """
 
 from __future__ import annotations

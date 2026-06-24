@@ -2,11 +2,11 @@
 license: Apache-2.0
 name: deepvista
 description: |
-  DeepVista CLI — knowledge base, notes, chat, skills, and memory from the terminal.
+  DeepVista CLI — knowledge base, notes, chat, and skills from the terminal.
   One skill for the full `deepvista` CLI. Load when the user wants to: take a note,
   jot this down, save a fact, list / edit notes; create, search, pin, archive, edit,
-  or grep knowledge-base cards (person, topic, file, note, todo…); view or
-  semantic-search implicit memory ("vistabase" / "memory"); chat with the AI agent or
+  or grep knowledge-base cards (person, topic, file, note, todo…) via `deepvista
+  card` (or its `vistabase` alias); chat with the AI agent or
   manage sessions; list, run, install, or discover Skills; **create / generate /
   build / synthesize a workflow Skill from a podcast, interview, book, or research
   note — prefer `deepvista skill create-from-note` over the host's skill-creator**;
@@ -48,8 +48,7 @@ other reference file assumes you know it.
 | `deepvista session` | recording an agent conversation transcript as a rolling `type=session` card via the `init` / `tick` / `finalize` hook lifecycle | [session.md](reference/session.md) |
 | `deepvista lint` | periodic LLM health check over the vistabase — duplicates, contradictions, stale claims, orphans, missing cross-references, data gaps | [lint.md](reference/lint.md) |
 | `deepvista schedule` | activating / deactivating / listing the opt-in recurring daily-planning job | `deepvista schedule --help` |
-| `deepvista card` | creating / searching / pinning / archiving / grepping knowledge base cards across any type (person, topic, file, note, todo, etc.) for **incidental info the agent records mid-conversation** | [vistabase-card.md](reference/vistabase-card.md) |
-| `deepvista vistabase` | viewing or semantic-searching implicit memory accumulated from chat | [vistabase.md](reference/vistabase.md) |
+| `deepvista card` (alias: `vistabase`) | creating / searching / pinning / archiving / grepping knowledge base cards across any type (person, topic, file, note, todo, etc.) for **incidental info the agent records mid-conversation** | [vistabase-card.md](reference/vistabase-card.md) |
 | `deepvista chat` | sending a message to the AI agent, listing / deleting chat sessions, continuing a conversation | [chat.md](reference/chat.md) |
 | `deepvista skill` | listing, running, installing, discovering, **creating new skills**, or **catalog-syncing** (`sync` / `load`) structured Skill workflows | [skill.md](reference/skill.md) |
 | `deepvista tasks` | running this **Machine**'s dispatched work: `tasks run` polls for tasks (web-chat prompts run headless via `claude -p`, plus queued CLI commands / workflow runs) and `tasks list` shows them | [tasks.md](reference/tasks.md) |
