@@ -289,15 +289,44 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
+# Claude Code expands a `/command` invocation into the first user turn as
+# `<command-message>…</command-message><command-name>…</command-name>
+# <command-args>…</command-args>` (plus occasional `<local-command-*>` blocks).
+# The message/name are plumbing — noise in a human-facing title (DV-1277, the
+# card was titled literally "<command-message>"). The args are the real prompt,
+# so we drop the wrappers but keep their inner text.
+_COMMAND_NOISE_RE = re.compile(
+    r"<(command-message|command-name|local-command-stdout|local-command-stderr)>.*?</\1>",
+    re.DOTALL | re.IGNORECASE,
+)
+_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+
+
+def strip_command_markup(text: str) -> str:
+    """Remove Claude Code slash-command plumbing from a transcript user turn.
+
+    Drops `<command-message>` / `<command-name>` / `<local-command-*>` blocks
+    (content included) and unwraps any remaining tags (e.g. `<command-args>`),
+    keeping their inner text. Returns the collapsed, stripped remainder.
+    """
+    if not text:
+        return ""
+    cleaned = _COMMAND_NOISE_RE.sub(" ", text)
+    cleaned = _TAG_RE.sub(" ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
 def title_from_first_user_turn(text: str) -> str:
     """Heuristic placeholder title derived from a session's first user turn.
 
     Applied at ticks 1–``TITLE_REWRITE_TICK_THRESHOLD`` to give the card a
     meaningful name before the `deepvista-summarize-session` skill writes
-    an AI title at finalize. Empty input returns an empty string so callers
-    can skip the field.
+    an AI title at finalize. Slash-command plumbing is stripped first (DV-1277)
+    so the title is the real prompt, not `<command-message>`. Empty input (or a
+    turn that was only command plumbing) returns an empty string so callers can
+    skip the field and leave the prior/default title in place.
     """
-    return _truncate(text, TITLE_CHAR_LIMIT)
+    return _truncate(strip_command_markup(text), TITLE_CHAR_LIMIT)
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +438,16 @@ def seed_frontmatter(
         fm["agent_id"] = agent_id
     if agent_version:
         fm["agent_version"] = agent_version
+    # DV-1277: when this session is a task run dispatched from the web chat,
+    # `deepvista task_queue run` exports the originating chat + task so the
+    # session card cross-references them — the run record shares the task_id, so
+    # a run and its session both resolve back to the chat that triggered them.
+    source_chat_id = os.environ.get("DEEPVISTA_SOURCE_CHAT_ID", "").strip()
+    if source_chat_id:
+        fm["source_chat_id"] = source_chat_id
+    task_id = os.environ.get("DEEPVISTA_TASK_ID", "").strip()
+    if task_id:
+        fm["task_id"] = task_id
     fm.update(probe_git(cwd))
     return fm
 

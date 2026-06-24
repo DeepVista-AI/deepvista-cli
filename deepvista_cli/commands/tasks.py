@@ -433,6 +433,15 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
     cwd = os.environ.get("DEEPVISTA_TASK_CWD") or os.getcwd()
     argv = [_claude_binary(), "-p", f"/deepvista {prompt}", "--permission-mode", permission_mode]
 
+    # DV-1277: expose the originating chat + this task to the headless run so the
+    # session card the Claude Code plugin writes (`deepvista session init`) can
+    # cross-reference them. The run record shares the same task_id, so a run and
+    # its session both resolve back to the web chat that triggered the task.
+    run_env = {**os.environ, "DEEPVISTA_TASK_ID": task_id}
+    source_chat_id = str(task.get("source_chat_id") or "").strip()
+    if source_chat_id:
+        run_env["DEEPVISTA_SOURCE_CHAT_ID"] = source_chat_id
+
     short_id = task_id[:8]
     title = task.get("title") or ""
     prompt_preview = (prompt[:120] + "…") if len(prompt) > 120 else prompt
@@ -473,6 +482,7 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
             text=True,
             timeout=TASK_RUN_TIMEOUT_SECONDS,
             cwd=cwd,
+            env=run_env,
         )
         exit_code = proc.returncode
         status = "completed" if exit_code == 0 else "failed"
