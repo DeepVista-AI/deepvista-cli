@@ -23,9 +23,27 @@ deepvista [GLOBAL FLAGS] <resource> <command> [options]
 **Wrong:** `deepvista card list --profile staging`
 **Right:** `deepvista --profile staging card list`
 
-Key global flags: `--profile NAME`, `--format json|table`, `--verbose`, `--dry-run`, `--api-url URL`.
+Key global flags: `--profile NAME`, `--project ID`, `--format json|table`, `--verbose`, `--dry-run`, `--api-url URL`.
 
 `--dry-run` is supported on every stateful command — use it to preview before writing.
+
+## Project scoping
+
+Every entity (card, note, chat, skill, …) lives inside a **project**. The CLI
+scopes requests to a *working project* and sends it as the `X-Project-Id`
+header; web links it emits are prefixed `/project/{id}/…` to match the app.
+
+```bash
+deepvista project list            # projects you own or that are shared with you
+deepvista project current         # the project the backend resolves right now
+deepvista project use <id>        # set the working project for this profile
+deepvista project clear           # unset → fall back to the backend default
+```
+
+Resolution order (highest wins): `--project <id>` flag → `DEEPVISTA_PROJECT_ID`
+env → profile working project (`project use`) → none (backend default). The
+working project is client-side scoping only — it does **not** change your
+server-side default project. See [reference/project.md](project.md).
 
 ## Profiles
 

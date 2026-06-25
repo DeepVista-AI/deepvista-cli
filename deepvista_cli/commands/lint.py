@@ -273,6 +273,7 @@ def lint_command(
             ctx.obj.output_format,
             entity_type="chat",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 

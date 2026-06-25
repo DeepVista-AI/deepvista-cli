@@ -55,6 +55,13 @@ class DeepVistaClient:
             "X-DeepVista-Origin": json.dumps(build_origin(), separators=(",", ":")),
         }
 
+        # Scope every authenticated request to the CLI's working project.
+        # When unset, the header is omitted and the backend resolves the
+        # caller's default project (unchanged legacy behavior). Resolved from
+        # --project / DEEPVISTA_PROJECT_ID / profile project_id (see config).
+        if self.config.project_id:
+            headers["X-Project-Id"] = self.config.project_id
+
         # JWT auth (from per-profile credentials file)
         tokens = get_valid_token(credentials_path(self.config.profile))
         if tokens is not None and tokens.access_token:

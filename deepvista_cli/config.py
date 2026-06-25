@@ -119,6 +119,32 @@ def delete_profile(name: str) -> bool:
     return False
 
 
+def set_working_project(profile_name: str, project_id: str) -> None:
+    """Persist the CLI's working ``project_id`` inside a profile.
+
+    Merges into the existing profile dict so other settings (``api_url``,
+    ``auth_url``, …) are preserved. This is purely client-side scoping; it
+    does not touch the backend's per-user default project.
+    """
+    profile = dict(get_profile(profile_name))
+    profile["project_id"] = project_id
+    set_profile(profile_name, profile)
+
+
+def clear_working_project(profile_name: str) -> bool:
+    """Unset the working ``project_id`` in a profile.
+
+    Returns True if a working project was set (and is now removed). After
+    clearing, the CLI falls back to the backend's default project.
+    """
+    profile = dict(get_profile(profile_name))
+    if "project_id" not in profile:
+        return False
+    del profile["project_id"]
+    set_profile(profile_name, profile)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Session CWD skip patterns (DV-862)
 # ---------------------------------------------------------------------------
@@ -168,17 +194,35 @@ class CLIConfig:
     verbose: bool = False
     dry_run: bool = False
     profile: str = "default"
+    # The CLI's **working project** — scopes every request via the
+    # ``X-Project-Id`` header and prefixes web links with ``/project/{id}``.
+    # Distinct from the backend's per-user *default project*: setting it here
+    # does NOT call ``set_default``/``activate``, it only tells the CLI which
+    # project to scope to. ``None`` → backend resolves the user's default.
+    # Resolution order (highest wins): ``--project`` flag → ``DEEPVISTA_PROJECT_ID``
+    # env → profile ``project_id`` → ``None``.
+    project_id: str | None = None
 
     def apply_profile(self, profile_name: str) -> None:
-        """Apply settings from a named profile."""
-        profile = get_profile(profile_name)
-        if not profile:
-            return
+        """Apply settings from a named profile.
 
-        if "api_url" in profile:
-            self.api_url = profile["api_url"]
-        if "auth_url" in profile:
-            self.auth_url = profile["auth_url"]
+        Resolution order for ``project_id`` (lowest precedence first; callers
+        layer ``--project`` / ``DEEPVISTA_PROJECT_ID`` on top afterward):
+        profile ``project_id`` → ``DEEPVISTA_PROJECT_ID`` env.
+        """
+        profile = get_profile(profile_name)
+        if profile:
+            if "api_url" in profile:
+                self.api_url = profile["api_url"]
+            if "auth_url" in profile:
+                self.auth_url = profile["auth_url"]
+            if profile.get("project_id"):
+                self.project_id = profile["project_id"]
+
+        # Env var overrides the persisted working project.
+        env_project = os.environ.get("DEEPVISTA_PROJECT_ID")
+        if env_project:
+            self.project_id = env_project
 
     def ensure_config_dir(self) -> Path:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)

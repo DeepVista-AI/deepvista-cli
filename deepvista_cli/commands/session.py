@@ -137,6 +137,7 @@ def session_init(
             title="Session init (skipped)",
             entity_type=SESSION_ENTITY_TYPE,
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -162,6 +163,7 @@ def session_init(
             title="Session card (existing)",
             entity_type=SESSION_ENTITY_TYPE,
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -189,6 +191,7 @@ def session_init(
             ctx.obj.output_format,
             entity_type=SESSION_ENTITY_TYPE,
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -204,6 +207,7 @@ def session_init(
         title="Session card (created)",
         entity_type=SESSION_ENTITY_TYPE,
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -236,6 +240,7 @@ def session_tick(ctx: click.Context, session_id: str, transcript: str, dry_run: 
             title="Session tick (no-op)",
             entity_type=SESSION_ENTITY_TYPE,
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -286,6 +291,7 @@ def session_tick(ctx: click.Context, session_id: str, transcript: str, dry_run: 
             ctx.obj.output_format,
             entity_type=SESSION_ENTITY_TYPE,
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -304,6 +310,7 @@ def session_tick(ctx: click.Context, session_id: str, transcript: str, dry_run: 
         title="Session tick",
         entity_type=SESSION_ENTITY_TYPE,
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -345,6 +352,7 @@ def session_finalize(
             ctx.obj.output_format,
             entity_type=SESSION_ENTITY_TYPE,
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -362,4 +370,5 @@ def session_finalize(
         title="Session finalized",
         entity_type=SESSION_ENTITY_TYPE,
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )

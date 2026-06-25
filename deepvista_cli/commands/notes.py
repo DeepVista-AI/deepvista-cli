@@ -19,7 +19,7 @@ import click
 from deepvista_cli import session_note as sn
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
-from deepvista_cli.commands import resolve_content
+from deepvista_cli.commands import apply_project_override, project_option, resolve_content
 from deepvista_cli.commands.session import session_finalize, session_init, session_tick
 from deepvista_cli.output.formatter import format_output, output_error
 
@@ -44,12 +44,14 @@ def notes_group() -> None:
 @notes_group.command("list")
 @click.option("--limit", default=20, help="Max results (default 20).")
 @click.option("--page", "page_number", default=1, help="Page number.")
+@project_option
 @click.pass_context
-def notes_list(ctx: click.Context, limit: int, page_number: int) -> None:
+def notes_list(ctx: click.Context, limit: int, page_number: int, project_override: str | None) -> None:
     """List all notes.
 
     Read-only — never modifies your notes.
     """
+    apply_project_override(ctx, project_override)
     data = _client(ctx).post(
         "/get_context_cards",
         {
@@ -67,19 +69,29 @@ def notes_list(ctx: click.Context, limit: int, page_number: int) -> None:
         title="Notes",
         entity_type="note",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
 @notes_group.command("get")
 @click.argument("note_id")
+@project_option
 @click.pass_context
-def notes_get(ctx: click.Context, note_id: str) -> None:
+def notes_get(ctx: click.Context, note_id: str, project_override: str | None) -> None:
     """Get a note by ID.
 
     Read-only.
     """
+    apply_project_override(ctx, project_override)
     data = _client(ctx).post("/get_context_card", {"card_id": note_id, "card_type": "note"})
-    format_output(data, ctx.obj.output_format, title=f"Note: {note_id}", entity_type="note", base_url=ctx.obj.auth_url)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title=f"Note: {note_id}",
+        entity_type="note",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
 
 
 @notes_group.command("create")
@@ -92,14 +104,22 @@ def notes_get(ctx: click.Context, note_id: str) -> None:
 )
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@project_option
 @click.pass_context
 def notes_create(
-    ctx: click.Context, title: str, description: str | None, content_file: str | None, tags: str | None, dry_run: bool
+    ctx: click.Context,
+    title: str,
+    description: str | None,
+    content_file: str | None,
+    tags: str | None,
+    dry_run: bool,
+    project_override: str | None,
 ) -> None:
     """Create a new note.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
+    apply_project_override(ctx, project_override)
     description = resolve_content(description, content_file)
 
     from deepvista_cli.commands.agents import load_agent_id_for_active_agent
@@ -130,11 +150,19 @@ def notes_create(
             ctx.obj.output_format,
             entity_type="note",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(data, ctx.obj.output_format, title="Created Note", entity_type="note", base_url=ctx.obj.auth_url)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title="Created Note",
+        entity_type="note",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
 
 
 @notes_group.command("update")
@@ -180,12 +208,18 @@ def notes_update(
             ctx.obj.output_format,
             entity_type="note",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).post("/update_context_card", body)
     format_output(
-        data, ctx.obj.output_format, title=f"Updated Note: {note_id}", entity_type="note", base_url=ctx.obj.auth_url
+        data,
+        ctx.obj.output_format,
+        title=f"Updated Note: {note_id}",
+        entity_type="note",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -204,11 +238,14 @@ def notes_delete(ctx: click.Context, note_id: str, dry_run: bool) -> None:
             ctx.obj.output_format,
             entity_type="note",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).delete(f"/context_cards/{note_id}", params={"card_type": "note"})
-    format_output(data, ctx.obj.output_format, entity_type="note", base_url=ctx.obj.auth_url)
+    format_output(
+        data, ctx.obj.output_format, entity_type="note", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +307,7 @@ def notes_index(
             ctx.obj.output_format,
             entity_type="note",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -280,6 +318,7 @@ def notes_index(
         title="Indexed Notes",
         entity_type="note",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -386,6 +425,7 @@ def notes_history(ctx: click.Context, note_id: str, limit: int) -> None:
         title=f"History: {note_id}",
         entity_type="note",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -412,6 +452,7 @@ def notes_diff(ctx: click.Context, note_id: str, version_a: int, version_b: int)
             ctx.obj.output_format,
             entity_type="note",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
     else:
         click.echo(diff or "(no differences)")
@@ -436,6 +477,7 @@ def notes_restore(ctx: click.Context, note_id: str, version: int, yes: bool, dry
             ctx.obj.output_format,
             entity_type="note",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -450,6 +492,7 @@ def notes_restore(ctx: click.Context, note_id: str, version: int, yes: bool, dry
         title=f"Restored: {note_id} → v{version}",
         entity_type="note",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -507,8 +550,16 @@ def notes_quick(ctx: click.Context, text: str, dry_run: bool) -> None:
             ctx.obj.output_format,
             entity_type="note",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(data, ctx.obj.output_format, title="Quick Note", entity_type="note", base_url=ctx.obj.auth_url)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title="Quick Note",
+        entity_type="note",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
