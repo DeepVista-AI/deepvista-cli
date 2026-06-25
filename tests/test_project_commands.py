@@ -186,6 +186,38 @@ def test_project_list_returns_projects(isolated_config: Path, monkeypatch: pytes
     assert payload["projects"][0]["url"].endswith("/project/p1")
 
 
+def test_project_list_slims_output_and_derives_role(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubCtxClient()
+    stub.queue(
+        "/projects",
+        [
+            {"id": "p1", "name": "Owned", "tags": ["a", "b"], "conversation_starters": [{}], "is_shared": False},
+            {"id": "p2", "name": "Shared", "permission": "editor", "is_shared": True},
+        ],
+    )
+    _install_stub_client(monkeypatch, stub)
+
+    result = CliRunner().invoke(cli, ["project", "list"])
+    assert result.exit_code == 0, result.output
+    projects = json.loads(result.output)["projects"]
+    # The noisy fat-model fields are dropped by default.
+    assert "tags" not in projects[0]
+    assert "conversation_starters" not in projects[0]
+    # Role is derived: owner when not shared, the explicit permission when shared.
+    assert projects[0]["role"] == "owner"
+    assert projects[1]["role"] == "editor"
+
+
+def test_project_list_full_keeps_raw_fields(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubCtxClient()
+    stub.queue("/projects", [{"id": "p1", "name": "Owned", "tags": ["a", "b"]}])
+    _install_stub_client(monkeypatch, stub)
+
+    result = CliRunner().invoke(cli, ["project", "list", "--full"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["projects"][0]["tags"] == ["a", "b"]
+
+
 def test_project_use_persists_and_validates(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub = _StubCtxClient()
     stub.queue("/projects", [{"id": "p1", "name": "Alpha"}, {"id": "p2", "name": "Beta"}])

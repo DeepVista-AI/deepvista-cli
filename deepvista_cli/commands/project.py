@@ -53,6 +53,43 @@ def _projects(ctx: click.Context) -> list[dict]:
     return []
 
 
+def _project_role(project: dict) -> str | None:
+    """Best-effort role for a project: explicit permission, else owner/shared."""
+    permission = project.get("permission")
+    if permission:
+        return permission
+    if project.get("is_shared"):
+        return None
+    return "owner"
+
+
+# Metadata fields worth surfacing in the slim view; the raw Project model also
+# carries large `tags` / `conversation_starters` arrays that drown the output.
+_SLIM_OPTIONAL_FIELDS = (
+    "is_shared",
+    "is_active",
+    "icon_url",
+    "timezone",
+    "backend_api_endpoint",
+    "owner_name",
+    "owner_email",
+    "created_at",
+    "updated_at",
+)
+
+
+def _slim_project(project: dict) -> dict:
+    """Project down to the useful metadata (id, name, role, …).
+
+    Keeps the ``id`` so the formatter still attaches a ``/project/{id}`` link.
+    """
+    slim: dict = {"id": project.get("id"), "name": project.get("name"), "role": _project_role(project)}
+    for key in _SLIM_OPTIONAL_FIELDS:
+        if project.get(key) is not None:
+            slim[key] = project[key]
+    return slim
+
+
 @click.group("project")
 def project_group() -> None:
     """Inspect and switch the CLI's working project.
@@ -66,10 +103,13 @@ def project_group() -> None:
 
 
 @project_group.command("list")
+@click.option("--full", is_flag=True, default=False, help="Show the raw project objects (tags, starters, …).")
 @click.pass_context
-def project_list(ctx: click.Context) -> None:
+def project_list(ctx: click.Context, full: bool) -> None:
     """List projects you own or that are shared with you."""
     projects = _projects(ctx)
+    if not full:
+        projects = [_slim_project(p) for p in projects]
     result = {"projects": projects, "count": len(projects), "current": ctx.obj.project_id}
     format_output(
         result,
@@ -81,26 +121,32 @@ def project_list(ctx: click.Context) -> None:
 
 
 @project_group.command("current")
+@click.option("--full", is_flag=True, default=False, help="Show the raw project object (tags, starters, …).")
 @click.pass_context
-def project_current(ctx: click.Context) -> None:
+def project_current(ctx: click.Context, full: bool) -> None:
     """Show the project the backend resolves for this CLI right now.
 
     Reflects the working project (`X-Project-Id`) when one is set, else the
     user's backend default project.
     """
     data = _client(ctx).get("/projects/me")
+    if not full and isinstance(data, dict):
+        data = _slim_project(data)
     format_output(data, ctx.obj.output_format, title="Current project", entity_type="project")
 
 
 @project_group.command("show")
 @click.argument("project_id", required=False)
+@click.option("--full", is_flag=True, default=False, help="Show the raw project object (tags, starters, …).")
 @click.pass_context
-def project_show(ctx: click.Context, project_id: str | None) -> None:
+def project_show(ctx: click.Context, project_id: str | None, full: bool) -> None:
     """Show metadata for a project (defaults to the resolved current project)."""
     if project_id:
         data = _client(ctx).get(f"/projects/{project_id}")
     else:
         data = _client(ctx).get("/projects/me")
+    if not full and isinstance(data, dict):
+        data = _slim_project(data)
     format_output(data, ctx.obj.output_format, title="Project", entity_type="project")
 
 
