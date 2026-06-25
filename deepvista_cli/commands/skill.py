@@ -19,6 +19,7 @@ import click
 
 from deepvista_cli import skill_catalog
 from deepvista_cli.client.http import DeepVistaClient
+from deepvista_cli.commands import apply_project_override, project_option
 from deepvista_cli.output.formatter import format_output, output_error
 from deepvista_cli.workflow_doc import (
     WorkflowDocument,
@@ -64,12 +65,14 @@ def skill_group() -> None:
 @skill_group.command("list")
 @click.option("--limit", default=20, help="Max results (default 20).")
 @click.option("--page", "page_number", default=1, help="Page number.")
+@project_option
 @click.pass_context
-def skill_list(ctx: click.Context, limit: int, page_number: int) -> None:
+def skill_list(ctx: click.Context, limit: int, page_number: int, project_override: str | None) -> None:
     """List all Skills.
 
     Read-only — never modifies your Skills.
     """
+    apply_project_override(ctx, project_override)
     data = _client(ctx).post(
         "/get_context_cards",
         {
@@ -87,17 +90,20 @@ def skill_list(ctx: click.Context, limit: int, page_number: int) -> None:
         title="Skills",
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
 @skill_group.command("get")
 @click.argument("skill_id")
+@project_option
 @click.pass_context
-def skill_get(ctx: click.Context, skill_id: str) -> None:
+def skill_get(ctx: click.Context, skill_id: str, project_override: str | None) -> None:
     """Get a Skill by ID.
 
     Read-only — never modifies the Skill.
     """
+    apply_project_override(ctx, project_override)
     data = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
     # Remind host agents that workflow skills must be executed via `skill run`,
     # not by reading the body with `skill get` and driving phases manually.
@@ -107,7 +113,12 @@ def skill_get(ctx: click.Context, skill_id: str) -> None:
             f"workflow skill — to execute with phase tracking run: deepvista skill run --mode host {skill_id}"
         )
     format_output(
-        data, ctx.obj.output_format, title=f"Skill: {skill_id}", entity_type="skill", base_url=ctx.obj.auth_url
+        data,
+        ctx.obj.output_format,
+        title=f"Skill: {skill_id}",
+        entity_type="skill",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -266,6 +277,7 @@ def emit_host_run_packet(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -314,6 +326,7 @@ def _skill_run_deepvista(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -413,6 +426,7 @@ def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_ru
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -422,6 +436,7 @@ def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_ru
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -468,6 +483,7 @@ def skill_phase_done(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -491,6 +507,7 @@ def skill_phase_done(
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -511,6 +528,7 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -520,6 +538,7 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -545,7 +564,9 @@ def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str) -> None:
         "reason": reason,
         "resume_with": f"deepvista skill run --mode host {skill_id}",
     }
-    format_output(out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url)
+    format_output(
+        out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    )
     sys.exit(2)
 
 
@@ -599,6 +620,7 @@ def skill_phase_run_on_deepvista(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -631,6 +653,7 @@ def skill_complete(ctx: click.Context, skill_id: str, review: str, dry_run: bool
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -659,7 +682,14 @@ def skill_status(ctx: click.Context, run_id: str) -> None:
         "visibility": session.get("visibility", ""),
         "created_at": session.get("created_at", ""),
     }
-    format_output(result, ctx.obj.output_format, title=f"Run: {run_id}", entity_type="chat", base_url=ctx.obj.auth_url)
+    format_output(
+        result,
+        ctx.obj.output_format,
+        title=f"Run: {run_id}",
+        entity_type="chat",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -833,6 +863,7 @@ def skill_discover(ctx: click.Context, search: str | None, category: str | None,
         title="Marketplace Skills",
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -855,6 +886,7 @@ def skill_install(ctx: click.Context, skill_id: str, dry_run: bool) -> None:
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -1192,6 +1224,7 @@ def skill_create_from_note(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 

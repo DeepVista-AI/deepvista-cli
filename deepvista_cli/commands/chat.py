@@ -10,6 +10,7 @@ import json
 import click
 
 from deepvista_cli.client.http import DeepVistaClient
+from deepvista_cli.commands import apply_project_override, project_option
 from deepvista_cli.output.formatter import format_output
 
 
@@ -26,12 +27,16 @@ def chat_group() -> None:
 @click.option("--limit", default=10, help="Max results (default 10).")
 @click.option("--offset", default=0, help="Offset for pagination.")
 @click.option("--search", default=None, help="Search chat summaries.")
+@project_option
 @click.pass_context
-def chat_sessions(ctx: click.Context, limit: int, offset: int, search: str | None) -> None:
+def chat_sessions(
+    ctx: click.Context, limit: int, offset: int, search: str | None, project_override: str | None
+) -> None:
     """List chat sessions.
 
     Read-only — never modifies chat sessions.
     """
+    apply_project_override(ctx, project_override)
     body: dict = {"limit": limit, "offset": offset}
     if search:
         body["search"] = search
@@ -46,19 +51,29 @@ def chat_sessions(ctx: click.Context, limit: int, offset: int, search: str | Non
         title="Chat Sessions",
         entity_type="chat",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
 @chat_group.command("get")
 @click.argument("chat_id")
+@project_option
 @click.pass_context
-def chat_get(ctx: click.Context, chat_id: str) -> None:
+def chat_get(ctx: click.Context, chat_id: str, project_override: str | None) -> None:
     """Get a chat session with all pages.
 
     Read-only.
     """
+    apply_project_override(ctx, project_override)
     data = _client(ctx).get(f"/chat_sessions/{chat_id}")
-    format_output(data, ctx.obj.output_format, title=f"Chat: {chat_id}", entity_type="chat", base_url=ctx.obj.auth_url)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title=f"Chat: {chat_id}",
+        entity_type="chat",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
 
 
 @chat_group.command("delete")
@@ -76,11 +91,14 @@ def chat_delete(ctx: click.Context, chat_id: str, dry_run: bool) -> None:
             ctx.obj.output_format,
             entity_type="chat",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).delete(f"/chat_sessions/{chat_id}")
-    format_output(data, ctx.obj.output_format, entity_type="chat", base_url=ctx.obj.auth_url)
+    format_output(
+        data, ctx.obj.output_format, entity_type="chat", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -93,8 +111,11 @@ def chat_delete(ctx: click.Context, chat_id: str, dry_run: bool) -> None:
 @click.option("--chat-id", default=None, help="Send to existing chat session.")
 @click.option("--new", "new_chat", is_flag=True, default=False, help="Force start a new conversation.")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@project_option
 @click.pass_context
-def chat_send(ctx: click.Context, message: str, chat_id: str | None, new_chat: bool, dry_run: bool) -> None:
+def chat_send(
+    ctx: click.Context, message: str, chat_id: str | None, new_chat: bool, dry_run: bool, project_override: str | None
+) -> None:
     """Send a message to the DeepVista AI agent and stream the response.
 
     Output is NDJSON (one JSON object per line) — each line is an SSE event
@@ -103,6 +124,7 @@ def chat_send(ctx: click.Context, message: str, chat_id: str | None, new_chat: b
     > [!CAUTION] This is a write command — it creates/updates a chat session
     > and may trigger agent actions (creating cards, searching, etc.).
     """
+    apply_project_override(ctx, project_override)
     body: dict = {"user_instruction": message}
     if chat_id and not new_chat:
         body["chat_id"] = chat_id
@@ -113,6 +135,7 @@ def chat_send(ctx: click.Context, message: str, chat_id: str | None, new_chat: b
             ctx.obj.output_format,
             entity_type="chat",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 

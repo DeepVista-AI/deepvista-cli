@@ -44,6 +44,7 @@ other reference file assumes you know it.
 | Subcommand | Use when | Reference |
 |---|---|---|
 | `deepvista auth` / `agents` / `config` / `upgrade` | authenticating, registering an agent, switching profiles, checking for updates | [shared.md](reference/shared.md) |
+| `deepvista project` | listing projects, picking / switching the **working project** that scopes every other command (`X-Project-Id` + `/project/{id}/…` links) | [project.md](reference/project.md) |
 | `deepvista notes` | taking a note the user **explicitly asked to record**, listing / updating / deleting notes, quick-capture of a single-line fact, re-indexing notes for entity extraction | [notes.md](reference/notes.md) |
 | `deepvista session` | recording an agent conversation transcript as a rolling `type=session` card via the `init` / `tick` / `finalize` hook lifecycle | [session.md](reference/session.md) |
 | `deepvista lint` | periodic LLM health check over the vistabase — duplicates, contradictions, stale claims, orphans, missing cross-references, data gaps | [lint.md](reference/lint.md) |

@@ -30,6 +30,7 @@ from deepvista_cli.commands.chat import chat_group
 from deepvista_cli.commands.config import config_group
 from deepvista_cli.commands.lint import lint_command
 from deepvista_cli.commands.notes import notes_group
+from deepvista_cli.commands.project import project_group
 from deepvista_cli.commands.schedule import schedule_group
 from deepvista_cli.commands.session import session_group
 from deepvista_cli.commands.skill import skill_group
@@ -59,13 +60,29 @@ class _RootGroup(click.Group):
 @click.option("--dry-run", is_flag=True, default=False, help="Show what would be sent without executing.")
 @click.option("--api-url", default=None, help=f"Override backend URL (default: {DEFAULT_API_URL}).")
 @click.option("--profile", default="default", help="Use a named config profile (e.g. local, staging).")
+@click.option(
+    "--project",
+    "project_id",
+    default=None,
+    help="Scope this invocation to a project id (overrides the profile working project / DEEPVISTA_PROJECT_ID).",
+)
 @click.pass_context
 def cli(
-    ctx: click.Context, output_format: str, verbose: bool, dry_run: bool, api_url: str | None, profile: str
+    ctx: click.Context,
+    output_format: str,
+    verbose: bool,
+    dry_run: bool,
+    api_url: str | None,
+    profile: str,
+    project_id: str | None,
 ) -> None:
     """DeepVista CLI — chat, notes, skills, and knowledge cards from your terminal.
 
-    Resources: card · skill · chat
+    Resources: project · card · skill · chat
+
+    Requests are scoped to a project: pick one with `deepvista project use <id>`
+    (persisted per profile), or override per call with `--project <id>` /
+    `DEEPVISTA_PROJECT_ID`. When none is set the backend uses your default project.
     """
     config = CLIConfig(
         output_format=output_format,
@@ -74,18 +91,24 @@ def cli(
         profile=profile,
     )
 
-    # Apply profile settings (env vars and CLI flags still take precedence)
+    # Apply profile settings (resolves project_id from profile + DEEPVISTA_PROJECT_ID).
+    # CLI flags still take precedence below.
     config.apply_profile(profile)
 
-    # CLI flag overrides everything
+    # CLI flags override everything
     if api_url:
         config.api_url = api_url
+    if project_id:
+        config.project_id = project_id
 
     # Attach config + lazy client to context
     ctx.ensure_object(CLIConfig)
     ctx.obj = config
     ctx.obj._client = DeepVistaClient(config)
 
+
+# Project scoping — pick a working project that scopes every other command.
+cli.add_command(project_group)
 
 # Primary resources
 # `card` is the canonical knowledge-base command; `vistabase` is a
