@@ -133,7 +133,7 @@ def test_seed_frontmatter_links_task_run_to_chat(monkeypatch) -> None:
     monkeypatch.setenv("DEEPVISTA_SOURCE_CHAT_ID", "chat-42")
     monkeypatch.setenv("DEEPVISTA_TASK_ID", "task-7")
     fm = sn.seed_frontmatter("sess-1", "/tmp/proj", "/tmp/t.jsonl")
-    assert fm["source_chat_id"] == "chat-42"
+    assert fm["chat_id"] == "chat-42"
     assert fm["task_id"] == "task-7"
 
 
@@ -141,7 +141,7 @@ def test_seed_frontmatter_omits_link_keys_for_interactive_session(monkeypatch) -
     monkeypatch.delenv("DEEPVISTA_SOURCE_CHAT_ID", raising=False)
     monkeypatch.delenv("DEEPVISTA_TASK_ID", raising=False)
     fm = sn.seed_frontmatter("sess-1", "/tmp/proj", "/tmp/t.jsonl")
-    assert "source_chat_id" not in fm
+    assert "chat_id" not in fm
     assert "task_id" not in fm
 
 

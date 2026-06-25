@@ -444,7 +444,9 @@ def seed_frontmatter(
     # a run and its session both resolve back to the chat that triggered them.
     source_chat_id = os.environ.get("DEEPVISTA_SOURCE_CHAT_ID", "").strip()
     if source_chat_id:
-        fm["source_chat_id"] = source_chat_id
+        # DV-1316: the chat reference is named `chat_id` across session/email/
+        # run_log cards.
+        fm["chat_id"] = source_chat_id
     task_id = os.environ.get("DEEPVISTA_TASK_ID", "").strip()
     if task_id:
         fm["task_id"] = task_id
