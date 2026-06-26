@@ -437,7 +437,23 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
     title = task.get("title") or ""
     prompt_preview = (prompt[:120] + "…") if len(prompt) > 120 else prompt
     task_label = f"{title!r} — {prompt_preview}" if title else prompt_preview
+    created_at_raw = task.get("created_at") or ""
+    workflow_name = (
+        task.get("workflow_name")
+        or task.get("skill_name")
+        or task.get("source_workflow_name")
+        or task.get("triggered_by")
+        or ""
+    )
     click.echo(f"  ▶ running task {short_id}… via claude -p (project {project_id or '?'})", err=True)
+    meta_parts = []
+    if created_at_raw:
+        display_ts = created_at_raw[:19].replace("T", " ") if "T" in created_at_raw else created_at_raw
+        meta_parts.append(f"added {display_ts}")
+    if workflow_name:
+        meta_parts.append(f"workflow: {workflow_name}")
+    if meta_parts:
+        click.echo(f"    {' · '.join(meta_parts)}", err=True)
     click.echo(f"    prompt: {task_label}", err=True)
 
     _done = threading.Event()
@@ -486,7 +502,12 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         {"status": status, "exit_code": exit_code, "output": output, "output_title": task.get("title")},
         extra_headers=headers,
     )
-    return {"task_id": task_id, "title": task.get("title"), "status": status, "exit_code": exit_code}
+    result: dict = {"task_id": task_id, "title": task.get("title"), "status": status, "exit_code": exit_code}
+    if created_at_raw:
+        result["created_at"] = created_at_raw
+    if workflow_name:
+        result["workflow"] = workflow_name
+    return result
 
 
 def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
@@ -587,10 +608,46 @@ def _list_all_machine_agents() -> list[tuple[str, str | None]]:
     return [(aid, proj_id) for aid, proj_id, _ in _iter_agent_files()]
 
 
-def _ensure_agents_for_all_projects(
+def _find_registered_agent_for_project(project_id: str) -> str | None:
+    """Return a locally registered agent_id for ``project_id``, any type."""
+    for agent_id, proj_id, _ in _iter_agent_files():
+        if proj_id == project_id:
+            return agent_id
+    return None
+
+
+def _resolve_working_project(ctx: click.Context, project_override: str | None = None) -> str | None:
+    """Return the project ``tasks run`` should scope to.
+
+    Resolution order: per-command ``--project`` → global working project
+    (``project use`` / global ``--project`` / ``DEEPVISTA_PROJECT_ID``) →
+    backend default via ``GET /projects/me``.
+    """
+    if project_override:
+        return project_override
+    profile_project = getattr(ctx.obj, "project_id", None)
+    if profile_project:
+        return profile_project
+    try:
+        data = _client(ctx).get("/projects/me")
+    except SystemExit:
+        return None
+    if isinstance(data, dict):
+        pid = data.get("id")
+        return str(pid) if pid else None
+    return None
+
+
+def _ensure_agents_for_projects(
     ctx: click.Context,
+    *,
+    project_ids: set[str] | None = None,
 ) -> tuple[list[tuple[str, str | None]], dict[str, str]]:
-    """Fetch all projects and ensure a local agent is registered for each one.
+    """Ensure local agent registrations exist for the given project(s).
+
+    When ``project_ids`` is ``None``, every accessible project is covered
+    (legacy all-projects mode).  Otherwise only the listed projects are
+    registered and returned.
 
     For projects that already have a local registration the existing agent_id
     is reused; for new projects a fresh agent is registered on-the-fly using
@@ -598,7 +655,8 @@ def _ensure_agents_for_all_projects(
 
     Stale local registrations whose project_id no longer appears in the API
     response are deleted so they stop producing 404 warnings on every poll.
-    Agents with no project_id (legacy global registrations) are kept.
+    Agents with no project_id (legacy global registrations) are kept only in
+    all-projects mode.
 
     Returns ``((agent_id, project_id), project_names)`` where ``project_names``
     maps project_id → human-readable name.  On network failure falls back to
@@ -614,7 +672,10 @@ def _ensure_agents_for_all_projects(
         projects_raw = _client(ctx).get("/projects")
     except SystemExit:
         click.echo("  [warn] could not fetch projects — using locally registered agents only", err=True)
-        return _list_all_machine_agents(), {}
+        agents = _list_all_machine_agents()
+        if project_ids is not None:
+            agents = [(aid, pid) for aid, pid in agents if pid in project_ids]
+        return agents, {}
 
     # Backend returns a JSON array directly for GET /projects.
     projects: list[dict] = projects_raw if isinstance(projects_raw, list) else projects_raw.get("projects", [])
@@ -634,10 +695,14 @@ def _ensure_agents_for_all_projects(
         project_id = project.get("id")
         if not project_id:
             continue
+        if project_ids is not None and project_id not in project_ids:
+            continue
         project_name = project_names.get(project_id, "")
 
         # Reuse an existing local registration for this project.
-        existing_id = _load_agent_id(agent_type, DEFAULT_AGENT_ROLE, project_id)
+        existing_id = _find_registered_agent_for_project(project_id) or _load_agent_id(
+            agent_type, DEFAULT_AGENT_ROLE, project_id
+        )
         if existing_id:
             if existing_id not in seen_agent_ids:
                 seen_agent_ids.add(existing_id)
@@ -692,11 +757,15 @@ def _ensure_agents_for_all_projects(
     # Prune stale registrations and append any remaining local agents.
     # An agent file is stale if it has a project_id that no longer appears in
     # the API response; deleting it prevents repeated 404 warnings each poll.
-    # Agents with no project_id (legacy global registrations) are kept.
+    # Agents with no project_id (legacy global registrations) are kept only
+    # when polling all projects.
     api_project_ids = {p.get("id") for p in projects if p.get("id")}
     for agent_id, proj_id, path in _iter_agent_files():
         if agent_id in seen_agent_ids:
             continue
+        if project_ids is not None:
+            if not proj_id or proj_id not in project_ids:
+                continue
         if proj_id and proj_id not in api_project_ids:
             try:
                 path.unlink()
@@ -711,6 +780,13 @@ def _ensure_agents_for_all_projects(
         result.append((agent_id, proj_id))
 
     return result, project_names
+
+
+def _ensure_agents_for_all_projects(
+    ctx: click.Context,
+) -> tuple[list[tuple[str, str | None]], dict[str, str]]:
+    """Ensure local agents exist for every accessible project (legacy helper)."""
+    return _ensure_agents_for_projects(ctx, project_ids=None)
 
 
 def _agent_type_label(agent_id: str) -> str:
@@ -849,7 +925,12 @@ def _claim_and_run_all(
 @tasks_group.command("run")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
 @click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
-@click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
+@click.option(
+    "--project",
+    "project_id",
+    default=None,
+    help="Scope to this project (overrides the working project for this call only).",
+)
 @click.option(
     "--host",
     "host_mode",
@@ -893,17 +974,17 @@ def tasks_run(
     poll_interval: int,
     total_time: int | None,
 ) -> None:
-    """Poll task queues for all registered agents and execute claimed tasks (DV-1079).
+    """Poll the task queue for the current project and execute claimed tasks (DV-1079).
 
-    By default (no --type/--role/--project filter) polls EVERY agent registered
-    on this machine, so tasks across all projects are serviced in one run.
-    Pass --type/--role/--project to restrict to a single matching agent.
+    Scopes to the working project (``project use``, global ``--project``, or
+    ``DEEPVISTA_PROJECT_ID``), falling back to your backend default project.
+    Override per-invocation with ``--project``. Pass ``--type``/``--role`` to
+    resolve a specific local agent registration instead.
 
     Default mode polls in the foreground — claim, execute, sleep
     --poll-interval, repeat — until --total-time elapses (or forever when
-    unset), which keeps every registered agent on this machine picking up
-    work without a cron job. --run-once does a single pass and exits; the
-    cron entry installed by `tasks setup` uses it.
+    unset). --run-once does a single pass and exits; the cron entry installed
+    by `tasks setup` uses it.
 
     Only one `tasks run` may be active per machine — concurrent
     invocations exit with an error instead of double-claiming the queue.
@@ -924,16 +1005,27 @@ def tasks_run(
         raise SystemExit(2)
 
     project_names: dict[str, str] = {}
-    if agent_type or agent_role or project_id:
-        # Explicit filter — single-agent mode (backward-compatible).
-        agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, project_id)
+    if agent_type or agent_role:
+        # Explicit agent filter — single-agent mode (backward-compatible).
+        working_project = _resolve_working_project(ctx, project_id)
+        agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, working_project)
         agents = [(agent_id, resolved_project_id)]
     else:
-        # No filter — auto-register for every project the user has access to,
-        # then poll all of them so nothing is missed.
-        agents, project_names = _ensure_agents_for_all_projects(ctx)
+        working_project = _resolve_working_project(ctx, project_id)
+        if not working_project:
+            output_error(
+                3,
+                "No working project to poll",
+                "Run `deepvista project use <id>` or pass `--project <id>`.",
+            )
+            raise SystemExit(3)
+        agents, project_names = _ensure_agents_for_projects(ctx, project_ids={working_project})
         if not agents:
-            output_error(3, "No projects or registered agents found", "Run 'deepvista auth login' then retry.")
+            output_error(
+                3,
+                f"No registered agent for project {working_project}",
+                "Run 'deepvista agents register' or retry after logging in.",
+            )
             raise SystemExit(3)
 
     host_mode = host_mode or _detect_host_agent()
