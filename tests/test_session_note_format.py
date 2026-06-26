@@ -102,6 +102,49 @@ def test_title_from_first_user_turn_returns_empty_for_blank_input() -> None:
     assert sn.title_from_first_user_turn("   \n  ") == ""
 
 
+def test_title_strips_command_message_and_name_markup() -> None:
+    # DV-1277: a /deepvista slash-command turn must not title the card
+    # "<command-message>"; the args (the real prompt) survive.
+    raw = (
+        "<command-message>deepvista is running…</command-message>\n"
+        "<command-name>deepvista</command-name>\n"
+        "<command-args>research Jane Doe</command-args>"
+    )
+    assert sn.title_from_first_user_turn(raw) == "research Jane Doe"
+
+
+def test_title_drops_turn_that_is_only_command_plumbing() -> None:
+    raw = "<command-message>deepvista is running…</command-message><command-name>deepvista</command-name>"
+    assert sn.title_from_first_user_turn(raw) == ""
+
+
+def test_strip_command_markup_keeps_plain_text() -> None:
+    assert sn.strip_command_markup("just a normal prompt") == "just a normal prompt"
+    # local-command output blocks are dropped wholesale
+    assert (
+        sn.strip_command_markup("do the thing <local-command-stdout>noisy output</local-command-stdout>")
+        == "do the thing"
+    )
+
+
+def test_seed_frontmatter_links_task_run_to_chat(monkeypatch) -> None:
+    # DV-1277: a task run exports the originating chat + task; the session card
+    # picks them up so it cross-references the chat that triggered it.
+    monkeypatch.setenv("DEEPVISTA_SOURCE_CHAT_ID", "chat-42")
+    monkeypatch.setenv("DEEPVISTA_TASK_ID", "task-7")
+    fm = sn.seed_frontmatter("sess-1", "/tmp/proj", "/tmp/t.jsonl")
+    assert fm["chat_id"] == "chat-42"
+    assert fm["task_id"] == "task-7"
+
+
+def test_seed_frontmatter_omits_link_keys_for_interactive_session(monkeypatch) -> None:
+    monkeypatch.delenv("DEEPVISTA_SOURCE_CHAT_ID", raising=False)
+    monkeypatch.delenv("DEEPVISTA_TASK_ID", raising=False)
+    fm = sn.seed_frontmatter("sess-1", "/tmp/proj", "/tmp/t.jsonl")
+    assert "chat_id" not in fm
+    assert "task_id" not in fm
+
+
 def test_append_turn_prepends_accordion_blocks() -> None:
     fm = sn.seed_frontmatter("sess-1", "/tmp/proj", "/tmp/t.jsonl")
     body = sn.build_initial_body(fm)
