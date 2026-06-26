@@ -507,7 +507,35 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         result["created_at"] = created_at_raw
     if workflow_name:
         result["workflow"] = workflow_name
+
+    # Resume the triggering workflow run so the server can continue from where
+    # it dispatched this task. ``skill_id`` is stamped on the task at enqueue
+    # time; without it the parent run stays paused and never completes.
+    skill_id = str(task.get("skill_id") or "").strip()
+    if skill_id:
+        click.echo(f"  ↩ resuming workflow {skill_id[:8]}… via deepvista skill run", err=True)
+        _resume_workflow(ctx, skill_id)
+
     return result
+
+
+def _resume_workflow(ctx: click.Context, skill_id: str) -> None:
+    """Run ``deepvista skill run --mode host <skill_id>`` to resume the parent workflow."""
+    profile_flag = []
+    profile = getattr(ctx.obj, "profile", None)
+    if profile and profile != "default":
+        profile_flag = ["--profile", profile]
+    argv = [_deepvista_binary(), *profile_flag, "skill", "run", "--mode", "host", skill_id]
+    try:
+        subprocess.run(  # noqa: S603 — argv built from validated binary + literal args
+            argv,
+            timeout=TASK_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        click.echo(f"  [warn] skill resume timed out for {skill_id[:8]}…", err=True)
+    except OSError as exc:
+        click.echo(f"  [warn] skill resume failed: {exc}", err=True)
 
 
 def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
