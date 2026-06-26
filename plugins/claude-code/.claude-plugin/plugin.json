@@ -1,6 +1,6 @@
 {
   "name": "deepvista",
-  "version": "0.6.0",
+  "version": "1.0.0",
   "description": "Remote-managed skill catalog from DeepVista. Auto-syncs thin stubs into the plugin's skills dir on SessionStart; full bodies are lazy-loaded at invocation time.",
   "author": {
     "name": "DeepVista AI",
