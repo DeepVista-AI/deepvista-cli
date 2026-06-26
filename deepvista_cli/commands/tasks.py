@@ -39,6 +39,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import cast
 
 import click
 
@@ -675,7 +676,11 @@ def _ensure_agents_for_projects(
         agents = _list_all_machine_agents()
         if project_ids is not None:
             agents = [(aid, pid) for aid, pid in agents if pid in project_ids]
-        return agents, {}
+        # `pid in project_ids` narrows pid to str, so pyright infers the
+        # filtered list as list[tuple[str, str]] — invariant with the declared
+        # list[tuple[str, str | None]] return. Cast to reconcile (values are a
+        # subtype; the wider element type is what callers expect).
+        return cast("list[tuple[str, str | None]]", agents), {}
 
     # Backend returns a JSON array directly for GET /projects.
     projects: list[dict] = projects_raw if isinstance(projects_raw, list) else projects_raw.get("projects", [])
