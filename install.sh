@@ -4,29 +4,39 @@ set -e
 REPO="DeepVista-AI/deepvista-cli"
 SKILL="deepvista"
 
-echo "==> Installing deepvista CLI..."
+if [ -z "${DEEPVISTA_SKILLS_ONLY:-}" ]; then
+  echo "==> Installing deepvista CLI..."
 
-if ! command -v uv >/dev/null 2>&1; then
-  echo "    uv not found — installing uv..."
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-fi
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "    uv not found — installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+  fi
 
-if command -v deepvista >/dev/null 2>&1; then
-  echo "    deepvista already installed — running upgrade..."
-  deepvista upgrade
-else
-  if command -v uv >/dev/null 2>&1; then
-    uv tool install "deepvista-cli"
-  elif command -v pipx >/dev/null 2>&1; then
-    pipx install "deepvista-cli"
-  elif command -v pip3 >/dev/null 2>&1; then
-    pip3 install --user "deepvista-cli"
-  elif command -v pip >/dev/null 2>&1; then
-    pip install --user "deepvista-cli"
+  if command -v deepvista >/dev/null 2>&1; then
+    echo "    deepvista already installed — upgrading via package manager..."
+    if command -v uv >/dev/null 2>&1; then
+      uv tool upgrade "deepvista-cli"
+    elif command -v pipx >/dev/null 2>&1; then
+      pipx upgrade "deepvista-cli"
+    elif command -v pip3 >/dev/null 2>&1; then
+      pip3 install --user --upgrade "deepvista-cli"
+    else
+      pip install --user --upgrade "deepvista-cli"
+    fi
   else
-    echo "Error: no Python package manager found (pip, pipx, or uv required)" >&2
-    exit 1
+    if command -v uv >/dev/null 2>&1; then
+      uv tool install "deepvista-cli"
+    elif command -v pipx >/dev/null 2>&1; then
+      pipx install "deepvista-cli"
+    elif command -v pip3 >/dev/null 2>&1; then
+      pip3 install --user "deepvista-cli"
+    elif command -v pip >/dev/null 2>&1; then
+      pip install --user "deepvista-cli"
+    else
+      echo "Error: no Python package manager found (pip, pipx, or uv required)" >&2
+      exit 1
+    fi
   fi
 fi
 

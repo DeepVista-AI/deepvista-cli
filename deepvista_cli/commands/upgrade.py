@@ -428,7 +428,10 @@ def _run_install(latest: str, *, skip_skills: bool) -> None:
     if not skip_skills:
         click.echo("\nRefreshing skills...")
         install_sh = f"{RAW_BASE}/install.sh"
-        skill_result = subprocess.run(["bash", "-c", f"curl -sSL {install_sh} | bash"])
+        skill_result = subprocess.run(
+            ["bash", "-c", f"curl -sSL {install_sh} | bash"],
+            env={**os.environ, "DEEPVISTA_SKILLS_ONLY": "1"},
+        )
         if skill_result.returncode != 0:
             click.echo(
                 f"Skill refresh exited with code {skill_result.returncode}. "
