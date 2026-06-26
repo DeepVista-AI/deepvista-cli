@@ -434,7 +434,11 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
     argv = [_claude_binary(), "-p", f"/deepvista {prompt}", "--permission-mode", permission_mode]
 
     short_id = task_id[:8]
+    title = task.get("title") or ""
+    prompt_preview = (prompt[:120] + "…") if len(prompt) > 120 else prompt
+    task_label = f"{title!r} — {prompt_preview}" if title else prompt_preview
     click.echo(f"  ▶ running task {short_id}… via claude -p (project {project_id or '?'})", err=True)
+    click.echo(f"    prompt: {task_label}", err=True)
 
     _done = threading.Event()
     _start = time.monotonic()
@@ -442,7 +446,7 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
     def _progress() -> None:
         while not _done.wait(10):
             elapsed = int(time.monotonic() - _start)
-            click.echo(f"    task {short_id}… still running ({elapsed}s elapsed)", err=True)
+            click.echo(f"    task {short_id}… still running ({elapsed}s elapsed) — {task_label}", err=True)
 
     _t = threading.Thread(target=_progress, daemon=True)
     _t.start()
