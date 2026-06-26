@@ -431,7 +431,16 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
 
     permission_mode = os.environ.get("DEEPVISTA_TASK_PERMISSION_MODE", DEFAULT_TASK_PERMISSION_MODE)
     cwd = os.environ.get("DEEPVISTA_TASK_CWD") or os.getcwd()
-    argv = [_claude_binary(), "-p", f"/deepvista {prompt}", "--permission-mode", permission_mode]
+    # Inject task_id into the prompt so the local Claude Code agent can call
+    # `deepvista tasks note <task_id> "<note>"` to write intermediate progress
+    # notes that the web agent polling the card can see in real-time.
+    task_context = (
+        f"[Task ID: {task_id}. "
+        f"After completing each significant step — or if you need human input to continue — "
+        f"run: deepvista tasks note {task_id} \"<brief note>\" "
+        f"so the delegating agent can track your progress.]\n\n"
+    )
+    argv = [_claude_binary(), "-p", f"/deepvista {task_context}{prompt}", "--permission-mode", permission_mode]
 
     short_id = task_id[:8]
     title = task.get("title") or ""
@@ -1200,6 +1209,44 @@ def tasks_list(
         columns=TASK_CARD_COLUMNS,
         title="Tasks",
     )
+
+
+@tasks_group.command("note")
+@click.argument("task_id")
+@click.argument("note")
+@click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
+@click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
+@click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
+@click.pass_context
+def tasks_note(
+    ctx: click.Context,
+    task_id: str,
+    note: str,
+    agent_type: str | None,
+    agent_role: str | None,
+    project_id: str | None,
+) -> None:
+    """Append a progress note to a running task card's run log (DV-1247).
+
+    Called by the local Claude Code agent after completing a step or when human
+    input is required. The web agent polling the task card sees these notes in
+    the description and can relay them to the user in real-time.
+
+    Example (from inside a headless claude -p run):
+        deepvista tasks note <task-id> "Step 1 done: found 3 failing tests"
+        deepvista tasks note <task-id> "Needs human: please approve the PR at github.com/…"
+    """
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, project_id)
+    headers = {"X-Project-Id": resolved_project_id} if resolved_project_id else None
+    data = _client(ctx).post(
+        f"/agents/{agent_id}/tasks/{task_id}/note",
+        {"note": note},
+        extra_headers=headers,
+    )
+    if not data.get("success"):
+        output_error(1, "Failed to append task note", data.get("error", "Unknown error"))
+        raise SystemExit(1)
+    click.echo(f"  ✎ note appended to task {task_id[:8]}…", err=True)
 
 
 @tasks_group.command("complete")
