@@ -504,7 +504,8 @@ def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str
     if not error_code and status_code >= 400:
         error_code = data.get("detail") or str(status_code)
     if error_code or not data.get("success", True):
-        if error_code == "project_not_found":
+        _agent_gone = error_code == "project_not_found" or status_code == 404
+        if _agent_gone:
             for aid, _, path in _iter_agent_files():
                 if aid == agent_id:
                     try:
@@ -512,10 +513,12 @@ def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str
                     except OSError:
                         pass
                     break
-            click.echo(
-                f"  removed stale agent {agent_id} (project {project_id} no longer accessible)",
-                err=True,
+            reason = (
+                f"project {project_id} no longer accessible"
+                if error_code == "project_not_found"
+                else (error_code or "not found on server")
             )
+            click.echo(f"  removed stale agent {agent_id} ({reason})", err=True)
             raise _StaleAgentError(agent_id)
         click.echo(
             f"  [warn] could not claim task cards for agent {agent_id}: {error_code or 'unknown'}",
@@ -776,12 +779,18 @@ def _print_run_header(
 
 def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[list[dict], list[dict]]:
     """One claim/execute pass; returns (command task results, workflow tasks)."""
-    data = _client(ctx).post(
+    data = _client(ctx).post_nofatal(
         f"/agents/{agent_id}/task-queue/claim",
         None if host_mode else {"command_only": True},
     )
-    if not data.get("success"):
-        output_error(1, "Failed to claim tasks", data.get("error", "Unknown error"))
+    status_code = data.get("_status_code", 200) if isinstance(data, dict) else 200
+    if status_code == 404:
+        raise _StaleAgentError(agent_id)
+    if status_code >= 400 or not data.get("success", True):
+        error = data.get("error", "Unknown error") if isinstance(data, dict) else "Unknown error"
+        if isinstance(error, dict):
+            error = error.get("detail") or error.get("message") or "unknown"
+        output_error(1, "Failed to claim tasks", error)
         raise SystemExit(1)
 
     tasks = data.get("tasks") or []
@@ -826,6 +835,9 @@ def _claim_and_run_all(
         # DV-936 / DV-955: queued CLI commands + host-driven workflow runs.
         try:
             results, wf_tasks = _claim_and_run(ctx, agent_id, host_mode)
+        except _StaleAgentError:
+            pruned.add(agent_id)
+            continue
         except SystemExit:
             click.echo(f"  [warn] failed to claim tasks for agent {agent_id} — skipping", err=True)
             continue
