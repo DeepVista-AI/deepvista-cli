@@ -57,11 +57,12 @@ If you called `skill get` and are already mid-workflow without a lock, call `ski
 After `skill run --mode host`, drive the run with:
 
 ```bash
-deepvista skill phase open  <skill_id> "Phase N: <title>"
-deepvista skill phase done  <skill_id> "Phase N: <title>" [--artifact-card-id ID] [--next-phase "…"]
-deepvista skill phase reset <skill_id> "Phase N: <title>"   # revert a done/active phase to pending
-deepvista skill phase pause <skill_id> --reason "<sentence>"
-deepvista skill complete    <skill_id> --review "<3–6 retrospective bullets>"
+deepvista skill phase open       <skill_id> "Phase N: <title>"
+deepvista skill phase done       <skill_id> "Phase N: <title>" [--artifact-card-id ID] [--next-phase "…"]
+deepvista skill phase reset      <skill_id> "Phase N: <title>"   # revert a done/active phase to pending
+deepvista skill phase need-input <skill_id> "Phase N: <title>" --reason "<what's needed>"  # :::dvNeedIntervention
+deepvista skill phase pause      <skill_id> --reason "<sentence>"  # technical blocker → :::dvNeedIntervention
+deepvista skill complete         <skill_id> --review "<3–6 retrospective bullets>"
 ```
 
 `complete` appends `## Review`, releases the run lock, and emits `{"done": true}`.
