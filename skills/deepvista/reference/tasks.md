@@ -21,7 +21,7 @@ pull-based queue (queued `deepvista …` CLI commands + host-driven workflow run
 
 | Command | Use when |
 |---|---|
-| `deepvista tasks run` | Start the poll loop on this Machine. Claims pending tasks across **every project** you can access (Owner/Editor), runs each, reports results. |
+| `deepvista tasks run` | Start the poll loop on this Machine. Claims pending tasks for the **current project** (working project or backend default), runs each, reports results. |
 | `deepvista tasks list` | Show the tasks dispatched to this Machine (optionally `--status pending\|running\|completed\|failed`). Read-only. |
 | `deepvista tasks setup` | Install (or `--remove`) a crontab entry that polls on a recurring interval (`--interval N`, macOS/Linux). |
 | `deepvista tasks complete` | Report the terminal outcome of a claimed workflow task — `--status completed\|failed [--note "…"]` (used by host agents). |
@@ -37,13 +37,14 @@ deepvista tasks run                 # poll forever (Ctrl-C to stop)
 deepvista tasks run --run-once      # one pass then exit (what `setup`'s cron uses)
 deepvista tasks run --poll-interval 30
 deepvista tasks run --total-time 600   # poll for up to 10 minutes
-deepvista tasks run --project <id>     # restrict to one project's Machine
+deepvista tasks run --project <id>     # override the working project for this run
 ```
 
-- **All projects by default**: with no `--type/--role/--project`, the loop
-  ensures this Machine is registered in every project you can access and polls
-  all of them, so nothing is missed. Each claim stamps the Machine's
-  `last_heartbeat_at`, so it shows **online** in Settings → Machines while polling.
+- **Current project by default**: scopes to the working project (`project use`,
+  global `--project`, or `DEEPVISTA_PROJECT_ID`), falling back to your backend
+  default (`GET /projects/me`). Override per-invocation with `--project`.
+  Each claim stamps the Machine's `last_heartbeat_at`, so it shows **online**
+  in Settings → Machines while polling.
 - **Single instance**: a PID lock (`~/.config/deepvista/task_queue.run.lock`)
   means only one `tasks run` is active per Machine — a foreground poller and a
   cron tick never double-claim.
