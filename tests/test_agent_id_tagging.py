@@ -180,6 +180,7 @@ def _invoke_quick(monkeypatch: pytest.MonkeyPatch, agent_id: str | None) -> _Rec
     class _Obj:
         output_format = "json"
         auth_url = "http://localhost"
+        project_id = None
 
     @click.group()
     @click.pass_context

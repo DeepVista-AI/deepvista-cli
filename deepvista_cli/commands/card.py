@@ -22,7 +22,7 @@ from __future__ import annotations
 import click
 
 from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.commands import resolve_content
+from deepvista_cli.commands import apply_project_override, project_option, resolve_content
 from deepvista_cli.output.formatter import format_output, output_error
 
 CARD_TYPES = [
@@ -81,6 +81,7 @@ def card_group() -> None:
 @click.option("--page", "page_number", default=1, help="Page number (default 1).")
 @click.option("--order-by", type=click.Choice(["created_at", "updated_at"]), default=None)
 @click.option("--order", "order_direction", type=click.Choice(["asc", "desc"]), default=None)
+@project_option
 @click.pass_context
 def card_list(
     ctx: click.Context,
@@ -90,8 +91,10 @@ def card_list(
     page_number: int,
     order_by: str | None,
     order_direction: str | None,
+    project_override: str | None,
 ) -> None:
     """List context cards with optional filtering."""
+    apply_project_override(ctx, project_override)
     body: dict = {"limit": limit, "page_number": page_number}
     if card_type:
         body["card_type"] = card_type
@@ -117,16 +120,26 @@ def card_list(
         title="Cards",
         entity_type="card",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
 @card_group.command("get")
 @click.argument("card_id")
+@project_option
 @click.pass_context
-def card_get(ctx: click.Context, card_id: str) -> None:
+def card_get(ctx: click.Context, card_id: str, project_override: str | None) -> None:
     """Get a context card by ID."""
+    apply_project_override(ctx, project_override)
     data = _client(ctx).post("/get_context_card", {"card_id": card_id})
-    format_output(data, ctx.obj.output_format, title=f"Card: {card_id}", entity_type="card", base_url=ctx.obj.auth_url)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title=f"Card: {card_id}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
 
 
 @card_group.command("create")
@@ -143,6 +156,7 @@ def card_get(ctx: click.Context, card_id: str) -> None:
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.option("--no-enrich", is_flag=True, default=False, help="Skip entity enrichment.")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@project_option
 @click.pass_context
 def card_create(
     ctx: click.Context,
@@ -153,6 +167,7 @@ def card_create(
     tags: str | None,
     no_enrich: bool,
     dry_run: bool,
+    project_override: str | None,
 ) -> None:
     """Create a new context card.
 
@@ -160,6 +175,7 @@ def card_create(
     """
     import json as _json
 
+    apply_project_override(ctx, project_override)
     description = resolve_content(description, content_file)
     body: dict = {
         "card_type": card_type,
@@ -180,11 +196,19 @@ def card_create(
             ctx.obj.output_format,
             entity_type="card",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(data, ctx.obj.output_format, title="Created Card", entity_type="card", base_url=ctx.obj.auth_url)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title="Created Card",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
 
 
 @card_group.command("update")
@@ -240,12 +264,18 @@ def card_update(
             ctx.obj.output_format,
             entity_type="card",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).post("/update_context_card", body)
     format_output(
-        data, ctx.obj.output_format, title=f"Updated Card: {card_id}", entity_type="card", base_url=ctx.obj.auth_url
+        data,
+        ctx.obj.output_format,
+        title=f"Updated Card: {card_id}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -287,12 +317,18 @@ def card_edit(
             ctx.obj.output_format,
             entity_type="card",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).post("/edit_context_card", body)
     format_output(
-        data, ctx.obj.output_format, title=f"Edited Card: {card_id}", entity_type="card", base_url=ctx.obj.auth_url
+        data,
+        ctx.obj.output_format,
+        title=f"Edited Card: {card_id}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -315,6 +351,7 @@ def card_delete(ctx: click.Context, card_id: str, card_type: str | None, dry_run
             ctx.obj.output_format,
             entity_type="card",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -322,7 +359,9 @@ def card_delete(ctx: click.Context, card_id: str, card_type: str | None, dry_run
     if card_type:
         params["card_type"] = card_type
     data = _client(ctx).delete(f"/context_cards/{card_id}", params=params)
-    format_output(data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url)
+    format_output(
+        data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +393,7 @@ def card_search(ctx: click.Context, query: str, card_type: str | None, limit: in
         title=f"Search: {query}",
         entity_type="card",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -385,6 +425,7 @@ def card_similar(ctx: click.Context, card_id: str, limit: int) -> None:
         title=f"Similar to: {card_id}",
         entity_type="card",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -403,11 +444,14 @@ def card_pin(ctx: click.Context, card_id: str, dry_run: bool) -> None:
             ctx.obj.output_format,
             entity_type="card",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "pinned"})
-    format_output(data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url)
+    format_output(
+        data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    )
 
 
 @card_group.command("+archive")
@@ -425,11 +469,14 @@ def card_archive(ctx: click.Context, card_id: str, dry_run: bool) -> None:
             ctx.obj.output_format,
             entity_type="card",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "archived"})
-    format_output(data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url)
+    format_output(
+        data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    )
 
 
 @card_group.command("+grep")
@@ -464,4 +511,11 @@ def card_grep(
         body["card_type"] = card_type
 
     data = _client(ctx).post("/grep_context_cards", body)
-    format_output(data, ctx.obj.output_format, title=f"Grep: {pattern}", entity_type="card", base_url=ctx.obj.auth_url)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title=f"Grep: {pattern}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )

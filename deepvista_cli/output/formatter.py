@@ -26,6 +26,7 @@ from deepvista_cli.config import DEFAULT_AUTH_URL
 URL_PATTERNS = {
     "vistabase": "/vistabase/{id}",
     "card": "/vistabase/{id}",
+    "project": "/project/{id}",
     "note": "/notes/{id}",
     "skill": "/skills/{id}",
     "chat": "/chat/{id}",
@@ -37,27 +38,40 @@ URL_PATTERNS = {
 
 # Known entity keys in API responses (singular for wrapped, plural for lists).
 # Entity type matches the key name except where overridden below.
-ENTITY_KEYS = ("card", "note", "skill", "session")
+ENTITY_KEYS = ("card", "note", "skill", "session", "project")
 _KEY_TYPE_OVERRIDES = {"session": "chat"}
 GENERIC_LIST_KEYS = ("results", "similar")
 
 
-def generate_url(entity_id: str, entity_type: str = "card", base_url: str = DEFAULT_AUTH_URL) -> str:
+def generate_url(
+    entity_id: str,
+    entity_type: str = "card",
+    base_url: str = DEFAULT_AUTH_URL,
+    project_id: str | None = None,
+) -> str:
     """Generate a web app URL for an entity.
 
     Args:
         entity_id: The UUID of the entity
         entity_type: Type of entity (card, note, skill, chat, person, organization, topic, keypoint)
         base_url: Base URL of the web app (defaults to https://app.deepvista.ai)
+        project_id: Working project id. When set, the path is prefixed with
+            ``/project/{project_id}`` to match the project-scoped frontend
+            routes (mirrors the web app's ``withProjectPrefix()``).
 
     Returns:
         Full URL to the entity in the web app
     """
     pattern = URL_PATTERNS.get(entity_type, URL_PATTERNS["card"])
-    return f"{base_url.rstrip('/')}{pattern.format(id=entity_id)}"
+    path = pattern.format(id=entity_id)
+    if project_id:
+        path = f"/project/{project_id}{path}"
+    return f"{base_url.rstrip('/')}{path}"
 
 
-def add_url_to_entity(entity: dict, entity_type: str = "card", base_url: str = DEFAULT_AUTH_URL) -> dict:
+def add_url_to_entity(
+    entity: dict, entity_type: str = "card", base_url: str = DEFAULT_AUTH_URL, project_id: str | None = None
+) -> dict:
     """Add a 'url' field to an entity dict if it has an 'id' field.
 
     Args:
@@ -78,12 +92,16 @@ def add_url_to_entity(entity: dict, entity_type: str = "card", base_url: str = D
     # Map known entity types; fall back to the passed entity_type for unknown types
     if effective_type not in URL_PATTERNS:
         effective_type = entity_type
-    result["url"] = generate_url(entity["id"], effective_type, base_url)
+    result["url"] = generate_url(entity["id"], effective_type, base_url, project_id=project_id)
     return result
 
 
 def add_urls_to_data(
-    data: Any, entity_type: str = "card", base_url: str = DEFAULT_AUTH_URL, list_key: str | None = None
+    data: Any,
+    entity_type: str = "card",
+    base_url: str = DEFAULT_AUTH_URL,
+    list_key: str | None = None,
+    project_id: str | None = None,
 ) -> Any:
     """Add URLs to entities in various data structures.
 
@@ -102,19 +120,21 @@ def add_urls_to_data(
         Data with URLs added to entities
     """
     if isinstance(data, list):
-        return [add_url_to_entity(item, entity_type, base_url) for item in data]
+        return [add_url_to_entity(item, entity_type, base_url, project_id=project_id) for item in data]
 
     if isinstance(data, dict):
         # If it's a single entity with an 'id', add URL directly
         if "id" in data and list_key is None:
-            return add_url_to_entity(data, entity_type, base_url)
+            return add_url_to_entity(data, entity_type, base_url, project_id=project_id)
 
         result = dict(data)
 
         # Wrapped single-entity responses (e.g. {"card": {..., "id": "..."}, "created": true})
         for key in ENTITY_KEYS:
             if key in result and isinstance(result[key], dict) and "id" in result[key]:
-                result[key] = add_url_to_entity(result[key], _KEY_TYPE_OVERRIDES.get(key, key), base_url)
+                result[key] = add_url_to_entity(
+                    result[key], _KEY_TYPE_OVERRIDES.get(key, key), base_url, project_id=project_id
+                )
 
         # List responses (e.g. {"cards": [...], "total": 10})
         plural_key_to_type = {f"{k}s": _KEY_TYPE_OVERRIDES.get(k, k) for k in ENTITY_KEYS}
@@ -124,7 +144,9 @@ def add_urls_to_data(
         for key in keys_to_check:
             if key in result and isinstance(result[key], list):
                 item_type = plural_key_to_type.get(key, entity_type)
-                result[key] = [add_url_to_entity(item, item_type, base_url) for item in result[key]]
+                result[key] = [
+                    add_url_to_entity(item, item_type, base_url, project_id=project_id) for item in result[key]
+                ]
 
         return result
 
@@ -186,6 +208,7 @@ def format_output(
     title: str | None = None,
     entity_type: str = "card",
     base_url: str = DEFAULT_AUTH_URL,
+    project_id: str | None = None,
 ) -> None:
     """Route output to the correct formatter based on --format flag.
 
@@ -198,9 +221,11 @@ def format_output(
         title: Title for table output
         entity_type: Type of entity for URL generation (card, note, skill, chat)
         base_url: Base URL for the web app
+        project_id: Working project id; prefixes emitted links with
+            ``/project/{project_id}`` to match project-scoped frontend routes.
     """
     # Add URLs to entities
-    data_with_urls = add_urls_to_data(data, entity_type=entity_type, base_url=base_url)
+    data_with_urls = add_urls_to_data(data, entity_type=entity_type, base_url=base_url, project_id=project_id)
 
     # Update columns to include 'url' if 'id' was in the original columns
     if columns and "id" in columns:

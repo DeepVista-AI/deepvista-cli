@@ -1,4 +1,4 @@
-"""Click-level tests for `deepvista task_queue run` / `list` / `complete` / `setup` (DV-936/DV-955/DV-1079)."""
+"""Click-level tests for `deepvista tasks run` / `list` / `complete` / `setup` (DV-936/DV-955/DV-1079)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from deepvista_cli.commands.task_queue import (
+from deepvista_cli.commands.tasks import (
     CRON_MARKER,
     _cron_entry,
     _is_workflow_task,
@@ -93,15 +93,37 @@ def _install_stub_client(monkeypatch: pytest.MonkeyPatch, stub: _StubCtxClient) 
     )
 
 
-def _register_local_agent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, agent_id: str = "agent-uuid-1") -> None:
+DEFAULT_PROJECT_ID = "proj-default"
+
+
+def _stub_working_project(stub: _StubCtxClient, project_id: str = DEFAULT_PROJECT_ID) -> None:
+    """Queue API responses so ``tasks run`` resolves a working project."""
+    stub.queue("/projects/me", {"id": project_id, "name": "Default project"})
+    stub.queue("/projects", [{"id": project_id, "name": "Default project"}])
+
+
+def _register_local_agent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    agent_id: str = "agent-uuid-1",
+    project_id: str = DEFAULT_PROJECT_ID,
+) -> None:
     """Write a local agent registration file and point the command module at it."""
     agents_dir = tmp_path / ".config" / "deepvista" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
-    (agents_dir / "deepvista-cli__misc.json").write_text(
-        json.dumps({"agent_id": agent_id, "agent_type": "deepvista-cli", "agent_role": "misc"})
+    suffix = f"__{project_id}" if project_id else ""
+    (agents_dir / f"deepvista-cli__misc{suffix}.json").write_text(
+        json.dumps(
+            {
+                "agent_id": agent_id,
+                "agent_type": "deepvista-cli",
+                "agent_role": "misc",
+                "project_id": project_id,
+            }
+        )
     )
     import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
@@ -136,7 +158,7 @@ class _FakeClock:
 
 
 def _install_fake_clock(monkeypatch: pytest.MonkeyPatch) -> _FakeClock:
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     clock = _FakeClock()
     monkeypatch.setattr(tq_module, "time", clock)
@@ -146,7 +168,7 @@ def _install_fake_clock(monkeypatch: pytest.MonkeyPatch) -> _FakeClock:
 def _parse_json_objects(output: str) -> list[dict]:
     """Parse a stream of (pretty-printed) JSON objects, skipping non-JSON lines.
 
-    Non-JSON text (e.g. the startup banner printed by `task_queue run`) is
+    Non-JSON text (e.g. the startup banner printed by `tasks run`) is
     silently skipped by advancing to the next ``{`` character before each
     decode attempt.
     """
@@ -198,16 +220,16 @@ def test_run_once_exits_immediately_when_queue_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     payload = _parse_first_json(result.output)
     assert payload["tasks_run"] == 0
-    non_setup_calls = [c[1] for c in stub.calls if c[1] != "/projects" and "/tasks" not in c[1]]
+    non_setup_calls = [c[1] for c in stub.calls if c[1] not in {"/projects", "/projects/me"} and "/tasks" not in c[1]]
     assert non_setup_calls == ["/agents/agent-uuid-1/task-queue/claim"]
 
 
@@ -216,7 +238,7 @@ def test_run_executes_claimed_task_and_reports_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/task-queue/claim",
         {"success": True, "tasks": [{"id": "t-1", "command": "deepvista notes list", "status": "running"}]},
@@ -225,7 +247,7 @@ def test_run_executes_claimed_task_and_reports_result(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     class _FakeProc:
         returncode = 0
@@ -240,7 +262,7 @@ def test_run_executes_claimed_task_and_reports_result(
 
     monkeypatch.setattr(tq_module.subprocess, "run", fake_run)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     payload = _parse_first_json(result.output)
     assert payload["tasks_run"] == 1
@@ -263,7 +285,7 @@ def test_run_executes_task_card_via_claude_and_reports_output(
     """DV-1247: a claimed task card runs `claude -p "/deepvista <prompt>"`; stdout
     is reported as the output and the run completes."""
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/tasks/claim",
         {"success": True, "tasks": [{"id": "tc-1", "prompt": "reply hello world", "title": "Say hello"}]},
@@ -273,7 +295,7 @@ def test_run_executes_task_card_via_claude_and_reports_output(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     class _FakeProc:
         returncode = 0
@@ -312,7 +334,7 @@ def test_run_rejects_non_deepvista_command_without_executing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/task-queue/claim",
         {"success": True, "tasks": [{"id": "t-1", "command": "rm -rf /", "status": "running"}]},
@@ -321,14 +343,14 @@ def test_run_rejects_non_deepvista_command_without_executing(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     def explode(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("subprocess.run must not be called for disallowed commands")
 
     monkeypatch.setattr(tq_module.subprocess, "run", explode)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     payload = _parse_first_json(result.output)
     assert payload["failed"] == 1
@@ -344,17 +366,18 @@ def test_run_errors_when_no_agent_registered(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
+    stub.queue("/agents", {"error": "registration unavailable"})
     _install_stub_client(monkeypatch, stub)
     import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     empty = isolated_home / ".config" / "deepvista" / "agents"
     monkeypatch.setattr(agents_module, "AGENTS_DIR", empty)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", empty)
     monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", isolated_home / ".config" / "deepvista" / "task_queue.run.lock")
 
-    result = CliRunner().invoke(cli, ["task_queue", "run"])
+    result = CliRunner().invoke(cli, ["tasks", "run"])
     assert result.exit_code == 3
 
 
@@ -386,16 +409,16 @@ def test_run_headless_claims_command_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(tq_module, "_detect_host_agent", lambda: False)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     claim_calls = [(m, p, b) for m, p, b in stub.calls if p == "/agents/agent-uuid-1/task-queue/claim"]
     assert len(claim_calls) == 1
@@ -410,7 +433,7 @@ def test_run_host_emits_workflow_packet_and_leaves_task_running(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/task-queue/claim",
         {
@@ -421,7 +444,7 @@ def test_run_host_emits_workflow_packet_and_leaves_task_running(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     emitted: list[dict] = []
 
@@ -435,7 +458,7 @@ def test_run_host_emits_workflow_packet_and_leaves_task_running(
 
     monkeypatch.setattr(tq_module.subprocess, "run", explode)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--host"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--host"])
     assert result.exit_code == 0, result.output
 
     # Claim body None (full claim), packet emitted with task threading.
@@ -451,7 +474,7 @@ def test_run_host_emits_workflow_packet_and_leaves_task_running(
     ]
     assert "=== DEEPVISTA WORKFLOW TASK t-wf" in result.output
 
-    # No result report: the task stays `running` until `task_queue complete`.
+    # No result report: the task stays `running` until `tasks complete`.
     assert all("/result" not in c[1] for c in stub.calls)
 
 
@@ -460,7 +483,7 @@ def test_run_host_fails_unparseable_workflow_task(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/task-queue/claim",
         {
@@ -474,7 +497,7 @@ def test_run_host_fails_unparseable_workflow_task(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--host"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--host"])
     assert result.exit_code == 0, result.output
 
     method, path, body = stub.calls[-1]
@@ -487,7 +510,7 @@ def test_run_headless_ignores_workflow_tasks_that_slip_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/task-queue/claim",
         {
@@ -498,7 +521,7 @@ def test_run_headless_ignores_workflow_tasks_that_slip_through(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(tq_module, "_detect_host_agent", lambda: False)
 
@@ -507,7 +530,7 @@ def test_run_headless_ignores_workflow_tasks_that_slip_through(
 
     monkeypatch.setattr(tq_module.subprocess, "run", explode)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     # No packet for a cron log, no subprocess, no terminal report.
     assert "DEEPVISTA WORKFLOW TASK" not in result.output
@@ -524,18 +547,18 @@ def test_run_polls_until_total_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     for _ in range(3):
         stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
     clock = _install_fake_clock(monkeypatch)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--poll-interval", "10", "--total-time", "25"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--poll-interval", "10", "--total-time", "25"])
     assert result.exit_code == 0, result.output
 
     # Passes at t=0, 10, 20; a fourth pass would start past the 25s budget.
-    claim_calls = [c[1] for c in stub.calls if c[1] != "/projects" and "/tasks" not in c[1]]
+    claim_calls = [c[1] for c in stub.calls if c[1] not in {"/projects", "/projects/me"} and "/tasks" not in c[1]]
     assert claim_calls == ["/agents/agent-uuid-1/task-queue/claim"] * 3
     assert clock.sleeps == [10, 10]
 
@@ -549,7 +572,7 @@ def test_run_polling_executes_tasks_across_passes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/task-queue/claim",
         {"success": True, "tasks": [{"id": "t-1", "command": "deepvista notes list", "status": "running"}]},
@@ -560,7 +583,7 @@ def test_run_polling_executes_tasks_across_passes(
     _register_local_agent(monkeypatch, isolated_home)
     _install_fake_clock(monkeypatch)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     class _FakeProc:
         returncode = 0
@@ -569,7 +592,7 @@ def test_run_polling_executes_tasks_across_passes(
 
     monkeypatch.setattr(tq_module.subprocess, "run", lambda argv, **kwargs: _FakeProc())
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--poll-interval", "30", "--total-time", "45"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--poll-interval", "30", "--total-time", "45"])
     assert result.exit_code == 0, result.output
 
     # Pass 1 ran the task (and printed it); pass 2 was empty; summary totals 1.
@@ -583,7 +606,7 @@ def test_run_host_polling_hands_back_after_workflow_packet(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/task-queue/claim",
         {
@@ -595,15 +618,17 @@ def test_run_host_polling_hands_back_after_workflow_packet(
     _register_local_agent(monkeypatch, isolated_home)
     clock = _install_fake_clock(monkeypatch)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(tq_module, "emit_host_run_packet", lambda *args, **kwargs: None)
 
     # No --run-once: the loop must still exit so the host agent can drive
     # the packet instead of sitting behind a blocked foreground poll.
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--host"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--host"])
     assert result.exit_code == 0, result.output
-    assert [c[1] for c in stub.calls if c[1] != "/projects" and "/tasks" not in c[1]] == ["/agents/agent-uuid-1/task-queue/claim"]
+    assert [c[1] for c in stub.calls if c[1] not in {"/projects", "/projects/me"} and "/tasks" not in c[1]] == [
+        "/agents/agent-uuid-1/task-queue/claim"
+    ]
     assert clock.sleeps == []
 
 
@@ -615,13 +640,13 @@ def test_run_refuses_when_another_run_holds_the_lock(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     # PID 1 (launchd/init) is always alive and never this process.
     tq_module.RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     tq_module.RUN_LOCK_PATH.write_text("1")
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 2
     # No claim — the queue must not be touched by a second instance.
     assert stub.calls == []
@@ -634,20 +659,22 @@ def test_run_reclaims_stale_lock_and_releases_on_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
-    stub.queue("/projects", [])
+    _stub_working_project(stub)
     stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     tq_module.RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     tq_module.RUN_LOCK_PATH.write_text("99999999")
     monkeypatch.setattr(tq_module, "_pid_alive", lambda pid: False)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
-    assert [c[1] for c in stub.calls if c[1] != "/projects" and "/tasks" not in c[1]] == ["/agents/agent-uuid-1/task-queue/claim"]
+    assert [c[1] for c in stub.calls if c[1] not in {"/projects", "/projects/me"} and "/tasks" not in c[1]] == [
+        "/agents/agent-uuid-1/task-queue/claim"
+    ]
     # Lock was reclaimed for the run and removed afterwards.
     assert not tq_module.RUN_LOCK_PATH.exists()
 
@@ -671,7 +698,7 @@ def test_complete_reports_terminal_status(
 
     result = CliRunner().invoke(
         cli,
-        ["task_queue", "complete", "t-wf", "--status", "completed", "--note", "lead brief shipped"],
+        ["tasks", "complete", "t-wf", "--status", "completed", "--note", "lead brief shipped"],
     )
     assert result.exit_code == 0, result.output
 
@@ -688,7 +715,7 @@ def test_complete_rejects_unknown_status(
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
-    result = CliRunner().invoke(cli, ["task_queue", "complete", "t-wf", "--status", "running"])
+    result = CliRunner().invoke(cli, ["tasks", "complete", "t-wf", "--status", "running"])
     assert result.exit_code != 0
     assert stub.calls == []
 
@@ -730,7 +757,7 @@ def test_setup_dry_run_previews_cron_entry(
     stub = _StubCtxClient()
     _install_stub_client(monkeypatch, stub)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(tq_module, "_read_crontab", lambda: ["0 0 * * * /bin/true"])
 
@@ -739,7 +766,7 @@ def test_setup_dry_run_previews_cron_entry(
 
     monkeypatch.setattr(tq_module, "_write_crontab", explode)
 
-    result = CliRunner().invoke(cli, ["--dry-run", "task_queue", "setup", "--interval", "10"])
+    result = CliRunner().invoke(cli, ["--dry-run", "tasks", "setup", "--interval", "10"])
     assert result.exit_code == 0, result.output
     payload = _parse_first_json(result.output)
     assert payload["dry_run"] is True
@@ -754,7 +781,7 @@ def test_setup_installs_and_replaces_entry_idempotently(
     stub = _StubCtxClient()
     _install_stub_client(monkeypatch, stub)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     written: list[list[str]] = []
     monkeypatch.setattr(
@@ -764,7 +791,7 @@ def test_setup_installs_and_replaces_entry_idempotently(
     )
     monkeypatch.setattr(tq_module, "_write_crontab", lambda lines: written.append(lines) or True)
 
-    result = CliRunner().invoke(cli, ["task_queue", "setup", "--interval", "15"])
+    result = CliRunner().invoke(cli, ["tasks", "setup", "--interval", "15"])
     assert result.exit_code == 0, result.output
     payload = _parse_first_json(result.output)
     assert payload["installed"] is True
@@ -785,7 +812,7 @@ def test_setup_remove_uninstalls_entry(
     stub = _StubCtxClient()
     _install_stub_client(monkeypatch, stub)
 
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     written: list[list[str]] = []
     monkeypatch.setattr(
@@ -795,7 +822,7 @@ def test_setup_remove_uninstalls_entry(
     )
     monkeypatch.setattr(tq_module, "_write_crontab", lambda lines: written.append(lines) or True)
 
-    result = CliRunner().invoke(cli, ["task_queue", "setup", "--remove"])
+    result = CliRunner().invoke(cli, ["tasks", "setup", "--remove"])
     assert result.exit_code == 0, result.output
     payload = _parse_first_json(result.output)
     assert payload["removed"] is True
@@ -834,38 +861,31 @@ def _register_two_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         )
     )
     import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", tmp_path / ".config" / "deepvista" / "task_queue.run.lock")
 
 
-def test_run_once_polls_all_registered_agents(
+def test_run_once_polls_only_current_project_agent(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Without --type/--role/--project, run claims every locally registered agent's queue."""
+    """``tasks run`` scopes to the working project — only that agent's queue is claimed."""
     stub = _StubCtxClient()
+    stub.queue("/projects/me", {"id": "proj-1", "name": "Project 1"})
+    stub.queue("/projects", [{"id": "proj-1", "name": "Project 1"}, {"id": "proj-2", "name": "Project 2"}])
     stub.queue("/agents/agent-proj-1/task-queue/claim", {"success": True, "tasks": []})
-    stub.queue("/agents/agent-proj-2/task-queue/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_two_agents(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
-
-    monkeypatch.setattr(
-        tq_module,
-        "_ensure_agents_for_all_projects",
-        lambda ctx: ([("agent-proj-1", "proj-1"), ("agent-proj-2", "proj-2")], {}),
-    )
-
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--project", "proj-1"])
     assert result.exit_code == 0, result.output
 
     claimed_paths = {c[1] for c in stub.calls}
     assert "/agents/agent-proj-1/task-queue/claim" in claimed_paths
-    assert "/agents/agent-proj-2/task-queue/claim" in claimed_paths
+    assert "/agents/agent-proj-2/task-queue/claim" not in claimed_paths
 
 
 def test_ensure_agents_for_all_projects_registers_missing_and_reuses_existing(
@@ -888,12 +908,17 @@ def test_ensure_agents_for_all_projects_registers_missing_and_reuses_existing(
     # proj-a already has a local registration.
     (agents_dir / "deepvista-cli__misc__proj-a.json").write_text(
         json.dumps(
-            {"agent_id": "existing-agent-a", "agent_type": "deepvista-cli", "agent_role": "misc", "project_id": "proj-a"}
+            {
+                "agent_id": "existing-agent-a",
+                "agent_type": "deepvista-cli",
+                "agent_role": "misc",
+                "project_id": "proj-a",
+            }
         )
     )
 
     import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.task_queue as tq_module
+    import deepvista_cli.commands.tasks as tq_module
 
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
@@ -902,6 +927,7 @@ def test_ensure_agents_for_all_projects_registers_missing_and_reuses_existing(
 
     import click
     from click.testing import CliRunner as _CliRunner
+
     from deepvista_cli.main import cli as _cli
 
     captured: list = []
@@ -939,34 +965,27 @@ def test_run_type_filter_restricts_to_single_agent(
     _install_stub_client(monkeypatch, stub)
     _register_two_agents(monkeypatch, isolated_home)
 
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once", "--type", "claude-code", "--project", "proj-1"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--type", "claude-code", "--project", "proj-1"])
     assert result.exit_code == 0, result.output
 
     claimed_paths = [c[1] for c in stub.calls if "/tasks" not in c[1]]
     assert claimed_paths == ["/agents/agent-proj-1/task-queue/claim"]
 
 
-def test_run_skips_stale_agent_and_continues(
+def test_run_scoped_to_project_skips_other_agents_on_claim_failure(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A claim failure on one agent logs a warning and services the remaining agents."""
+    """A claim failure on another project's agent is never attempted when scoped."""
     stub = _StubCtxClient()
-    # agent-proj-1 claim fails (stale backend row)
-    stub.queue("/agents/agent-proj-1/task-queue/claim", {"success": False, "error": "AGENT_NOT_FOUND"})
-    # agent-proj-2 claim succeeds
+    stub.queue("/projects/me", {"id": "proj-2", "name": "Project 2"})
+    stub.queue("/projects", [{"id": "proj-1", "name": "Project 1"}, {"id": "proj-2", "name": "Project 2"}])
     stub.queue("/agents/agent-proj-2/task-queue/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_two_agents(monkeypatch, isolated_home)
 
-    import deepvista_cli.commands.task_queue as tq_module
-
-    monkeypatch.setattr(
-        tq_module,
-        "_ensure_agents_for_all_projects",
-        lambda ctx: ([("agent-proj-1", "proj-1"), ("agent-proj-2", "proj-2")], {}),
-    )
-
-    result = CliRunner().invoke(cli, ["task_queue", "run", "--run-once"])
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--project", "proj-2"])
     assert result.exit_code == 0, result.output
-    assert "/agents/agent-proj-2/task-queue/claim" in {c[1] for c in stub.calls}
+    claimed_paths = {c[1] for c in stub.calls}
+    assert "/agents/agent-proj-2/task-queue/claim" in claimed_paths
+    assert "/agents/agent-proj-1/task-queue/claim" not in claimed_paths

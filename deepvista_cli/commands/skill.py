@@ -3,7 +3,7 @@
 Skills are structured checklist workflows stored as context cards (type=skill).
 Skill Runs are execution instances (type=skill_run) linked via a master chat session.
 
-Five resources: card · skill · vistabase · chat
+Resources: card · skill · chat
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import click
 
 from deepvista_cli import skill_catalog
 from deepvista_cli.client.http import DeepVistaClient
+from deepvista_cli.commands import apply_project_override, project_option
 from deepvista_cli.output.formatter import format_output, output_error
 from deepvista_cli.workflow_doc import (
     WorkflowDocument,
@@ -64,12 +65,14 @@ def skill_group() -> None:
 @skill_group.command("list")
 @click.option("--limit", default=20, help="Max results (default 20).")
 @click.option("--page", "page_number", default=1, help="Page number.")
+@project_option
 @click.pass_context
-def skill_list(ctx: click.Context, limit: int, page_number: int) -> None:
+def skill_list(ctx: click.Context, limit: int, page_number: int, project_override: str | None) -> None:
     """List all Skills.
 
     Read-only — never modifies your Skills.
     """
+    apply_project_override(ctx, project_override)
     data = _client(ctx).post(
         "/get_context_cards",
         {
@@ -87,17 +90,20 @@ def skill_list(ctx: click.Context, limit: int, page_number: int) -> None:
         title="Skills",
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
 @skill_group.command("get")
 @click.argument("skill_id")
+@project_option
 @click.pass_context
-def skill_get(ctx: click.Context, skill_id: str) -> None:
+def skill_get(ctx: click.Context, skill_id: str, project_override: str | None) -> None:
     """Get a Skill by ID.
 
     Read-only — never modifies the Skill.
     """
+    apply_project_override(ctx, project_override)
     data = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
     # Remind host agents that workflow skills must be executed via `skill run`,
     # not by reading the body with `skill get` and driving phases manually.
@@ -107,7 +113,12 @@ def skill_get(ctx: click.Context, skill_id: str) -> None:
             f"workflow skill — to execute with phase tracking run: deepvista skill run --mode host {skill_id}"
         )
     format_output(
-        data, ctx.obj.output_format, title=f"Skill: {skill_id}", entity_type="skill", base_url=ctx.obj.auth_url
+        data,
+        ctx.obj.output_format,
+        title=f"Skill: {skill_id}",
+        entity_type="skill",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -212,7 +223,7 @@ def emit_host_run_packet(
 ) -> None:
     """Fetch the skill, acquire the run lock, and print the host run packet.
 
-    Shared by ``skill run`` (host / auto modes) and ``task_queue run --host``
+    Shared by ``skill run`` (host / auto modes) and ``tasks run --host``
     (DV-955), which emits packets for webhook-queued workflow tasks instead
     of subprocess-executing them — a queued workflow needs the surrounding
     host agent to drive it. ``task_id`` (only known on the task-queue path)
@@ -266,6 +277,7 @@ def emit_host_run_packet(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -314,6 +326,7 @@ def _skill_run_deepvista(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -351,7 +364,7 @@ def _webhook_task_stanza(task_id: str | None) -> str:
     The queue entry stays ``running`` until the host agent reports it —
     nothing else will, so skipping this leaves a permanently stuck task.
     """
-    task_ref = task_id or "<task_id from `deepvista task_queue list`>"
+    task_ref = task_id or "<task_id from `deepvista tasks list`>"
     return f"""\
 ## Webhook task completion
 
@@ -359,9 +372,9 @@ This run came off the agent task queue. The queue entry stays `running`
 until YOU report it — after `deepvista skill complete` (or on failure):
 
 ```
-deepvista task_queue complete {task_ref} --status completed
+deepvista tasks complete {task_ref} --status completed
 # or, when the run could not finish:
-deepvista task_queue complete {task_ref} --status failed --note "<one short sentence>"
+deepvista tasks complete {task_ref} --status failed --note "<one short sentence>"
 ```"""
 
 
@@ -413,6 +426,7 @@ def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_ru
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -422,6 +436,7 @@ def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_ru
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -468,6 +483,7 @@ def skill_phase_done(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -491,6 +507,7 @@ def skill_phase_done(
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -511,6 +528,7 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -520,6 +538,7 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -528,20 +547,56 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
 @click.option("--reason", required=True, help="Short sentence explaining what's blocking the run.")
 @click.pass_context
 def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str) -> None:
-    """Pause the run (lock held). Exits non-zero so wrapping scripts notice.
+    """Pause the run (lock held), marking the active phase ``:::dvNeedIntervention``.
 
-    Does NOT change the card's ``status`` — the run lock stays held so a
-    re-run resumes the same phase. The user resumes by re-invoking
-    ``deepvista skill run --mode host <skill_id>``.
+    Sets the active phase's mermaid node to ``:::dvNeedIntervention`` so the
+    DeepVista UI shows the workflow is waiting for human action. Does NOT change
+    the card's ``status`` — the run lock stays held so a re-run resumes the same
+    phase. Exits non-zero so wrapping scripts notice.
     """
     card, doc = _load_skill_doc(ctx, skill_id)
     active = doc.active_phase()
+    if active:
+        _phase(ctx, skill_id, phase_label=active.title, action="need_input", reason=reason)
     out = {
         "ok": False,
         "paused": True,
         "skill_id": skill_id,
         "title": card.get("title", ""),
         "active_phase": active.title if active else None,
+        "reason": reason,
+        "resume_with": f"deepvista skill run --mode host {skill_id}",
+    }
+    format_output(
+        out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    )
+    sys.exit(2)
+
+
+@skill_phase_group.command("need-input")
+@click.argument("skill_id")
+@click.argument("phase_label")
+@click.option("--reason", required=True, help="Short sentence describing what input is needed from the user.")
+@click.pass_context
+def skill_phase_need_input(ctx: click.Context, skill_id: str, phase_label: str, reason: str) -> None:
+    """Signal that a phase is blocked waiting for user input (mermaid ``:::dvNeedIntervention``).
+
+    Marks the accordion open and sets the mermaid node to
+    ``:::dvNeedIntervention`` so the DeepVista UI shows the phase as
+    waiting for the user — distinct from a technical blocker (``phase pause``)
+    or an error. Exits non-zero so wrapping scripts notice.
+
+    The user provides the required information and then resumes with:
+
+        deepvista skill run --mode host <skill_id>
+    """
+    result = _phase(ctx, skill_id, phase_label=phase_label, action="need_input", reason=reason)
+    out = {
+        "ok": False,
+        "need_input": True,
+        "skill_id": skill_id,
+        "phase": phase_label,
+        "title": result.get("title", ""),
         "reason": reason,
         "resume_with": f"deepvista skill run --mode host {skill_id}",
     }
@@ -599,6 +654,7 @@ def skill_phase_run_on_deepvista(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -631,6 +687,7 @@ def skill_complete(ctx: click.Context, skill_id: str, review: str, dry_run: bool
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -659,7 +716,14 @@ def skill_status(ctx: click.Context, run_id: str) -> None:
         "visibility": session.get("visibility", ""),
         "created_at": session.get("created_at", ""),
     }
-    format_output(result, ctx.obj.output_format, title=f"Run: {run_id}", entity_type="chat", base_url=ctx.obj.auth_url)
+    format_output(
+        result,
+        ctx.obj.output_format,
+        title=f"Run: {run_id}",
+        entity_type="chat",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -833,6 +897,7 @@ def skill_discover(ctx: click.Context, search: str | None, category: str | None,
         title="Marketplace Skills",
         entity_type="skill",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
     )
 
 
@@ -855,6 +920,7 @@ def skill_install(ctx: click.Context, skill_id: str, dry_run: bool) -> None:
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 
@@ -1192,6 +1258,7 @@ def skill_create_from_note(
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
         )
         return
 

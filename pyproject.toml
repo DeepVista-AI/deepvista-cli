@@ -1,6 +1,6 @@
 [project]
 name = "deepvista-cli"
-version = "0.6.0"
+version = "1.0.0"
 description = "CLI for DeepVista — chat, notes, skills, and memory from your terminal."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -23,11 +23,6 @@ dependencies = [
     "httpx>=0.27,<1",
     "psutil>=7.2.2",
     "rich>=13.0",
-]
-
-[project.optional-dependencies]
-ui = [
-    "textual>=0.80",
 ]
 
 [project.urls]

@@ -41,7 +41,6 @@ def _print_next_steps() -> None:
         steps = [
             'deepvista notes +quick "My first note" — capture a note',
             "deepvista skill list — browse your workflow skills",
-            "deepvista ui — launch the terminal UI",
             "deepvista chat — talk to your DeepVista agent",
         ]
     else:  # some other AI agent is driving us

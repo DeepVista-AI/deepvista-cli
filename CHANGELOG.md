@@ -37,6 +37,19 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [1.0.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.6.0...v1.0.0) (2026-06-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **DV-1281:** CLI help/docs cleanup — drop deprecated aliases, remove TUI, collapse vistabase into card ([#167](https://github.com/DeepVista-AI/deepvista-cli/issues/167))
+
+### Features
+
+* **DV-1247:** `tasks` group runs web-chat task cards via claude -p ([#165](https://github.com/DeepVista-AI/deepvista-cli/issues/165)) ([4c95aed](https://github.com/DeepVista-AI/deepvista-cli/commit/4c95aedb99104f3567b10e1d77f8c3b668627177))
+* **DV-1281:** CLI help/docs cleanup — drop deprecated aliases, remove TUI, collapse vistabase into card ([#167](https://github.com/DeepVista-AI/deepvista-cli/issues/167)) ([b7f308b](https://github.com/DeepVista-AI/deepvista-cli/commit/b7f308be5a03421c9b08eab1622209a94826b72d))
+* **DV-1294:** make the CLI a project-scoped client ([#170](https://github.com/DeepVista-AI/deepvista-cli/issues/170)) ([708d107](https://github.com/DeepVista-AI/deepvista-cli/commit/708d10739aa0ccf11319379a76fdea6cf646c493))
+
 ## [0.6.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.5.0...v0.6.0) (2026-06-22)
 
 

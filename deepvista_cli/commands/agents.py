@@ -691,6 +691,7 @@ def _output(ctx: click.Context, data: object, **kwargs: object) -> None:
         ctx.obj.output_format,
         entity_type="agent",
         base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
         **kwargs,  # type: ignore[arg-type]
     )
 
