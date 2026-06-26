@@ -387,9 +387,9 @@ def _execute_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
 # headlessly via `claude -p "/deepvista <prompt>"`.
 # ---------------------------------------------------------------------------
 
-# Default cap for a task-card run. 3 minutes covers most local CLI operations;
+# Default cap for a task-card run. 10 minutes covers most local CLI operations;
 # callers can override per-task via the ``timeout_seconds`` frontmatter field.
-TASK_RUN_TIMEOUT_SECONDS = 180
+TASK_RUN_TIMEOUT_SECONDS = 600
 
 # Headless permission posture for unattended task runs. ``bypassPermissions``
 # skips every approval prompt — appropriate for a Machine the user has
