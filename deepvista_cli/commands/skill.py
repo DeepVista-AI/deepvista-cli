@@ -542,6 +542,45 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
     )
 
 
+@skill_phase_group.command("note")
+@click.argument("skill_id")
+@click.argument("phase_label")
+@click.argument("note_text")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
+@click.pass_context
+def skill_phase_note(ctx: click.Context, skill_id: str, phase_label: str, note_text: str, dry_run: bool) -> None:
+    """Set or update the dvNote annotation bubble next to a phase node.
+
+    The annotation appears as a side bubble in the workflow mermaid diagram —
+    useful for recording task dispatch status, short summaries, or interim results.
+    Calling this command again with different text replaces the previous note.
+    """
+    if dry_run:
+        format_output(
+            {
+                "dry_run": True,
+                "would": "set phase note",
+                "skill_id": skill_id,
+                "phase": phase_label,
+                "note_text": note_text,
+            },
+            ctx.obj.output_format,
+            entity_type="skill",
+            base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
+        )
+        return
+
+    result = _phase(ctx, skill_id, phase_label=phase_label, action="note", note_text=note_text)
+    format_output(
+        {"ok": True, "skill_id": skill_id, "phase": phase_label, "note": note_text, "title": result.get("title", "")},
+        ctx.obj.output_format,
+        entity_type="skill",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
+
+
 @skill_phase_group.command("pause")
 @click.argument("skill_id")
 @click.option("--reason", required=True, help="Short sentence explaining what's blocking the run.")

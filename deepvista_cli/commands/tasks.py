@@ -387,9 +387,9 @@ def _execute_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
 # headlessly via `claude -p "/deepvista <prompt>"`.
 # ---------------------------------------------------------------------------
 
-# A task prompt may legitimately drive a long Claude Code session (research,
-# multi-tool work), so it gets a more generous budget than a queued CLI command.
-TASK_RUN_TIMEOUT_SECONDS = 1800
+# Default cap for a task-card run. 3 minutes covers most local CLI operations;
+# callers can override per-task via the ``timeout_seconds`` frontmatter field.
+TASK_RUN_TIMEOUT_SECONDS = 180
 
 # Headless permission posture for unattended task runs. ``bypassPermissions``
 # skips every approval prompt — appropriate for a Machine the user has
@@ -456,6 +456,10 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         click.echo(f"    {' · '.join(meta_parts)}", err=True)
     click.echo(f"    prompt: {task_label}", err=True)
 
+    # Per-task timeout: the enqueuing agent can override the default via
+    # the ``timeout_seconds`` frontmatter field (e.g. for long research tasks).
+    task_timeout = int(task.get("timeout_seconds") or 0) or TASK_RUN_TIMEOUT_SECONDS
+
     _done = threading.Event()
     _start = time.monotonic()
 
@@ -471,7 +475,7 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
             argv,
             capture_output=True,
             text=True,
-            timeout=TASK_RUN_TIMEOUT_SECONDS,
+            timeout=task_timeout,
             cwd=cwd,
         )
         exit_code = proc.returncode
@@ -480,7 +484,7 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         if not output and proc.stderr:
             output = proc.stderr.strip()
     except subprocess.TimeoutExpired:
-        status, exit_code, output = "failed", None, f"claude run timed out after {TASK_RUN_TIMEOUT_SECONDS}s"
+        status, exit_code, output = "failed", None, f"claude run timed out after {task_timeout}s"
     except FileNotFoundError:
         status, exit_code, output = (
             "failed",
@@ -508,15 +512,40 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
     if workflow_name:
         result["workflow"] = workflow_name
 
+    skill_id = str(task.get("skill_id") or "").strip()
+    phase_label = str(task.get("phase_label") or "").strip()
+
+    # Update the workflow phase dvNote annotation so the diagram reflects the
+    # task result before resuming — the annotation is visible immediately in the UI.
+    if skill_id and phase_label:
+        status_icon = "✅" if status == "completed" else "❌"
+        short_output = (output or "")[:120]
+        if len(output or "") > 120:
+            short_output += "…"
+        note = f"{status_icon} Task {short_id} {status}."
+        if short_output:
+            note += f" {short_output}"
+        _update_phase_note(ctx, skill_id, phase_label, note)
+
     # Resume the triggering workflow run so the server can continue from where
     # it dispatched this task. ``skill_id`` is stamped on the task at enqueue
     # time; without it the parent run stays paused and never completes.
-    skill_id = str(task.get("skill_id") or "").strip()
     if skill_id:
         click.echo(f"  ↩ resuming workflow {skill_id[:8]}… via deepvista skill run", err=True)
         _resume_workflow(ctx, skill_id)
 
     return result
+
+
+def _update_phase_note(ctx: click.Context, skill_id: str, phase_label: str, note_text: str) -> None:
+    """Call ``POST /workflow_phase`` with action='note' to update the dvNote annotation."""
+    try:
+        _client(ctx).post(
+            "/workflow_phase",
+            {"card_id": skill_id, "phase_label": phase_label, "action": "note", "note_text": note_text},
+        )
+    except Exception as exc:
+        click.echo(f"  [warn] phase note update failed: {exc}", err=True)
 
 
 def _resume_workflow(ctx: click.Context, skill_id: str) -> None:
