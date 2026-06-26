@@ -32,6 +32,7 @@ Issues = "https://github.com/DeepVista-AI/deepvista-cli/issues"
 
 [project.scripts]
 deepvista = "deepvista_cli.main:cli"
+dv = "deepvista_cli.main:cli"        # short alias for `deepvista` (DV-1324)
 
 [build-system]
 requires = ["hatchling"]
