@@ -37,6 +37,20 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [1.1.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v1.0.0...v1.1.0) (2026-06-26)
+
+
+### Features
+
+* **DV-1277:** clean session-card title + link task runs to their chat ([#169](https://github.com/DeepVista-AI/deepvista-cli/issues/169)) ([b4de0c7](https://github.com/DeepVista-AI/deepvista-cli/commit/b4de0c7435bf89f475a25443e80524ab1da8420a))
+* **skill:** add phase need-input for :::dvNeedIntervention mermaid state ([#166](https://github.com/DeepVista-AI/deepvista-cli/issues/166)) ([ade6edf](https://github.com/DeepVista-AI/deepvista-cli/commit/ade6edf8a462199ce8b59119e7eb0d662ad94fc6))
+
+
+### Bug Fixes
+
+* **DV-1357:** move agent heartbeat into the Claude Code plugin ([#174](https://github.com/DeepVista-AI/deepvista-cli/issues/174)) ([41c4339](https://github.com/DeepVista-AI/deepvista-cli/commit/41c43390afaab06c90c103c5526e44f3f3f35ad8))
+* reconcile _ensure_agents_for_projects return type (pyright) ([#173](https://github.com/DeepVista-AI/deepvista-cli/issues/173)) ([c134e42](https://github.com/DeepVista-AI/deepvista-cli/commit/c134e42abc39325cf2814126be7d249ba667f464))
+
 ## [1.0.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.6.0...v1.0.0) (2026-06-25)
 
 
