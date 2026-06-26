@@ -10,6 +10,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-session-start.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-agent-sync.sh online"
           }
         ]
       }
@@ -41,6 +45,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-session-turn.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-agent-sync.sh online"
           }
         ]
       }
@@ -51,6 +59,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-session-end.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/deepvista-agent-sync.sh offline"
           }
         ]
       }

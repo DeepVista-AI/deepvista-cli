@@ -49,8 +49,8 @@ from deepvista_cli.commands.agents import (
     DEFAULT_AGENT_ROLE,
     _build_config_snapshot,
     _default_agent_name,
-    _install_hooks,
     _load_agent_id,
+    _migrate_legacy_hooks,
     _save_agent_id,
 )
 from deepvista_cli.commands.skill import emit_host_run_packet
@@ -659,9 +659,9 @@ def _ensure_agents_for_all_projects(
             agent_role_saved = agent.get("agent_role", DEFAULT_AGENT_ROLE)
             _save_agent_id(agent_type, agent_id, agent_role_saved, project_id, project_name or None)
 
-            # Mirror what `agents register` does: install hooks + initial sync.
-            profile = getattr(ctx.obj, "profile", "default")
-            _install_hooks(agent_type, profile)
+            # Mirror what `agents register` does: migrate off the legacy
+            # standalone hook (plugin now owns the heartbeat) + initial sync.
+            _migrate_legacy_hooks(agent_type)
             try:
                 _client(ctx).post(
                     f"/agents/{agent_id}/sync",

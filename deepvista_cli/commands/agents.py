@@ -238,16 +238,29 @@ def _remove_agent_id(
 
 
 # ---------------------------------------------------------------------------
-# Hook installation — auto-install sync hooks into agent settings
+# Hook migration — heartbeat is now delivered by the DeepVista plugin
 # ---------------------------------------------------------------------------
 
 _HOOK_MARKER = "agents sync"
 
 
-def _install_hooks(agent_type: str, profile: str) -> bool:
-    """Install heartbeat hooks into agent settings. Returns True if hooks were added."""
+def _migrate_legacy_hooks(agent_type: str) -> bool:
+    """Strip the legacy standalone heartbeat hook from agent settings.
+
+    The agent heartbeat is now owned by the DeepVista Claude Code plugin
+    (``plugins/claude-code`` → ``scripts/deepvista-agent-sync.sh``), which wraps
+    the ``agents sync`` call in the safe hook pattern (PATH export,
+    ``command -v`` guard, backgrounded, output redirected to a log, always
+    ``exit 0``). Earlier versions injected a *raw* ``deepvista agents sync`` Stop
+    hook straight into ``~/.claude/settings.json``; with no safety wrapper it
+    errored and exited non-zero on every Stop whenever DNS/auth failed, which
+    Claude Code surfaced as a looping "Stop hook feedback" (DV-1357).
+
+    Registering now removes that legacy hook so the plugin is the single source
+    of truth. Returns True if a legacy hook was removed.
+    """
     if agent_type == "claude-code":
-        return _install_claude_code_hooks(profile)
+        return _uninstall_claude_code_hooks()
     # Other agent types can be added here
     return False
 
@@ -269,40 +282,6 @@ def _find_hook_command(entry: dict) -> str:
                 return cmd
     # Flat format fallback: {"command": "..."}
     return entry.get("command", "")
-
-
-def _install_claude_code_hooks(profile: str) -> bool:
-    """Add Stop hook to ~/.claude/settings.json for heartbeat sync."""
-    settings_path = _HOME / ".claude" / "settings.json"
-
-    settings: dict = {}
-    if settings_path.is_file():
-        try:
-            settings = _json.loads(settings_path.read_text(encoding="utf-8"))
-        except (_json.JSONDecodeError, OSError):
-            settings = {}
-
-    hooks = settings.setdefault("hooks", {})
-    stop_hooks = hooks.setdefault("Stop", [])
-
-    # Check if already installed
-    for entry in stop_hooks:
-        if isinstance(entry, dict) and _HOOK_MARKER in _find_hook_command(entry):
-            return False  # Already installed
-
-    profile_flag = f" --profile {profile}" if profile != "default" else ""
-    sync_cmd = f"deepvista{profile_flag} agents sync --type claude-code --status online"
-
-    stop_hooks.append(
-        {
-            "matcher": "",
-            "hooks": [{"type": "command", "command": sync_cmd}],
-        }
-    )
-
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(_json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-    return True
 
 
 def _uninstall_claude_code_hooks() -> bool:
@@ -692,8 +671,7 @@ def _ensure_agent_registered(ctx: click.Context, agent_type: str) -> str:
     if not agent_id:
         output_error(1, "Auto-registration failed", error or "Unknown error")
         raise SystemExit(1)
-    profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"
-    _install_hooks(agent_type, profile)
+    _migrate_legacy_hooks(agent_type)
     return agent_id
 
 
@@ -809,7 +787,7 @@ def agents_register(
                 "name": name,
                 "agent_type": agent_type,
                 "agent_role": agent_role,
-                "would_install_hooks": _install_hooks.__doc__ and agent_type == "claude-code",
+                "would_migrate_legacy_hooks": agent_type == "claude-code",
                 "config_snapshot": config,
                 "profile": profile,
             },
@@ -837,10 +815,13 @@ def agents_register(
 
     _save_agent_id(agent_type, agent["id"], agent.get("agent_role", agent_role), agent.get("project_id"))
 
-    # Auto-install heartbeat hooks
-    profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"
-    if _install_hooks(agent_type, profile):
-        click.echo(_json.dumps({"hooks": "installed Stop hook for heartbeat sync"}), err=True)
+    # Heartbeat is now delivered by the DeepVista plugin; strip any legacy
+    # standalone hook a prior CLI version injected into settings.json (DV-1357).
+    if _migrate_legacy_hooks(agent_type):
+        click.echo(
+            _json.dumps({"hooks": "removed legacy standalone heartbeat hook (now provided by the DeepVista plugin)"}),
+            err=True,
+        )
 
     # Initial sync — set online immediately so dashboard shows green
     _client(ctx).post(
