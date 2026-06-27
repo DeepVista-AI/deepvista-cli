@@ -438,7 +438,7 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
     task_context = (
         f"[Task ID: {task_id}. "
         f"After completing each significant step — or if you need human input to continue — "
-        f"run: deepvista tasks note {task_id} \"<brief note>\" "
+        f'run: deepvista tasks note {task_id} "<brief note>" '
         f"so the delegating agent can track your progress.]\n\n"
     )
     argv = [_claude_binary(), "-p", f"/deepvista {task_context}{prompt}", "--permission-mode", permission_mode]
