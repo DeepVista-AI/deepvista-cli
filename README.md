@@ -100,6 +100,9 @@ deepvista card +search "founder mindset"
 deepvista chat +send "What did I learn last week?"
 ```
 
+> **Tip:** `dv` is a short alias for `deepvista` — `dv <args>` and `deepvista <args>`
+> are fully interchangeable (e.g. `dv notes +quick "..."`).
+
 That's it. Your knowledge base is now accessible from any terminal.
 
 ---
