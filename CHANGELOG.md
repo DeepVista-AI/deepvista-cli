@@ -37,6 +37,13 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [1.2.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v1.1.0...v1.2.0) (2026-06-27)
+
+
+### Features
+
+* **DV-1324:** add dv CLI alias ([#177](https://github.com/DeepVista-AI/deepvista-cli/issues/177)) ([f1973a3](https://github.com/DeepVista-AI/deepvista-cli/commit/f1973a35b488477df187ff2ccb5c0662b2f3efa8))
+
 ## [1.1.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v1.0.0...v1.1.0) (2026-06-26)
 
 
