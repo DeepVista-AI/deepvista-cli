@@ -411,13 +411,62 @@ def _claude_binary() -> str:
     return shutil.which("claude") or "claude"
 
 
+# DV-1428: minimum gap between live-activity reports (note POST + phase dvNote
+# update) so a chatty run's tool-call stream can't hammer the backend — one
+# write per interval is plenty for a human watching the Mermaid diagram.
+ACTIVITY_REPORT_MIN_INTERVAL_SECONDS = 3.0
+
+# Tool-input keys worth surfacing as a one-line activity summary, in priority
+# order (first match wins). Best-effort — arbitrary tools fall back to no arg
+# summary rather than guessing at their shape.
+_ACTIVITY_SUMMARY_KEYS = ("command", "file_path", "path", "pattern", "query", "url", "description")
+
+
+def _summarize_tool_input(tool_input: dict) -> str:
+    """One-line, length-capped summary of a tool call's args for live progress."""
+    for key in _ACTIVITY_SUMMARY_KEYS:
+        value = tool_input.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:80]
+    return ""
+
+
+def _summarize_stream_event(event: dict) -> str | None:
+    """Extract a short "what's happening now" line from a stream-json event (DV-1428).
+
+    Fed by `claude -p --output-format stream-json --verbose`: assistant
+    messages carry `tool_use` (a tool call starting) and `text` (the agent's
+    running commentary) content blocks; everything else (system/hook noise,
+    user tool_result echoes) has nothing worth surfacing. Returns None when
+    the event doesn't map to a displayable activity line.
+    """
+    if event.get("type") != "assistant":
+        return None
+    for block in (event.get("message") or {}).get("content") or []:
+        block_type = block.get("type")
+        if block_type == "tool_use":
+            name = block.get("name") or "tool"
+            arg_summary = _summarize_tool_input(block.get("input") or {})
+            return f"🔧 {name}: {arg_summary}" if arg_summary else f"🔧 {name}"
+        if block_type == "text":
+            text = " ".join((block.get("text") or "").split())
+            if text:
+                return f"💬 {text[:100]}"
+    return None
+
+
 def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, task: dict) -> dict:
     """Run one claimed task card via `claude -p` and report the result back.
 
     The prompt is handed to Claude Code as ``/deepvista <prompt>`` so the run
     boots with the DeepVista skill context (knowledge base, notes, the CLI).
-    stdout becomes the run's output (a linked output card is created backend-side
-    when non-empty); the exit code decides completed vs. failed.
+    Runs stream incrementally (``--output-format stream-json``, DV-1428) so
+    tool-call activity can be reported live — via the task's note trail (the
+    channel DV-1376's chat "Wait for Local Agent" panel streams from) and, for
+    workflow-dispatched tasks, the Mermaid diagram's dvNote annotation on the
+    active phase. The final ``result`` event's text becomes the run's output
+    (a linked output card is created backend-side when non-empty); the exit
+    code decides completed vs. failed.
     """
     task_id = str(task.get("id", ""))
     prompt = str(task.get("prompt", "")).strip()
@@ -442,7 +491,16 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         f'run: deepvista tasks note {task_id} "<brief note>" '
         f"so the delegating agent can track your progress.]\n\n"
     )
-    argv = [_claude_binary(), "-p", f"/deepvista {task_context}{prompt}", "--permission-mode", permission_mode]
+    argv = [
+        _claude_binary(),
+        "-p",
+        f"/deepvista {task_context}{prompt}",
+        "--permission-mode",
+        permission_mode,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+    ]
 
     # DV-1277: expose the originating chat + this task to the headless run so the
     # session card the Claude Code plugin writes (`deepvista session init`) can
@@ -480,32 +538,91 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
     # the ``timeout_seconds`` frontmatter field (e.g. for long research tasks).
     task_timeout = int(task.get("timeout_seconds") or 0) or TASK_RUN_TIMEOUT_SECONDS
 
+    skill_id = str(task.get("skill_id") or "").strip()
+    phase_label = str(task.get("phase_label") or "").strip()
+
     _done = threading.Event()
     _start = time.monotonic()
+    _activity_text = [task_label]  # 1-item list so nested closures can mutate it
+    _last_reported = [float("-inf")]  # -inf guarantees the first report always fires
+
+    def _report_activity(text: str, *, force: bool = False) -> None:
+        """Push live progress to the task's note trail + (workflow tasks
+        only) the Mermaid diagram's dvNote annotation (DV-1428). Throttled —
+        one write per ``ACTIVITY_REPORT_MIN_INTERVAL_SECONDS`` is plenty for a
+        human watching the diagram, and the note-append endpoint shouldn't see
+        one write per tool call on a chatty run."""
+        _activity_text[0] = text
+        now = time.monotonic()
+        if not force and now - _last_reported[0] < ACTIVITY_REPORT_MIN_INTERVAL_SECONDS:
+            return
+        _last_reported[0] = now
+        try:
+            _client(ctx).post(f"/agents/{agent_id}/tasks/{task_id}/note", {"note": text}, extra_headers=headers)
+        except Exception as exc:
+            click.echo(f"  [warn] progress note failed: {exc}", err=True)
+        if skill_id and phase_label:
+            _update_phase_note(ctx, skill_id, phase_label, text)
 
     def _progress() -> None:
         while not _done.wait(10):
             elapsed = int(time.monotonic() - _start)
-            click.echo(f"    task {short_id}… still running ({elapsed}s elapsed) — {task_label}", err=True)
+            click.echo(f"    task {short_id}… still running ({elapsed}s elapsed) — {_activity_text[0]}", err=True)
+            _report_activity(f"⏳ still running ({elapsed}s) — {_activity_text[0]}", force=True)
 
     _t = threading.Thread(target=_progress, daemon=True)
     _t.start()
+
+    status = "failed"
+    exit_code: int | None = None
+    output = ""
+    timed_out = threading.Event()
     try:
-        proc = subprocess.run(  # noqa: S603 — argv built from a fixed binary + literal flags
+        proc = subprocess.Popen(  # noqa: S603 — argv built from a fixed binary + literal flags
             argv,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=task_timeout,
             cwd=cwd,
             env=run_env,
+            bufsize=1,
         )
-        exit_code = proc.returncode
-        status = "completed" if exit_code == 0 else "failed"
-        output = (proc.stdout or "").strip()
-        if not output and proc.stderr:
-            output = proc.stderr.strip()
-    except subprocess.TimeoutExpired:
-        status, exit_code, output = "failed", None, f"claude run timed out after {task_timeout}s"
+        def _watchdog() -> None:
+            if not _done.wait(task_timeout):
+                timed_out.set()
+                proc.kill()
+
+        threading.Thread(target=_watchdog, daemon=True).start()
+
+        result_text = ""
+        result_is_error: bool | None = None
+        tail_lines: list[str] = []
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            line = raw_line.strip()
+            if not line:
+                continue
+            tail_lines.append(line)
+            try:
+                event = _json.loads(line)
+            except ValueError:
+                continue
+            summary = _summarize_stream_event(event)
+            if summary:
+                _report_activity(summary)
+            if event.get("type") == "result":
+                result_text = str(event.get("result") or "")
+                result_is_error = bool(event.get("is_error"))
+
+        proc.wait()
+        stderr_text = (proc.stderr.read() or "").strip() if proc.stderr else ""
+
+        if timed_out.is_set():
+            status, exit_code, output = "failed", None, f"claude run timed out after {task_timeout}s"
+        else:
+            exit_code = proc.returncode
+            status = "completed" if exit_code == 0 and result_is_error is not True else "failed"
+            output = result_text.strip() or stderr_text or "\n".join(tail_lines[-40:])
     except FileNotFoundError:
         status, exit_code, output = (
             "failed",
@@ -532,9 +649,6 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         result["created_at"] = created_at_raw
     if workflow_name:
         result["workflow"] = workflow_name
-
-    skill_id = str(task.get("skill_id") or "").strip()
-    phase_label = str(task.get("phase_label") or "").strip()
 
     # Update the workflow phase dvNote annotation so the diagram reflects the
     # task result before resuming — the annotation is visible immediately in the UI.

@@ -14,6 +14,8 @@ from deepvista_cli.commands.tasks import (
     _cron_entry,
     _is_workflow_task,
     _parse_workflow_command,
+    _summarize_stream_event,
+    _summarize_tool_input,
     _validate_command,
 )
 from deepvista_cli.main import cli
@@ -286,12 +288,78 @@ def test_run_executes_claimed_task_and_reports_result(
     assert body == {"status": "completed", "exit_code": 0, "output_tail": "ok"}
 
 
+class _FakeStreamJsonProc:
+    """Stand-in for the `claude -p --output-format stream-json` Popen (DV-1428).
+
+    ``stdout`` is a plain iterable of JSONL strings (one per stream-json
+    event) so ``for raw_line in proc.stdout`` in ``_run_task_card`` works
+    without a real subprocess.
+    """
+
+    def __init__(self, event_lines: list[str], returncode: int = 0) -> None:
+        self.stdout = iter(event_lines)
+        self.stderr = _EmptyReadable()
+        self.returncode = returncode
+        self.killed = False
+
+    def wait(self, timeout: float | None = None) -> int:
+        return self.returncode
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+class _EmptyReadable:
+    def read(self) -> str:
+        return ""
+
+
+def _stream_json_lines(*events: dict) -> list[str]:
+    return [json.dumps(event) for event in events]
+
+
+def test_summarize_tool_input_prefers_command_key():
+    assert _summarize_tool_input({"command": "ls -la", "description": "list files"}) == "ls -la"
+
+
+def test_summarize_tool_input_falls_back_through_keys():
+    assert _summarize_tool_input({"path": "/tmp/foo"}) == "/tmp/foo"
+
+
+def test_summarize_tool_input_truncates_long_values():
+    long_value = "x" * 200
+    assert _summarize_tool_input({"query": long_value}) == long_value[:80]
+
+
+def test_summarize_tool_input_no_known_key_returns_empty():
+    assert _summarize_tool_input({"foo": "bar"}) == ""
+
+
+def test_summarize_stream_event_tool_use():
+    event = {
+        "type": "assistant",
+        "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ls /tmp"}}]},
+    }
+    assert _summarize_stream_event(event) == "🔧 Bash: ls /tmp"
+
+
+def test_summarize_stream_event_text():
+    event = {"type": "assistant", "message": {"content": [{"type": "text", "text": "Working on it\nsecond line"}]}}
+    assert _summarize_stream_event(event) == "💬 Working on it second line"
+
+
+def test_summarize_stream_event_ignores_non_assistant_events():
+    assert _summarize_stream_event({"type": "system", "subtype": "hook_started"}) is None
+    assert _summarize_stream_event({"type": "result", "result": "done"}) is None
+
+
 def test_run_executes_task_card_via_claude_and_reports_output(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """DV-1247: a claimed task card runs `claude -p "/deepvista <prompt>"`; stdout
-    is reported as the output and the run completes."""
+    """DV-1247/DV-1428: a claimed task card runs `claude -p` with incremental
+    stream-json output; the final `result` event's text is reported as the
+    output and the run completes."""
     stub = _StubCtxClient()
     _stub_working_project(stub)
     stub.queue(
@@ -305,36 +373,45 @@ def test_run_executes_task_card_via_claude_and_reports_output(
 
     import deepvista_cli.commands.tasks as tq_module
 
-    class _FakeProc:
-        returncode = 0
-        stdout = "Hello, world!"
-        stderr = ""
-
     executed: list[list[str]] = []
+    event_lines = _stream_json_lines(
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "echo hi"}}]},
+        },
+        {"type": "result", "subtype": "success", "is_error": False, "result": "Hello, world!"},
+    )
 
-    def fake_run(argv, **kwargs):  # type: ignore[no-untyped-def]
+    def fake_popen(argv, **kwargs):  # type: ignore[no-untyped-def]
         executed.append(argv)
-        return _FakeProc()
+        return _FakeStreamJsonProc(event_lines)
 
-    monkeypatch.setattr(tq_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(tq_module.subprocess, "Popen", fake_popen)
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
 
-    # Claude was invoked headless with the /deepvista-prefixed prompt.
+    # Claude was invoked headless with the /deepvista-prefixed prompt, streaming.
     assert executed, "claude was not launched"
     argv = executed[0]
     assert argv[1] == "-p"
-    assert argv[2] == "/deepvista reply hello world"
+    assert argv[2].startswith("/deepvista [Task ID: tc-1.")
+    assert argv[2].endswith("reply hello world")
     assert "--permission-mode" in argv
+    assert "--output-format" in argv and "stream-json" in argv
 
-    # The result (with captured stdout) was reported to the task-card endpoint.
+    # The result (with the stream's final text) was reported to the task-card endpoint.
     result_calls = [c for c in stub.calls if c[1] == "/agents/agent-uuid-1/tasks/tc-1/result"]
     assert result_calls, "no result reported"
     _, _, body = result_calls[-1]
     assert body["status"] == "completed"
     assert body["exit_code"] == 0
     assert body["output"] == "Hello, world!"
+
+    # A live-activity note fired for the tool-call event (DV-1428).
+    note_calls = [c for c in stub.calls if c[1] == "/agents/agent-uuid-1/tasks/tc-1/note"]
+    assert note_calls, "no live-activity note reported"
+    assert "Bash" in note_calls[0][2]["note"]
 
 
 def test_run_rejects_non_deepvista_command_without_executing(
