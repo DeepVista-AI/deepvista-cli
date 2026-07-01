@@ -38,6 +38,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -587,39 +588,61 @@ def _resume_workflow(ctx: click.Context, skill_id: str) -> None:
         click.echo(f"  [warn] skill resume failed: {exc}", err=True)
 
 
+# Signals that an agent/machine no longer exists server-side. The backend returns
+# error_code AGENT_NOT_FOUND for both "Agent not found" (task queue) and "Machine
+# not found" (task cards), and project_not_found when the whole project is gone.
+# Any of these means the local registration is stale — prune it once and stop
+# polling for it, instead of re-emitting the claim-failure block on every poll
+# (DV-1429: a stale `deepvista-cli` agent spammed the loop forever).
+_AGENT_GONE_CODES = {"agent_not_found", "project_not_found"}
+_AGENT_GONE_MESSAGES = {"agent not found", "machine not found"}
+
+
+def _agent_is_gone(data: dict, status_code: int) -> bool:
+    """True when a claim response says this agent/machine is gone server-side."""
+    if status_code == 404:
+        return True
+    code = str(data.get("error_code") or "").lower()
+    message = str(data.get("error") or "").lower()
+    return code in _AGENT_GONE_CODES or message in _AGENT_GONE_MESSAGES
+
+
+def _prune_stale_agent(agent_id: str, reason: str) -> None:
+    """Delete the local registration file for a stale agent_id and log it once."""
+    for aid, _, path in _iter_agent_files():
+        if aid == agent_id:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            break
+    click.echo(f"  removed stale agent {agent_id} ({reason})", err=True)
+
+
 def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
     """Claim this Machine's pending task cards in ``project_id`` and run each headless.
 
-    Raises ``_StaleAgentError`` when the server returns ``project_not_found`` and the
-    local registration file has been deleted, so the caller can drop this agent_id
-    from the live poll list and avoid repeated 404 warnings.
+    Raises ``_StaleAgentError`` when the server reports the agent/machine is gone
+    (AGENT_NOT_FOUND / project_not_found / 404) and the local registration file has
+    been deleted, so the caller drops this agent_id from the live poll list and
+    stops re-emitting the claim-failure block every poll (DV-1429).
     """
     headers = {"X-Project-Id": project_id} if project_id else None
     data = _client(ctx).post_nofatal(f"/agents/{agent_id}/tasks/claim", None, extra_headers=headers)
     status_code = data.get("_status_code", 200) if isinstance(data, dict) else 200
-    error_code = data.get("error") if isinstance(data.get("error"), str) else None
-    # FastAPI 4xx errors use "detail" not "error"; treat any non-2xx as failure.
-    if not error_code and status_code >= 400:
-        error_code = data.get("detail") or str(status_code)
-    if error_code or not data.get("success", True):
-        _agent_gone = error_code == "project_not_found" or status_code == 404
-        if _agent_gone:
-            for aid, _, path in _iter_agent_files():
-                if aid == agent_id:
-                    try:
-                        path.unlink()
-                    except OSError:
-                        pass
-                    break
+    if isinstance(data, dict) and (data.get("error") or status_code >= 400 or not data.get("success", True)):
+        if _agent_is_gone(data, status_code):
+            code = str(data.get("error_code") or "").lower()
             reason = (
                 f"project {project_id} no longer accessible"
-                if error_code == "project_not_found"
-                else (error_code or "not found on server")
+                if code == "project_not_found"
+                else str(data.get("error") or "not found on server")
             )
-            click.echo(f"  removed stale agent {agent_id} ({reason})", err=True)
+            _prune_stale_agent(agent_id, reason)
             raise _StaleAgentError(agent_id)
+        detail = data.get("error") or data.get("detail") or "unknown"
         click.echo(
-            f"  [warn] could not claim task cards for agent {agent_id}: {error_code or 'unknown'}",
+            f"  [warn] could not claim task cards for agent {agent_id}: {detail}",
             err=True,
         )
         return []
@@ -941,7 +964,8 @@ def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[
         None if host_mode else {"command_only": True},
     )
     status_code = data.get("_status_code", 200) if isinstance(data, dict) else 200
-    if status_code == 404:
+    if isinstance(data, dict) and _agent_is_gone(data, status_code):
+        _prune_stale_agent(agent_id, str(data.get("error") or "not found on server"))
         raise _StaleAgentError(agent_id)
     if status_code >= 400 or not data.get("success", True):
         error = data.get("error", "Unknown error") if isinstance(data, dict) else "Unknown error"
@@ -1224,6 +1248,120 @@ def tasks_list(
         columns=TASK_CARD_COLUMNS,
         title="Tasks",
     )
+
+
+def _task_timestamp(task: dict) -> datetime | None:
+    """Best-effort last-activity timestamp for a task-queue entry (DV-1429)."""
+    for key in ("completed_at", "updated_at", "started_at", "created_at"):
+        raw = task.get(key)
+        if not raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
+    return None
+
+
+@tasks_group.command("clean")
+@click.argument("task_ids", nargs=-1)
+@click.option(
+    "--status",
+    "statuses",
+    multiple=True,
+    type=click.Choice(["completed", "failed", "cancelled", "wont_fix"]),
+    help="Terminal status(es) to delete (repeatable). Default: completed + failed.",
+)
+@click.option(
+    "--older-than",
+    "older_than_days",
+    type=int,
+    default=None,
+    help="Only delete tasks last updated more than N days ago.",
+)
+@click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
+@click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
+@click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would be deleted without deleting.")
+@click.pass_context
+def tasks_clean(
+    ctx: click.Context,
+    task_ids: tuple[str, ...],
+    statuses: tuple[str, ...],
+    older_than_days: int | None,
+    agent_type: str | None,
+    agent_role: str | None,
+    project_id: str | None,
+    dry_run: bool,
+) -> None:
+    """Delete terminated entries from this Machine's task queue (DV-1429).
+
+    With explicit TASK_IDS, deletes exactly those. Otherwise deletes queue entries
+    in a terminal state (default: completed + failed), optionally limited to those
+    last updated more than --older-than days ago. Inspect first with
+    `deepvista tasks list`; preview with --dry-run.
+
+    > [!CAUTION] Destructive — deleted tasks cannot be recovered. Confirm with the user.
+    """
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, project_id)
+    headers = {"X-Project-Id": resolved_project_id} if resolved_project_id else None
+    client = _client(ctx)
+
+    if task_ids:
+        target_ids = list(dict.fromkeys(task_ids))  # dedupe, preserve order
+    else:
+        wanted = {s.lower() for s in statuses} or {"completed", "failed"}
+        data = client.get(f"/agents/{agent_id}/task-queue", extra_headers=headers)
+        if isinstance(data, dict) and data.get("error"):
+            output_error(1, "Failed to list task queue", data["error"])
+            raise SystemExit(1)
+        queue = (data.get("tasks") if isinstance(data, dict) else None) or []
+        cutoff = datetime.now(UTC) - timedelta(days=older_than_days) if older_than_days is not None else None
+        target_ids = []
+        for task in queue:
+            if str(task.get("status") or "").lower() not in wanted:
+                continue
+            if cutoff is not None:
+                ts = _task_timestamp(task)
+                if ts is None or ts >= cutoff:
+                    continue
+            if task.get("id"):
+                target_ids.append(task["id"])
+
+    if not target_ids:
+        click.echo("  nothing to clean.", err=True)
+        _output(ctx, {"agent_id": agent_id, "deleted": [], "count": 0}, title="Tasks Cleaned")
+        return
+
+    if dry_run:
+        _output(
+            ctx,
+            {"dry_run": True, "agent_id": agent_id, "would_delete": target_ids, "count": len(target_ids)},
+            title="Dry Run: Clean Tasks",
+        )
+        return
+
+    deleted: list[str] = []
+    failed: list[dict] = []
+    for tid in target_ids:
+        try:
+            resp = client.delete(f"/agents/{agent_id}/task-queue/{tid}")
+        except SystemExit:
+            failed.append({"id": tid, "error": "delete request failed"})
+            continue
+        if isinstance(resp, dict) and not resp.get("success", True):
+            failed.append({"id": tid, "error": resp.get("error", "unknown")})
+        else:
+            deleted.append(tid)
+
+    _output(
+        ctx,
+        {"agent_id": agent_id, "deleted": deleted, "failed": failed, "count": len(deleted)},
+        title="Tasks Cleaned",
+    )
+    if failed:
+        raise SystemExit(1)
 
 
 @tasks_group.command("note")

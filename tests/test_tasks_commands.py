@@ -54,6 +54,9 @@ class _StubCtxClient:
     def get(self, path: str, params: dict | None = None) -> Any:
         return self._pop("GET", path, params)
 
+    def delete(self, path: str, params: dict | None = None) -> Any:
+        return self._pop("DELETE", path, params)
+
 
 @pytest.fixture()
 def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -90,6 +93,11 @@ def _install_stub_client(monkeypatch: pytest.MonkeyPatch, stub: _StubCtxClient) 
         http_module.DeepVistaClient,
         "get",
         lambda self, path, params=None, extra_headers=None: stub.get(path, params),
+    )
+    monkeypatch.setattr(
+        http_module.DeepVistaClient,
+        "delete",
+        lambda self, path, params=None: stub.delete(path, params),
     )
 
 
@@ -989,3 +997,156 @@ def test_run_scoped_to_project_skips_other_agents_on_claim_failure(
     claimed_paths = {c[1] for c in stub.calls}
     assert "/agents/agent-proj-2/task-queue/claim" in claimed_paths
     assert "/agents/agent-proj-1/task-queue/claim" not in claimed_paths
+
+
+# ---------------------------------------------------------------------------
+# DV-1429: stale-agent self-heal — a gone agent is pruned, not spammed
+# ---------------------------------------------------------------------------
+
+
+def test_run_prunes_stale_agent_on_agent_not_found(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale/unknown agent (AGENT_NOT_FOUND) is pruned once and not re-spammed.
+
+    The backend returns error_code AGENT_NOT_FOUND ("Machine not found" on the
+    task-card claim); previously that fell through to the generic warn and
+    repeated every poll. It must now delete the local registration and drop the
+    agent from the live list.
+    """
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    stub.queue(
+        "/agents/agent-uuid-1/tasks/claim",
+        {"success": False, "error": "Machine not found", "error_code": "AGENT_NOT_FOUND"},
+    )
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+    agent_file = isolated_home / ".config" / "deepvista" / "agents" / "deepvista-cli__misc__proj-default.json"
+    assert agent_file.exists()
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
+
+    assert result.exit_code == 0, result.output
+    # Pruned: local registration deleted so it is never retried.
+    assert not agent_file.exists()
+    assert "removed stale agent agent-uuid-1" in result.output
+    # It took the prune path, NOT the repeated claim-failure warn.
+    assert "could not claim task cards" not in result.output
+    # The task-queue claim is skipped for a pruned agent.
+    assert "/agents/agent-uuid-1/task-queue/claim" not in {c[1] for c in stub.calls}
+
+
+# ---------------------------------------------------------------------------
+# DV-1429: `tasks clean` — delete terminated task-queue entries
+# ---------------------------------------------------------------------------
+
+_QUEUE_SAMPLE = [
+    {"id": "tc-pending", "status": "pending", "command": "deepvista notes list"},
+    {"id": "tc-running", "status": "running", "command": "deepvista notes list"},
+    {"id": "tc-done", "status": "completed", "command": "deepvista notes list"},
+    {"id": "tc-fail", "status": "failed", "command": "deepvista notes list"},
+]
+
+
+def test_clean_deletes_terminal_tasks_by_default(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`tasks clean` (no args) deletes completed + failed entries, leaving active ones."""
+    stub = _StubCtxClient()
+    stub.queue("/agents/agent-uuid-1/task-queue", {"tasks": _QUEUE_SAMPLE})
+    stub.queue("/agents/agent-uuid-1/task-queue/tc-done", {"success": True})
+    stub.queue("/agents/agent-uuid-1/task-queue/tc-fail", {"success": True})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    result = CliRunner().invoke(cli, ["tasks", "clean"])
+
+    assert result.exit_code == 0, result.output
+    deleted = [c[1] for c in stub.calls if c[0] == "DELETE"]
+    assert deleted == [
+        "/agents/agent-uuid-1/task-queue/tc-done",
+        "/agents/agent-uuid-1/task-queue/tc-fail",
+    ]
+
+
+def test_clean_dry_run_deletes_nothing(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`tasks clean --dry-run` previews the delete set without issuing DELETEs."""
+    stub = _StubCtxClient()
+    stub.queue("/agents/agent-uuid-1/task-queue", {"tasks": _QUEUE_SAMPLE})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    result = CliRunner().invoke(cli, ["tasks", "clean", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert not [c for c in stub.calls if c[0] == "DELETE"]
+    assert "tc-done" in result.output and "tc-fail" in result.output
+
+
+def test_clean_explicit_ids_skips_listing(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`tasks clean <id>...` deletes exactly those ids and never lists the queue."""
+    stub = _StubCtxClient()
+    stub.queue("/agents/agent-uuid-1/task-queue/tc-1", {"success": True})
+    stub.queue("/agents/agent-uuid-1/task-queue/tc-2", {"success": True})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    result = CliRunner().invoke(cli, ["tasks", "clean", "tc-1", "tc-2"])
+
+    assert result.exit_code == 0, result.output
+    deleted = [c[1] for c in stub.calls if c[0] == "DELETE"]
+    assert deleted == [
+        "/agents/agent-uuid-1/task-queue/tc-1",
+        "/agents/agent-uuid-1/task-queue/tc-2",
+    ]
+    assert not [c for c in stub.calls if c[0] == "GET" and c[1].endswith("/task-queue")]
+
+
+# ---------------------------------------------------------------------------
+# DV-1429: `agents register` auto-detects --type when omitted
+# ---------------------------------------------------------------------------
+
+
+def test_register_auto_detects_type_when_omitted(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitting --type resolves the type via detect_agent_tool (no 'Missing option')."""
+    import deepvista_cli.commands.agents as agents_module
+
+    monkeypatch.setattr(agents_module, "detect_agent_tool", lambda: ("cursor", None))
+    # Short-circuit before the network flow: pretend this type is already registered.
+    monkeypatch.setattr(agents_module, "_load_agent_id", lambda *a, **k: "existing-id")
+    _install_stub_client(monkeypatch, _StubCtxClient())
+
+    result = CliRunner().invoke(cli, ["agents", "register", "--name", "My Agent"])
+
+    assert result.exit_code == 0, result.output
+    # Detected type ('cursor') drove resolution — no Click "Missing option '--type'".
+    assert "Missing option" not in result.output
+    assert "cursor" in result.output and "already registered" in result.output
+
+
+def test_register_errors_when_type_undetectable(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitting --type with no detectable environment gives a friendly error, not a crash."""
+    import deepvista_cli.commands.agents as agents_module
+
+    monkeypatch.setattr(agents_module, "detect_agent_tool", lambda: (None, None))
+    _install_stub_client(monkeypatch, _StubCtxClient())
+
+    result = CliRunner().invoke(cli, ["agents", "register", "--name", "My Agent"])
+
+    assert result.exit_code == 1, result.output
+    assert "Could not detect agent type" in result.output

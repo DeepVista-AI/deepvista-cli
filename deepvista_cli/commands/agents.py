@@ -716,7 +716,8 @@ def agents_group() -> None:
 @click.option(
     "--type",
     "agent_type",
-    required=True,
+    required=False,
+    default=None,
     type=click.Choice(
         [
             "claude-code",
@@ -730,7 +731,7 @@ def agents_group() -> None:
             "deepvista-cli",
         ]
     ),
-    help="Agent tool type.",
+    help="Agent tool type. Auto-detected from the current environment when omitted (DV-1429).",
 )
 @click.option(
     "--role",
@@ -752,7 +753,7 @@ def agents_group() -> None:
 def agents_register(
     ctx: click.Context,
     name: str,
-    agent_type: str,
+    agent_type: str | None,
     agent_role: str,
     system_prompt_file: str | None,
     dry_run: bool,
@@ -764,8 +765,23 @@ def agents_register(
     register the same type under a different role to spin up another agent on
     the same machine.
 
+    `--type` is auto-detected from the current environment (Claude Code, Cursor,
+    …) when omitted; pass it explicitly to override (DV-1429).
+
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
+    if not agent_type:
+        detected, _ = detect_agent_tool()
+        if not detected:
+            output_error(
+                1,
+                "Could not detect agent type",
+                "Run `agents register` from inside a supported agent (Claude Code, Cursor, …), "
+                "or pass --type explicitly.",
+            )
+            return
+        agent_type = detected
+
     existing_id = _load_agent_id(agent_type, agent_role)
     if existing_id:
         msg = f"Agent type '{agent_type}' role '{agent_role}' already registered locally "
