@@ -37,6 +37,13 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [1.2.1](https://github.com/DeepVista-AI/deepvista-cli/compare/v1.2.0...v1.2.1) (2026-06-27)
+
+
+### Bug Fixes
+
+* **tasks:** use single-quoted f-string to avoid escaped double quotes in task note hint ([#181](https://github.com/DeepVista-AI/deepvista-cli/issues/181)) ([297de78](https://github.com/DeepVista-AI/deepvista-cli/commit/297de78ee188cd9dcd9b4031b5b29b76733b160d))
+
 ## [1.2.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v1.1.0...v1.2.0) (2026-06-27)
 
 
