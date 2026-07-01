@@ -6,9 +6,9 @@ activate a recurring server job that generates today's planning note on a cron
 schedule — nothing runs automatically until the user opts in here, which keeps
 token spend under their control.
 
-Under the hood each "activation" is a row in the server's ``scheduled_jobs``
-table whose ``prompt`` asks the agent to run the daily-planning skill. The
-heartbeat dispatcher drains due rows and runs the agent.
+Under the hood each "activation" is a ``schedule_job`` context card on the
+server (DV-1166) whose ``prompt`` asks the agent to run the daily-planning
+skill. The heartbeat dispatcher drains due jobs and runs the agent.
 """
 
 from __future__ import annotations
