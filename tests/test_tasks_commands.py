@@ -989,3 +989,28 @@ def test_run_scoped_to_project_skips_other_agents_on_claim_failure(
     claimed_paths = {c[1] for c in stub.calls}
     assert "/agents/agent-proj-2/task-queue/claim" in claimed_paths
     assert "/agents/agent-proj-1/task-queue/claim" not in claimed_paths
+
+
+# ---------------------------------------------------------------------------
+# DV-1429: `tasks complete --status wont-fix`
+# ---------------------------------------------------------------------------
+
+
+def test_complete_wont_fix_maps_to_backend_enum(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--status wont-fix` posts the backend enum value `wont_fix` with a null exit code."""
+    stub = _StubCtxClient()
+    stub.queue("/agents/agent-uuid-1/task-queue/t-1/result", {"success": True, "task": {"id": "t-1"}})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    result = CliRunner().invoke(cli, ["tasks", "complete", "t-1", "--status", "wont-fix", "--note", "skip"])
+
+    assert result.exit_code == 0, result.output
+    post = next(c for c in stub.calls if c[0] == "POST" and c[1].endswith("/t-1/result"))
+    body = post[2]
+    assert body["status"] == "wont_fix"
+    assert body["exit_code"] is None
+    assert body["output_tail"] == "skip"

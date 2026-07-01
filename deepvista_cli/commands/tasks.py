@@ -1268,9 +1268,9 @@ def tasks_note(
 @click.argument("task_id")
 @click.option(
     "--status",
-    type=click.Choice(["completed", "failed"]),
+    type=click.Choice(["completed", "failed", "wont-fix"]),
     required=True,
-    help="Terminal outcome of the workflow task.",
+    help="Terminal outcome of the workflow task ('wont-fix' = decided not to do it; DV-1429).",
 )
 @click.option("--note", default=None, help="Short outcome note stored as the task's output tail.")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
@@ -1294,9 +1294,12 @@ def tasks_complete(
     which stay ``running`` until someone reports them.
     """
     agent_id, _ = _require_machine_agent_id(agent_type, agent_role, project_id)
+    # The backend enum uses "wont_fix"; the CLI exposes the hyphenated form (DV-1429).
+    api_status = "wont_fix" if status == "wont-fix" else status
+    exit_code = 0 if status == "completed" else (None if status == "wont-fix" else 1)
     data = _client(ctx).post(
         f"/agents/{agent_id}/task-queue/{task_id}/result",
-        {"status": status, "exit_code": 0 if status == "completed" else 1, "output_tail": note},
+        {"status": api_status, "exit_code": exit_code, "output_tail": note},
     )
     if not data.get("success"):
         output_error(1, "Failed to report task result", data.get("error", "Unknown error"))
