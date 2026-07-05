@@ -66,7 +66,7 @@ Extract the note `id` as `NOTE_ID`.
 ### Step 5: Synthesize the workflow skill
 
 ```bash
-deepvista skill create-from-note <NOTE_ID> --kind workflow --yes
+deepvista skill create-from-note <NOTE_ID> --yes
 ```
 
 Wait for the final NDJSON event and extract the skill card `id` as `SKILL_ID`.
@@ -129,7 +129,7 @@ Check `~/.claude/settings.json` for a Stop hook containing `current-workflow-ses
 If absent, install via:
 
 ```bash
-deepvista agents register --type claude-code
+deepvista agents sync --type claude-code
 ```
 
 Or add manually — see the **Stop hook** section below.
@@ -252,7 +252,7 @@ Show: `https://app.deepvista.ai/vistabase/<SKILL_ID>`
 ## Stop hook — auto-sync after every turn
 
 Reads the session file, updates `last_active`, and pushes the temp file to the
-skill card. Install once via `deepvista agents register --type claude-code`.
+skill card. Install once via `deepvista agents sync --type claude-code`.
 
 To add manually under `hooks.Stop` in `~/.claude/settings.json`:
 
