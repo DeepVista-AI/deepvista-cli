@@ -173,7 +173,7 @@ def _require_machine_agent_id(
 ) -> tuple[str, str | None]:
     result = _resolve_machine_agent_id(agent_type, project_id)
     if not result:
-        output_error(3, "No registered agent on this machine", "Run 'deepvista agents register' first.")
+        output_error(3, "No registered agent on this machine", "Run 'deepvista agents sync' first.")
         raise SystemExit(3)
     return result
 
@@ -962,7 +962,6 @@ def _ensure_agents_for_projects(
         )
         click.echo(f"  registered agent {agent_id} for project {project_id}", err=True)
 
-
         if agent_id not in seen_agent_ids:
             seen_agent_ids.add(agent_id)
             result.append((agent_id, project_id))
@@ -1206,7 +1205,7 @@ def tasks_run(
             output_error(
                 3,
                 f"No registered agent for project {working_project}",
-                "Run 'deepvista agents register' or retry after logging in.",
+                "Run 'deepvista agents sync' or retry after logging in.",
             )
             raise SystemExit(3)
 

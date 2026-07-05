@@ -1,11 +1,13 @@
-"""deepvista agents — register and manage AI agents connected to DeepVista.
+"""deepvista agents — the agent identity heartbeat.
 
-Each registered agent (Claude Code, OpenClaw, Cursor, etc.) gets a persistent
-identity with config stored in DeepVista.
+Each agent tool (Claude Code, OpenClaw, Cursor, etc.) gets a persistent
+identity with config stored in DeepVista. ``agents sync`` is the single
+command: it auto-registers on first run, then heartbeats config/state.
 
 Agent IDs are stored locally at ~/.config/deepvista/agents/<agent_type>.json
 (or ``<agent_type>__<project_id>.json`` per project) so the CLI knows which
-agent it's running inside.
+agent it's running inside. The storage helpers here are shared with
+``tasks``, ``session``, ``notes`` and origin detection.
 """
 
 from __future__ import annotations
@@ -21,7 +23,6 @@ from deepvista_cli.client.origin import build_origin, detect_agent_tool
 from deepvista_cli.config import CONFIG_DIR
 from deepvista_cli.output.formatter import format_output, output_error
 
-AGENT_COLUMNS = ["id", "name", "agent_type", "status", "last_heartbeat_at", "updated_at"]
 AGENTS_DIR = CONFIG_DIR / "agents"
 
 ERROR_CODE_AGENT_NOT_FOUND = "AGENT_NOT_FOUND"
@@ -117,24 +118,6 @@ def _build_config_snapshot(_agent_type: str) -> dict:
     return config
 
 
-def _resolve_agent_id(agent_id: str | None, agent_type: str | None) -> str:
-    if agent_id:
-        return agent_id
-
-    resolved_type = agent_type
-    if not resolved_type:
-        try:
-            resolved_type, _ = detect_agent_tool()
-        except Exception:
-            resolved_type = None
-
-    if resolved_type and (stored_id := _load_agent_id(resolved_type)):
-        return stored_id
-
-    output_error(3, "Cannot resolve agent ID", "Provide --agent-id or --type, or run inside a registered agent.")
-    raise SystemExit(3)
-
-
 def _default_agent_name(agent_type: str) -> str:
     import platform
 
@@ -189,152 +172,9 @@ def _output(ctx: click.Context, data: object, **kwargs: object) -> None:
     )
 
 
-_AGENT_TYPES = [
-    "claude-code",
-    "opencode",
-    "openclaw",
-    "cursor",
-    "windsurf",
-    "cline",
-    "aider",
-    "github-copilot",
-    "deepvista-cli",
-]
-
-
 @click.group("agents")
 def agents_group() -> None:
-    """Manage AI agents connected to DeepVista."""
-
-
-@agents_group.command("register")
-@click.option("--name", required=True, help="Display name for this agent.")
-@click.option(
-    "--type",
-    "agent_type",
-    default=None,
-    type=click.Choice(_AGENT_TYPES),
-    help="Agent tool type. Auto-detected when omitted.",
-)
-@click.option("--dry-run", is_flag=True, default=False, help="Preview without making changes.")
-@click.pass_context
-def agents_register(
-    ctx: click.Context,
-    name: str,
-    agent_type: str | None,
-    dry_run: bool,
-) -> None:
-    """Register a new agent and save its ID locally.
-
-    > [!CAUTION] This is a write command — confirm with the user before executing.
-    """
-    if not agent_type:
-        detected, _ = detect_agent_tool()
-        if not detected:
-            output_error(
-                1,
-                "Could not detect agent type",
-                "Run from inside a supported agent, or pass --type explicitly.",
-            )
-            return
-        agent_type = detected
-
-    if existing_id := _load_agent_id(agent_type):
-        msg = f"Agent type '{agent_type}' already registered locally (id: {existing_id}). Use 'agents sync' to update."
-        click.echo(_json.dumps({"warning": msg}), err=True)
-        return
-
-    config = _build_config_snapshot(agent_type)
-
-    if dry_run:
-        profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"
-        _output(
-            ctx,
-            {
-                "dry_run": True,
-                "would": "register agent",
-                "name": name,
-                "agent_type": agent_type,
-                "config_snapshot": config,
-                "profile": profile,
-            },
-            title="Dry Run: Register Agent",
-        )
-        return
-
-    data = _client(ctx).post(
-        "/agents",
-        {"name": name, "agent_type": agent_type, "config": config},
-    )
-    agent = data.get("agent")
-    if not data.get("success") and not (
-        data.get("error_code") == ERROR_CODE_AGENT_ALREADY_REGISTERED and agent and agent.get("id")
-    ):
-        output_error(1, "Registration failed", data.get("error", "Unknown error"))
-        return
-
-    if not agent or not agent.get("id"):
-        output_error(1, "Registration failed", "Backend did not return an agent")
-        return
-
-    _save_agent_id(agent_type, agent["id"], agent.get("project_id"))
-    _client(ctx).post(
-        f"/agents/{agent['id']}/sync",
-        {"status": "online", "sync_type": "manual", "config_patch": config},
-    )
-    refreshed = _client(ctx).get(f"/agents/{agent['id']}")
-    _output(ctx, refreshed.get("agent", agent), title="Registered Agent")
-
-
-@agents_group.command("list")
-@click.option("--type", "agent_type", default=None, help="Filter by agent type.")
-@click.pass_context
-def agents_list(ctx: click.Context, agent_type: str | None) -> None:
-    """List all registered agents."""
-    params = {"agent_type": agent_type} if agent_type else {}
-    data = _client(ctx).get("/agents", params=params)
-    agents = data.get("agents", [])
-    _output(ctx, {"agents": agents, "count": len(agents)}, columns=AGENT_COLUMNS, title="Agents")
-
-
-@agents_group.command("delete")
-@click.argument("agent_id", required=False, default=None)
-@click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
-@click.option("--dry-run", is_flag=True, default=False, help="Preview without making changes.")
-@click.pass_context
-def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | None, dry_run: bool) -> None:
-    """Delete an agent and remove its local registration.
-
-    > [!CAUTION] This is a destructive write command — confirm with the user before executing.
-    """
-    resolved_id = _resolve_agent_id(agent_id, agent_type)
-
-    if dry_run:
-        _output(
-            ctx,
-            {"dry_run": True, "would": "delete agent and remove local registration", "agent_id": resolved_id},
-            title="Dry Run: Delete Agent",
-        )
-        return
-
-    data = _client(ctx).delete(f"/agents/{resolved_id}")
-    if not data.get("success"):
-        output_error(1, "Delete failed", data.get("error", ""))
-        return
-
-    if agent_type:
-        _remove_agent_id(agent_type)
-    else:
-        for path in AGENTS_DIR.glob("*.json"):
-            try:
-                stored = _json.loads(path.read_text())
-                if stored.get("agent_id") == resolved_id:
-                    path.unlink()
-                    break
-            except (_json.JSONDecodeError, KeyError):
-                continue
-
-    click.echo(_json.dumps({"success": True, "deleted": resolved_id}))
+    """Agent identity heartbeat for DeepVista."""
 
 
 @agents_group.command("sync")
@@ -352,7 +192,7 @@ def agents_sync(
     memory: str | None,
     dry_run: bool,
 ) -> None:
-    """Heartbeat + push state to DeepVista.
+    """Heartbeat + push state to DeepVista. Auto-registers on first run.
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
