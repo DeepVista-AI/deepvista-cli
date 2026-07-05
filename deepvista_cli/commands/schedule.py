@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import click
 
-from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.commands import emit
+from deepvista_cli.commands import get_client as _client
+from deepvista_cli.output.formatter import output_error
 
 # The server-side workflow skill that generates the planning note.
 DAILY_PLANNING_SKILL = "deepvista-daily-planning"
@@ -28,10 +29,6 @@ DEFAULT_WEEKLY_CRON = "0 8 * * 1"
 
 # Columns shown in `--format table`.
 _JOB_COLUMNS = ["id", "title", "cron_schedule", "enabled", "next_run_at", "last_run_at"]
-
-
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
 
 
 def _find_daily_planning_job(ctx: click.Context) -> dict | None:
@@ -70,16 +67,16 @@ def schedule_activate(ctx: click.Context, cron_schedule: str | None, weekly: boo
     existing = _find_daily_planning_job(ctx)
     if existing is not None:
         if existing.get("enabled"):
-            format_output(
+            emit(
+                ctx,
                 {"status": "already_active", "job": existing},
-                ctx.obj.output_format,
                 title="Daily planning already active",
             )
             return
         resp = _client(ctx).patch(f"/scheduled-jobs/{existing['id']}", {"enabled": True})
-        format_output(
+        emit(
+            ctx,
             {"status": "reactivated", "job": resp.get("job", resp)},
-            ctx.obj.output_format,
             title="Daily planning reactivated",
         )
         return
@@ -100,9 +97,9 @@ def schedule_activate(ctx: click.Context, cron_schedule: str | None, weekly: boo
     )
     if not resp.get("success"):
         output_error(1, "Failed to activate daily planning", resp.get("error", ""))
-    format_output(
+    emit(
+        ctx,
         {"status": "activated", "cadence": cadence, "job": resp.get("job", resp)},
-        ctx.obj.output_format,
         title="Daily planning activated",
     )
 
@@ -115,16 +112,16 @@ def schedule_deactivate(ctx: click.Context) -> None:
     if existing is None:
         output_error(1, "No daily-planning job found", "Run: deepvista schedule activate")
     if not existing.get("enabled"):
-        format_output(
+        emit(
+            ctx,
             {"status": "already_inactive", "job": existing},
-            ctx.obj.output_format,
             title="Daily planning already inactive",
         )
         return
     resp = _client(ctx).patch(f"/scheduled-jobs/{existing['id']}", {"enabled": False})
-    format_output(
+    emit(
+        ctx,
         {"status": "deactivated", "job": resp.get("job", resp)},
-        ctx.obj.output_format,
         title="Daily planning deactivated",
     )
 
@@ -135,9 +132,9 @@ def schedule_list(ctx: click.Context) -> None:
     """List the caller's scheduled jobs (read-only)."""
     data = _client(ctx).get("/scheduled-jobs")
     jobs = data.get("jobs", [])
-    format_output(
+    emit(
+        ctx,
         {"jobs": jobs, "count": len(jobs)},
-        ctx.obj.output_format,
         columns=_JOB_COLUMNS,
         title="Scheduled Jobs",
     )
@@ -162,8 +159,8 @@ def schedule_delete(ctx: click.Context, job_id: str | None) -> None:
     resp = _client(ctx).delete(f"/scheduled-jobs/{job_id}")
     if not resp.get("success"):
         output_error(1, "Failed to delete scheduled job", resp.get("error", ""))
-    format_output(
+    emit(
+        ctx,
         {"status": "deleted", "job_id": job_id},
-        ctx.obj.output_format,
         title="Scheduled job deleted",
     )

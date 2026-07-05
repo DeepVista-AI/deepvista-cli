@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import click
 
-from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.commands import apply_project_override, project_option, resolve_content
-from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.commands import apply_project_override, emit, maybe_dry_run, project_option, resolve_content
+from deepvista_cli.commands import get_client as _client
+from deepvista_cli.output.formatter import output_error
 
 CARD_TYPES = [
     "person",
@@ -40,10 +40,6 @@ CARD_TYPES = [
 ]
 
 CARD_COLUMNS = ["id", "type", "title", "display_status", "updated_at"]
-
-
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
 
 
 @click.group("card")
@@ -113,14 +109,12 @@ def card_list(
         "has_more": data.get("has_more", False),
         "count": len(cards),
     }
-    format_output(
+    emit(
+        ctx,
         result,
-        ctx.obj.output_format,
         columns=CARD_COLUMNS,
         title="Cards",
         entity_type="card",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -132,13 +126,11 @@ def card_get(ctx: click.Context, card_id: str, project_override: str | None) -> 
     """Get a context card by ID."""
     apply_project_override(ctx, project_override)
     data = _client(ctx).post("/get_context_card", {"card_id": card_id})
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title=f"Card: {card_id}",
         entity_type="card",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -190,24 +182,15 @@ def card_create(
         except _json.JSONDecodeError:
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "create card", "payload": body},
-            ctx.obj.output_format,
-            entity_type="card",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "create card", body, entity_type="card"):
         return
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title="Created Card",
         entity_type="card",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -258,24 +241,15 @@ def card_update(
         except _json.JSONDecodeError:
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "update card", "payload": body},
-            ctx.obj.output_format,
-            entity_type="card",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "update card", body, entity_type="card"):
         return
 
     data = _client(ctx).post("/update_context_card", body)
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title=f"Updated Card: {card_id}",
         entity_type="card",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -311,24 +285,15 @@ def card_edit(
         "replace_all": replace_all,
     }
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "edit card content", "payload": body},
-            ctx.obj.output_format,
-            entity_type="card",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "edit card content", body, entity_type="card"):
         return
 
     data = _client(ctx).post("/edit_context_card", body)
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title=f"Edited Card: {card_id}",
         entity_type="card",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -346,21 +311,17 @@ def card_delete(ctx: click.Context, card_id: str, card_type: str | None, dry_run
         payload: dict = {"card_id": card_id}
         if card_type:
             payload["card_type"] = card_type
-        format_output(
-            {"dry_run": True, "would": "delete card", "payload": payload},
-            ctx.obj.output_format,
-            entity_type="card",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+        maybe_dry_run(ctx, dry_run, "delete card", payload, entity_type="card")
         return
 
     params = {}
     if card_type:
         params["card_type"] = card_type
     data = _client(ctx).delete(f"/context_cards/{card_id}", params=params)
-    format_output(
-        data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    emit(
+        ctx,
+        data,
+        entity_type="card",
     )
 
 
@@ -386,14 +347,12 @@ def card_search(ctx: click.Context, query: str, card_type: str | None, limit: in
     data = _client(ctx).post("/get_context_cards", body)
     cards = data.get("cards", [])
     result = {"query": query, "results": cards, "count": len(cards)}
-    format_output(
+    emit(
+        ctx,
         result,
-        ctx.obj.output_format,
         columns=CARD_COLUMNS,
         title=f"Search: {query}",
         entity_type="card",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -418,14 +377,12 @@ def card_similar(ctx: click.Context, card_id: str, limit: int) -> None:
     data = _client(ctx).post("/get_context_cards", body)
     cards = [c for c in data.get("cards", []) if c.get("id") != card_id]
     result = {"source_card_id": card_id, "similar": cards, "count": len(cards)}
-    format_output(
+    emit(
+        ctx,
         result,
-        ctx.obj.output_format,
         columns=CARD_COLUMNS,
         title=f"Similar to: {card_id}",
         entity_type="card",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -438,19 +395,14 @@ def card_pin(ctx: click.Context, card_id: str, dry_run: bool) -> None:
 
     > [!CAUTION] This is a write command.
     """
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "pin card", "card_id": card_id},
-            ctx.obj.output_format,
-            entity_type="card",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "pin card", card_id=card_id, entity_type="card"):
         return
 
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "pinned"})
-    format_output(
-        data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    emit(
+        ctx,
+        data,
+        entity_type="card",
     )
 
 
@@ -463,19 +415,14 @@ def card_archive(ctx: click.Context, card_id: str, dry_run: bool) -> None:
 
     > [!CAUTION] This is a write command.
     """
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "archive card", "card_id": card_id},
-            ctx.obj.output_format,
-            entity_type="card",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "archive card", card_id=card_id, entity_type="card"):
         return
 
     data = _client(ctx).post("/update_context_card", {"card_id": card_id, "display_status": "archived"})
-    format_output(
-        data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    emit(
+        ctx,
+        data,
+        entity_type="card",
     )
 
 
@@ -511,11 +458,9 @@ def card_grep(
         body["card_type"] = card_type
 
     data = _client(ctx).post("/grep_context_cards", body)
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title=f"Grep: {pattern}",
         entity_type="card",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )

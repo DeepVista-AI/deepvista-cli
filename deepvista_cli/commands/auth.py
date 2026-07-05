@@ -15,8 +15,9 @@ from deepvista_cli.auth.tokens import (
     switch_active_account,
 )
 from deepvista_cli.client.origin import detect_agent_tool
+from deepvista_cli.commands import emit, maybe_dry_run
 from deepvista_cli.config import credentials_path
-from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.output.formatter import output_error
 
 
 @click.group("auth")
@@ -77,10 +78,7 @@ def auth_login(ctx: click.Context, code: str | None, dry_run: bool) -> None:
 
     if dry_run:
         method = "login with code" if code else "browser-based OAuth login"
-        format_output(
-            {"dry_run": True, "would": f"perform {method}", "credentials_path": str(creds_path)},
-            ctx.obj.output_format,
-        )
+        maybe_dry_run(ctx, dry_run, f"perform {method}", credentials_path=str(creds_path))
         return
 
     if code:
@@ -93,7 +91,10 @@ def auth_login(ctx: click.Context, code: str | None, dry_run: bool) -> None:
         "email": tokens.email,
         "user_id": tokens.user_id,
     }
-    format_output(result, ctx.obj.output_format)
+    emit(
+        ctx,
+        result,
+    )
     click.echo(f"  Logged in as {tokens.email or tokens.user_id}", err=True)
     _print_next_steps()
 
@@ -118,7 +119,10 @@ def auth_status(ctx: click.Context) -> None:
         "token_expired": tokens.is_expired,
         "total_accounts": len(accounts),
     }
-    format_output(result, ctx.obj.output_format)
+    emit(
+        ctx,
+        result,
+    )
 
 
 @auth_group.command("list")
@@ -146,7 +150,11 @@ def auth_list(ctx: click.Context) -> None:
             }
         )
 
-    format_output(rows, ctx.obj.output_format, title="Accounts")
+    emit(
+        ctx,
+        rows,
+        title="Accounts",
+    )
 
 
 @auth_group.command("switch")
@@ -170,10 +178,7 @@ def auth_switch(ctx: click.Context, account: str, dry_run: bool) -> None:
         if account not in accounts:
             available = ", ".join(accounts.keys()) if accounts else "(none)"
             raise click.ClickException(f"Account '{account}' not found. Available: {available}")
-        format_output(
-            {"dry_run": True, "would": "switch active account", "to": account},
-            ctx.obj.output_format,
-        )
+        maybe_dry_run(ctx, dry_run, "switch active account", to=account)
         return
 
     try:
@@ -184,7 +189,10 @@ def auth_switch(ctx: click.Context, account: str, dry_run: bool) -> None:
         raise click.ClickException(f"Account '{account}' not found. Available: {available}")
 
     result = {"active_account": account, "email": tokens.email, "user_id": tokens.user_id}
-    format_output(result, ctx.obj.output_format)
+    emit(
+        ctx,
+        result,
+    )
     click.echo(f"  Switched to {tokens.email or tokens.user_id}", err=True)
 
 
@@ -209,10 +217,7 @@ def auth_remove(ctx: click.Context, account: str, dry_run: bool) -> None:
         if account not in accounts:
             available = ", ".join(accounts.keys()) if accounts else "(none)"
             raise click.ClickException(f"Account '{account}' not found. Available: {available}")
-        format_output(
-            {"dry_run": True, "would": "remove account", "account": account},
-            ctx.obj.output_format,
-        )
+        maybe_dry_run(ctx, dry_run, "remove account", account=account)
         return
 
     if not remove_account(account, creds_path):
@@ -221,7 +226,10 @@ def auth_remove(ctx: click.Context, account: str, dry_run: bool) -> None:
         raise click.ClickException(f"Account '{account}' not found. Available: {available}")
 
     result = {"removed": account}
-    format_output(result, ctx.obj.output_format)
+    emit(
+        ctx,
+        result,
+    )
     click.echo(f"  Removed {account}", err=True)
 
 
@@ -232,14 +240,13 @@ def auth_logout(ctx: click.Context, dry_run: bool) -> None:
     """Clear all stored credentials for this profile."""
     creds_path = credentials_path(ctx.obj.profile)
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "delete all stored credentials", "credentials_path": str(creds_path)},
-            ctx.obj.output_format,
-        )
+    if maybe_dry_run(ctx, dry_run, "delete all stored credentials", credentials_path=str(creds_path)):
         return
 
     delete_tokens(creds_path)
     result = {"status": "logged_out"}
-    format_output(result, ctx.obj.output_format)
+    emit(
+        ctx,
+        result,
+    )
     click.echo("  Logged out (all accounts removed).", err=True)

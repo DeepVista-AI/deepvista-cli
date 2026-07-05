@@ -17,10 +17,11 @@ from pathlib import Path
 import click
 
 from deepvista_cli import agent_catalog
-from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import build_origin, detect_agent_tool
+from deepvista_cli.commands import emit, maybe_dry_run
+from deepvista_cli.commands import get_client as _client
 from deepvista_cli.config import CONFIG_DIR
-from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.output.formatter import output_error
 
 AGENT_COLUMNS = ["id", "name", "agent_type", "agent_role", "status", "last_heartbeat_at", "updated_at"]
 AGENTS_DIR = CONFIG_DIR / "agents"
@@ -680,20 +681,10 @@ def _ensure_agent_registered(ctx: click.Context, agent_type: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
-
-
 def _output(ctx: click.Context, data: object, **kwargs: object) -> None:
-    """Shorthand for format_output with common defaults."""
-    format_output(
-        data,
-        ctx.obj.output_format,
-        entity_type="agent",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
-        **kwargs,  # type: ignore[arg-type]
-    )
+    """Shorthand for emit() defaulting entity_type to "agent"."""
+    kwargs.setdefault("entity_type", "agent")
+    emit(ctx, data, **kwargs)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -796,18 +787,17 @@ def agents_register(
 
     if dry_run:
         profile = ctx.obj.profile if hasattr(ctx.obj, "profile") else "default"
-        _output(
+        maybe_dry_run(
             ctx,
-            {
-                "dry_run": True,
-                "would": "register agent",
-                "name": name,
-                "agent_type": agent_type,
-                "agent_role": agent_role,
-                "would_migrate_legacy_hooks": agent_type == "claude-code",
-                "config_snapshot": config,
-                "profile": profile,
-            },
+            dry_run,
+            "register agent",
+            name=name,
+            agent_type=agent_type,
+            agent_role=agent_role,
+            would_migrate_legacy_hooks=agent_type == "claude-code",
+            config_snapshot=config,
+            profile=profile,
+            entity_type="agent",
             title="Dry Run: Register Agent",
         )
         return
@@ -963,12 +953,9 @@ def agents_update(
         output_error(3, "Nothing to update", "Provide --name, --status, or --role.")
         return
 
-    if dry_run:
-        _output(
-            ctx,
-            {"dry_run": True, "would": "update agent", "agent_id": resolved_id, "payload": body},
-            title="Dry Run: Update Agent",
-        )
+    if maybe_dry_run(
+        ctx, dry_run, "update agent", body, agent_id=resolved_id, entity_type="agent", title="Dry Run: Update Agent"
+    ):
         return
 
     data = _client(ctx).patch(f"/agents/{resolved_id}", body)
@@ -995,17 +982,15 @@ def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | No
     """
     resolved_id = _resolve_agent_id(ctx, agent_id, agent_type)
 
-    if dry_run:
-        _output(
-            ctx,
-            {
-                "dry_run": True,
-                "would": "delete agent and remove local registration",
-                "agent_id": resolved_id,
-                "would_uninstall_hooks": agent_type == "claude-code",
-            },
-            title="Dry Run: Delete Agent",
-        )
+    if maybe_dry_run(
+        ctx,
+        dry_run,
+        "delete agent and remove local registration",
+        agent_id=resolved_id,
+        would_uninstall_hooks=agent_type == "claude-code",
+        entity_type="agent",
+        title="Dry Run: Delete Agent",
+    ):
         return
 
     data = _client(ctx).delete(f"/agents/{resolved_id}")
@@ -1092,12 +1077,9 @@ def agents_sync(
     if config_patch:
         body["config_patch"] = config_patch
 
-    if dry_run:
-        _output(
-            ctx,
-            {"dry_run": True, "would": "sync agent state", "agent_id": resolved_id, "payload": body},
-            title="Dry Run: Sync Agent",
-        )
+    if maybe_dry_run(
+        ctx, dry_run, "sync agent state", body, agent_id=resolved_id, entity_type="agent", title="Dry Run: Sync Agent"
+    ):
         return
 
     data = _client(ctx).post(f"/agents/{resolved_id}/sync", body)

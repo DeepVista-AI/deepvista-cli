@@ -23,15 +23,13 @@ import click
 from deepvista_cli import session_note as sn
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
+from deepvista_cli.commands import emit, maybe_dry_run
+from deepvista_cli.commands import get_client as _client
 from deepvista_cli.config import should_skip_session_cwd
-from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.output.formatter import output_error
 
 SESSION_CARD_TYPE = "session"
 SESSION_ENTITY_TYPE = "session"
-
-
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
 
 
 def _cached_card_id(state: dict[str, Any]) -> str | None:
@@ -126,18 +124,16 @@ def session_init(
         # from the *primary* session, polluting the vistabase. Downstream
         # ``tick`` / ``finalize`` self-no-op (no cached card → exit 3) so
         # guarding ``init`` alone covers the whole lifecycle.
-        format_output(
+        emit(
+            ctx,
             {
                 "skipped": True,
                 "reason": "cwd matches session_skip_cwd_patterns",
                 "cwd": cwd,
                 "session_id": session_id,
             },
-            ctx.obj.output_format,
             title="Session init (skipped)",
             entity_type=SESSION_ENTITY_TYPE,
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
         )
         return
 
@@ -157,13 +153,11 @@ def session_init(
         _save_card_id(state, card_id)
         state["session_id"] = session_id
         sn.save_state(session_id, state)
-        format_output(
+        emit(
+            ctx,
             {"card_id": card_id, "session_id": session_id, "created": False},
-            ctx.obj.output_format,
             title="Session card (existing)",
             entity_type=SESSION_ENTITY_TYPE,
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
         )
         return
 
@@ -185,14 +179,7 @@ def session_init(
         "enrich": False,
     }
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "create session card", "payload": payload},
-            ctx.obj.output_format,
-            entity_type=SESSION_ENTITY_TYPE,
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "create session card", payload, entity_type=SESSION_ENTITY_TYPE):
         return
 
     data = _client(ctx).post("/create_context_card", payload)
@@ -201,13 +188,11 @@ def session_init(
         _save_card_id(state, new_id)
         state.update({"session_id": session_id, "last_turn_index": 0})
         sn.save_state(session_id, state)
-    format_output(
+    emit(
+        ctx,
         {"card_id": new_id, "session_id": session_id, "created": True, "response": data},
-        ctx.obj.output_format,
         title="Session card (created)",
         entity_type=SESSION_ENTITY_TYPE,
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -234,13 +219,11 @@ def session_tick(ctx: click.Context, session_id: str, transcript: str, dry_run: 
     last_idx = int(state.get("last_turn_index") or 0)
     new_turns = turns[last_idx:]
     if not new_turns:
-        format_output(
+        emit(
+            ctx,
             {"card_id": card_id, "session_id": session_id, "appended": 0, "turn_count": last_idx},
-            ctx.obj.output_format,
             title="Session tick (no-op)",
             entity_type=SESSION_ENTITY_TYPE,
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
         )
         return
 
@@ -279,26 +262,22 @@ def session_tick(ctx: click.Context, session_id: str, transcript: str, dry_run: 
         if derived_title:
             payload["title"] = derived_title
 
-    if dry_run:
-        format_output(
-            {
-                "dry_run": True,
-                "would": "update session card",
-                "card_id": card_id,
-                "appended": len(new_turns),
-                "new_turn_count": last_idx + len(new_turns),
-            },
-            ctx.obj.output_format,
-            entity_type=SESSION_ENTITY_TYPE,
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(
+        ctx,
+        dry_run,
+        "update session card",
+        card_id=card_id,
+        appended=len(new_turns),
+        new_turn_count=last_idx + len(new_turns),
+        entity_type=SESSION_ENTITY_TYPE,
+    ):
         return
 
     data = _client(ctx).post("/update_context_card", payload)
     state["last_turn_index"] = last_idx + len(new_turns)
     sn.save_state(session_id, state)
-    format_output(
+    emit(
+        ctx,
         {
             "card_id": card_id,
             "session_id": session_id,
@@ -306,11 +285,8 @@ def session_tick(ctx: click.Context, session_id: str, transcript: str, dry_run: 
             "turn_count": state["last_turn_index"],
             "response": data,
         },
-        ctx.obj.output_format,
         title="Session tick",
         entity_type=SESSION_ENTITY_TYPE,
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -346,14 +322,7 @@ def session_finalize(
     body = sn.append_turn(body, "", {"status": "complete", "updated_at": sn.now_iso()})
     payload = {"card_id": card_id, "description": body, "reason": "session-finalize"}
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "finalize session card", "card_id": card_id},
-            ctx.obj.output_format,
-            entity_type=SESSION_ENTITY_TYPE,
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "finalize session card", card_id=card_id, entity_type=SESSION_ENTITY_TYPE):
         return
 
     _client(ctx).post("/update_context_card", payload)
@@ -364,11 +333,9 @@ def session_finalize(
             "/index_notes",
             {"card_ids": [card_id], "card_type": card_type, "only_unenriched": False},
         )
-    format_output(
+    emit(
+        ctx,
         {"card_id": card_id, "session_id": session_id, "status": "complete", "enrich": enrich_result},
-        ctx.obj.output_format,
         title="Session finalized",
         entity_type=SESSION_ENTITY_TYPE,
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )

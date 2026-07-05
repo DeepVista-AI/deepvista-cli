@@ -23,19 +23,16 @@ from __future__ import annotations
 
 import click
 
-from deepvista_cli.client.http import DeepVistaClient
+from deepvista_cli.commands import emit
+from deepvista_cli.commands import get_client as _client
 from deepvista_cli.config import (
     EXIT_VALIDATION_ERROR,
     clear_working_project,
     set_working_project,
 )
-from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.output.formatter import output_error
 
 PROJECT_COLUMNS = ["id", "name", "role"]
-
-
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
 
 
 def _projects(ctx: click.Context) -> list[dict]:
@@ -111,9 +108,9 @@ def project_list(ctx: click.Context, full: bool) -> None:
     if not full:
         projects = [_slim_project(p) for p in projects]
     result = {"projects": projects, "count": len(projects), "current": ctx.obj.project_id}
-    format_output(
+    emit(
+        ctx,
         result,
-        ctx.obj.output_format,
         columns=PROJECT_COLUMNS,
         title="Projects",
         entity_type="project",
@@ -132,7 +129,12 @@ def project_current(ctx: click.Context, full: bool) -> None:
     data = _client(ctx).get("/projects/me")
     if not full and isinstance(data, dict):
         data = _slim_project(data)
-    format_output(data, ctx.obj.output_format, title="Current project", entity_type="project")
+    emit(
+        ctx,
+        data,
+        title="Current project",
+        entity_type="project",
+    )
 
 
 @project_group.command("show")
@@ -147,7 +149,12 @@ def project_show(ctx: click.Context, project_id: str | None, full: bool) -> None
         data = _client(ctx).get("/projects/me")
     if not full and isinstance(data, dict):
         data = _slim_project(data)
-    format_output(data, ctx.obj.output_format, title="Project", entity_type="project")
+    emit(
+        ctx,
+        data,
+        title="Project",
+        entity_type="project",
+    )
 
 
 @project_group.command("use")
@@ -175,7 +182,11 @@ def project_use(ctx: click.Context, project_id: str) -> None:
         "name": match.get("name"),
         "profile": ctx.obj.profile,
     }
-    format_output(result, ctx.obj.output_format, title="Working project set")
+    emit(
+        ctx,
+        result,
+        title="Working project set",
+    )
 
 
 @project_group.command("clear")
@@ -184,8 +195,8 @@ def project_clear(ctx: click.Context) -> None:
     """Unset the working project; fall back to the backend default."""
     cleared = clear_working_project(ctx.obj.profile)
     ctx.obj.project_id = None
-    format_output(
+    emit(
+        ctx,
         {"cleared": cleared, "profile": ctx.obj.profile},
-        ctx.obj.output_format,
         title="Working project cleared",
     )

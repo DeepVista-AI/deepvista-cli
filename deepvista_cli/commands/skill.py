@@ -19,8 +19,9 @@ import click
 
 from deepvista_cli import skill_catalog
 from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.commands import apply_project_override, project_option
-from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.commands import apply_project_override, emit, maybe_dry_run, project_option
+from deepvista_cli.commands import get_client as _client
+from deepvista_cli.output.formatter import output_error
 from deepvista_cli.workflow_doc import (
     WorkflowDocument,
     is_phase_server_routable,
@@ -46,10 +47,6 @@ _DEFAULT_MULTI_NOTE_LIMIT = 5
 _TAG_SCAN_LIMIT = 200
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
-
-
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
 
 
 @click.group("skill")
@@ -83,14 +80,12 @@ def skill_list(ctx: click.Context, limit: int, page_number: int, project_overrid
     )
     cards = data.get("cards", [])
     result = {"skills": cards, "count": len(cards), "has_more": data.get("has_more", False)}
-    format_output(
+    emit(
+        ctx,
         result,
-        ctx.obj.output_format,
         columns=SKILL_COLUMNS,
         title="Skills",
         entity_type="skill",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -112,13 +107,11 @@ def skill_get(ctx: click.Context, skill_id: str, project_override: str | None) -
         data["run_hint"] = (
             f"workflow skill — to execute with phase tracking run: deepvista skill run --mode host {skill_id}"
         )
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title=f"Skill: {skill_id}",
         entity_type="skill",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -271,14 +264,7 @@ def emit_host_run_packet(
     if task_id:
         run_header["task_id"] = task_id
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": f"emit host-mode run packet ({mode})", **run_header},
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, f"emit host-mode run packet ({mode})", entity_type="skill", **run_header):
         return
 
     # Acquire / refresh the run lock. Idempotent: re-runs while already
@@ -315,19 +301,14 @@ def _skill_run_deepvista(
     if force:
         body["force"] = True
 
-    if dry_run:
-        format_output(
-            {
-                "dry_run": True,
-                "would": "start DeepVista server-agent Skill run",
-                "skill_id": skill_id,
-                "instruction": instruction,
-            },
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(
+        ctx,
+        dry_run,
+        "start DeepVista server-agent Skill run",
+        skill_id=skill_id,
+        instruction=instruction,
+        entity_type="skill",
+    ):
         return
 
     for event in _client(ctx).stream_sse("/imagine", body):
@@ -420,23 +401,14 @@ def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_ru
 
     Idempotent — re-opening the already-active phase is a no-op write.
     """
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "open phase", "skill_id": skill_id, "phase": phase_label},
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "open phase", skill_id=skill_id, phase=phase_label, entity_type="skill"):
         return
 
     result = _phase(ctx, skill_id, phase_label=phase_label, action="open")
-    format_output(
+    emit(
+        ctx,
         {"ok": True, "skill_id": skill_id, "active_phase": phase_label, "title": result.get("title", "")},
-        ctx.obj.output_format,
         entity_type="skill",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -471,19 +443,15 @@ def skill_phase_done(
     following phase in the same write (cheaper than two round-trips).
     """
     if dry_run:
-        format_output(
-            {
-                "dry_run": True,
-                "would": "mark phase done",
-                "skill_id": skill_id,
-                "phase": phase_label,
-                "artifacts": list(artifact_card_ids),
-                "next_phase": next_phase,
-            },
-            ctx.obj.output_format,
+        maybe_dry_run(
+            ctx,
+            dry_run,
+            "mark phase done",
+            skill_id=skill_id,
+            phase=phase_label,
+            artifacts=list(artifact_card_ids),
+            next_phase=next_phase,
             entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
         )
         return
 
@@ -495,7 +463,8 @@ def skill_phase_done(
         artifact_card_ids=list(artifact_card_ids),
         next_phase=next_phase,
     )
-    format_output(
+    emit(
+        ctx,
         {
             "ok": True,
             "skill_id": skill_id,
@@ -504,10 +473,7 @@ def skill_phase_done(
             "artifacts": list(artifact_card_ids),
             "title": result.get("title", ""),
         },
-        ctx.obj.output_format,
         entity_type="skill",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -522,23 +488,14 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
     Use this to re-run a phase that was already marked done or active.
     The run lock (status=in_progress) is not affected.
     """
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "reset phase to pending", "skill_id": skill_id, "phase": phase_label},
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "reset phase to pending", skill_id=skill_id, phase=phase_label, entity_type="skill"):
         return
 
     result = _phase(ctx, skill_id, phase_label=phase_label, action="reset")
-    format_output(
+    emit(
+        ctx,
         {"ok": True, "skill_id": skill_id, "reset_phase": phase_label, "title": result.get("title", "")},
-        ctx.obj.output_format,
         entity_type="skill",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -555,29 +512,22 @@ def skill_phase_note(ctx: click.Context, skill_id: str, phase_label: str, note_t
     useful for recording task dispatch status, short summaries, or interim results.
     Calling this command again with different text replaces the previous note.
     """
-    if dry_run:
-        format_output(
-            {
-                "dry_run": True,
-                "would": "set phase note",
-                "skill_id": skill_id,
-                "phase": phase_label,
-                "note_text": note_text,
-            },
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(
+        ctx,
+        dry_run,
+        "set phase note",
+        skill_id=skill_id,
+        phase=phase_label,
+        note_text=note_text,
+        entity_type="skill",
+    ):
         return
 
     result = _phase(ctx, skill_id, phase_label=phase_label, action="note", note_text=note_text)
-    format_output(
+    emit(
+        ctx,
         {"ok": True, "skill_id": skill_id, "phase": phase_label, "note": note_text, "title": result.get("title", "")},
-        ctx.obj.output_format,
         entity_type="skill",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -606,8 +556,10 @@ def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str) -> None:
         "reason": reason,
         "resume_with": f"deepvista skill run --mode host {skill_id}",
     }
-    format_output(
-        out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    emit(
+        ctx,
+        out,
+        entity_type="skill",
     )
     sys.exit(2)
 
@@ -639,7 +591,11 @@ def skill_phase_need_input(ctx: click.Context, skill_id: str, phase_label: str, 
         "reason": reason,
         "resume_with": f"deepvista skill run --mode host {skill_id}",
     }
-    format_output(out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url)
+    emit(
+        ctx,
+        out,
+        entity_type="skill",
+    )
     sys.exit(2)
 
 
@@ -681,20 +637,15 @@ def skill_phase_run_on_deepvista(
     )
     body: dict[str, Any] = {"user_instruction": instruction, "force": True}
 
-    if dry_run:
-        format_output(
-            {
-                "dry_run": True,
-                "would": "delegate one phase to DeepVista server agent via /imagine",
-                "skill_id": skill_id,
-                "phase": phase_label,
-                "payload": body,
-            },
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(
+        ctx,
+        dry_run,
+        "delegate one phase to DeepVista server agent via /imagine",
+        body,
+        skill_id=skill_id,
+        phase=phase_label,
+        entity_type="skill",
+    ):
         return
 
     for event in _client(ctx).stream_sse("/imagine", body):
@@ -720,14 +671,9 @@ def skill_complete(ctx: click.Context, skill_id: str, review: str, dry_run: bool
     card, doc = _load_skill_doc(ctx, skill_id)
     doc.append_review(review)
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "append Review + release run lock", "skill_id": skill_id, "review": review},
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(
+        ctx, dry_run, "append Review + release run lock", skill_id=skill_id, review=review, entity_type="skill"
+    ):
         return
 
     _client(ctx).post(
@@ -755,13 +701,11 @@ def skill_status(ctx: click.Context, run_id: str) -> None:
         "visibility": session.get("visibility", ""),
         "created_at": session.get("created_at", ""),
     }
-    format_output(
+    emit(
+        ctx,
         result,
-        ctx.obj.output_format,
         title=f"Run: {run_id}",
         entity_type="chat",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -843,7 +787,12 @@ def skill_sync(
     if quiet:
         return
 
-    format_output(result, ctx.obj.output_format, title="Skill catalog sync", entity_type="skill")
+    emit(
+        ctx,
+        result,
+        title="Skill catalog sync",
+        entity_type="skill",
+    )
 
 
 @skill_group.command("load")
@@ -929,14 +878,12 @@ def skill_discover(ctx: click.Context, search: str | None, category: str | None,
     data = _client(ctx).post("/discover_skills", body)
     skills = data.get("skills", [])
     result = {"skills": skills, "count": len(skills), "has_more": data.get("has_more", False)}
-    format_output(
+    emit(
+        ctx,
         result,
-        ctx.obj.output_format,
         columns=DISCOVER_COLUMNS,
         title="Marketplace Skills",
         entity_type="skill",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -953,14 +900,7 @@ def skill_install(ctx: click.Context, skill_id: str, dry_run: bool) -> None:
     The skill_id must match an entry in the marketplace registry.
     Use `deepvista skill discover` to browse available skills.
     """
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "install marketplace skill", "skill_id": skill_id},
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "install marketplace skill", skill_id=skill_id, entity_type="skill"):
         return
 
     data = _client(ctx).post("/install_marketplace_skill", {"skill_id": skill_id})
@@ -1284,21 +1224,16 @@ def skill_create_from_note(
     if chat_id:
         body["chat_id"] = chat_id
 
-    if dry_run:
-        format_output(
-            {
-                "dry_run": True,
-                "would": "synthesize skills from note(s) via DeepVista agent",
-                "note_ids": [nid for nid, _ in resolved],
-                "resolved_notes": [{"id": nid, "title": title} for nid, title in resolved],
-                "kinds": list(selected),
-                "payload": body,
-            },
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(
+        ctx,
+        dry_run,
+        "synthesize skills from note(s) via DeepVista agent",
+        body,
+        note_ids=[nid for nid, _ in resolved],
+        resolved_notes=[{"id": nid, "title": title} for nid, title in resolved],
+        kinds=list(selected),
+        entity_type="skill",
+    ):
         return
 
     if not assume_yes:

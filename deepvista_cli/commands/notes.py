@@ -17,17 +17,13 @@ from typing import Any
 import click
 
 from deepvista_cli import session_note as sn
-from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
-from deepvista_cli.commands import apply_project_override, project_option, resolve_content
+from deepvista_cli.commands import apply_project_override, emit, maybe_dry_run, project_option, resolve_content
+from deepvista_cli.commands import get_client as _client
 from deepvista_cli.commands.session import session_finalize, session_init, session_tick
-from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.output.formatter import output_error
 
 NOTE_COLUMNS = ["id", "title", "display_status", "updated_at"]
-
-
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
 
 
 @click.group("notes")
@@ -62,14 +58,12 @@ def notes_list(ctx: click.Context, limit: int, page_number: int, project_overrid
     )
     cards = data.get("cards", [])
     result = {"notes": cards, "count": len(cards), "has_more": data.get("has_more", False)}
-    format_output(
+    emit(
+        ctx,
         result,
-        ctx.obj.output_format,
         columns=NOTE_COLUMNS,
         title="Notes",
         entity_type="note",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -84,13 +78,11 @@ def notes_get(ctx: click.Context, note_id: str, project_override: str | None) ->
     """
     apply_project_override(ctx, project_override)
     data = _client(ctx).post("/get_context_card", {"card_id": note_id, "card_type": "note"})
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title=f"Note: {note_id}",
         entity_type="note",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -144,24 +136,15 @@ def notes_create(
     if description:
         body["description"] = description
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "create note", "payload": body},
-            ctx.obj.output_format,
-            entity_type="note",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "create note", body, entity_type="note"):
         return
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title="Created Note",
         entity_type="note",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -202,24 +185,15 @@ def notes_update(
         except _json.JSONDecodeError:
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "update note", "payload": body},
-            ctx.obj.output_format,
-            entity_type="note",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "update note", body, entity_type="note"):
         return
 
     data = _client(ctx).post("/update_context_card", body)
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title=f"Updated Note: {note_id}",
         entity_type="note",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -232,19 +206,14 @@ def notes_delete(ctx: click.Context, note_id: str, dry_run: bool) -> None:
 
     > [!CAUTION] This is a destructive write command — confirm with the user before executing.
     """
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "delete note", "note_id": note_id},
-            ctx.obj.output_format,
-            entity_type="note",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "delete note", note_id=note_id, entity_type="note"):
         return
 
     data = _client(ctx).delete(f"/context_cards/{note_id}", params={"card_type": "note"})
-    format_output(
-        data, ctx.obj.output_format, entity_type="note", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    emit(
+        ctx,
+        data,
+        entity_type="note",
     )
 
 
@@ -301,24 +270,15 @@ def notes_index(
     if note_ids:
         body["card_ids"] = list(note_ids)
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "POST /index_notes", "payload": body},
-            ctx.obj.output_format,
-            entity_type="note",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "POST /index_notes", body, entity_type="note"):
         return
 
     data = _client(ctx).post("/index_notes", body)
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title="Indexed Notes",
         entity_type="note",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -418,14 +378,12 @@ def notes_history(ctx: click.Context, note_id: str, limit: int) -> None:
     """
     data = _client(ctx).post("/get_context_card_history", {"card_id": note_id, "limit": limit})
     versions = data.get("versions") or []
-    format_output(
+    emit(
+        ctx,
         {"note_id": note_id, "versions": versions, "count": len(versions)},
-        ctx.obj.output_format,
         columns=["version", "reason", "changed_by", "created_at"],
         title=f"History: {note_id}",
         entity_type="note",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -447,12 +405,10 @@ def notes_diff(ctx: click.Context, note_id: str, version_a: int, version_b: int)
     b_text = (b.get("description") or "").splitlines(keepends=True)
     diff = "".join(difflib.unified_diff(a_text, b_text, fromfile=f"v{version_a}", tofile=f"v{version_b}", lineterm=""))
     if ctx.obj.output_format == "json":
-        format_output(
+        emit(
+            ctx,
             {"note_id": note_id, "from": version_a, "to": version_b, "diff": diff},
-            ctx.obj.output_format,
             entity_type="note",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
         )
     else:
         click.echo(diff or "(no differences)")
@@ -471,14 +427,7 @@ def notes_restore(ctx: click.Context, note_id: str, version: int, yes: bool, dry
 
     > [!CAUTION] This is a write command — confirm before executing.
     """
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "restore note", "note_id": note_id, "version": version},
-            ctx.obj.output_format,
-            entity_type="note",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "restore note", note_id=note_id, version=version, entity_type="note"):
         return
 
     if not yes and not click.confirm(f"Restore note {note_id} to version {version}?", default=False):
@@ -486,13 +435,11 @@ def notes_restore(ctx: click.Context, note_id: str, version: int, yes: bool, dry
         return
 
     data = _client(ctx).post("/restore_context_card_version", {"card_id": note_id, "version": version})
-    format_output(
+    emit(
+        ctx,
         {"note_id": note_id, "restored_to": version, "card": data},
-        ctx.obj.output_format,
         title=f"Restored: {note_id} → v{version}",
         entity_type="note",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -544,22 +491,13 @@ def notes_quick(ctx: click.Context, text: str, dry_run: bool) -> None:
         "enrich": True,
     }
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "create note", "payload": body},
-            ctx.obj.output_format,
-            entity_type="note",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "create note", body, entity_type="note"):
         return
 
     data = _client(ctx).post("/create_context_card", body)
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title="Quick Note",
         entity_type="note",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )

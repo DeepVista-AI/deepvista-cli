@@ -4,10 +4,58 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from typing import Any
 
 import click
 
-from deepvista_cli.output.formatter import output_error
+from deepvista_cli.output.formatter import format_output, output_error
+
+
+def get_client(ctx: click.Context) -> Any:
+    """Return the shared HTTP client stashed on the CLI context by main.py."""
+    return ctx.obj._client
+
+
+def emit(ctx: click.Context, data: object, *, entity_type: str = "card", **kwargs: object) -> None:
+    """Render command output, filling in the format/base_url/project_id that every callsite repeats."""
+    format_output(
+        data,
+        ctx.obj.output_format,
+        entity_type=entity_type,
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+def maybe_dry_run(
+    ctx: click.Context,
+    dry_run: bool,
+    would: str,
+    payload: object = None,
+    *,
+    entity_type: str = "card",
+    title: str | None = None,
+    **extra: object,
+) -> bool:
+    """Preview a write command's payload instead of sending it, when ``--dry-run`` was passed.
+
+    ``payload`` becomes the ``"payload"`` key when given; any other fields the
+    caller wants alongside ``dry_run``/``would`` (e.g. ``card_id=...``) can be
+    passed as extra keyword arguments. Returns True if the preview was
+    emitted, in which case the caller should return immediately.
+    """
+    if not dry_run:
+        return False
+    body: dict[str, object] = {"dry_run": True, "would": would}
+    if payload is not None:
+        body["payload"] = payload
+    body.update(extra)
+    emit_kwargs: dict[str, object] = {"entity_type": entity_type}
+    if title is not None:
+        emit_kwargs["title"] = title
+    emit(ctx, body, **emit_kwargs)  # type: ignore[arg-type]
+    return True
 
 
 def project_option[F: Callable](func: F) -> F:

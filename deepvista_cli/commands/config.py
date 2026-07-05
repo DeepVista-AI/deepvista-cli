@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import click
 
+from deepvista_cli.commands import emit, maybe_dry_run
 from deepvista_cli.config import delete_profile, get_profile, list_profiles, set_profile
-from deepvista_cli.output.formatter import format_output
 
 
 @click.group("config")
@@ -30,16 +30,15 @@ def config_set(ctx: click.Context, profile_name: str, api_url: str, auth_url: st
     if auth_url:
         payload["auth_url"] = auth_url
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "create or update profile", "profile": profile_name, "settings": payload},
-            ctx.obj.output_format,
-        )
+    if maybe_dry_run(ctx, dry_run, "create or update profile", profile=profile_name, settings=payload):
         return
 
     set_profile(profile_name, payload)
     output: dict = {"profile": profile_name, **payload}
-    format_output(output, ctx.obj.output_format)
+    emit(
+        ctx,
+        output,
+    )
     click.echo(f"Profile '{profile_name}' saved.", err=True)
 
 
@@ -54,7 +53,11 @@ def config_list(ctx: click.Context) -> None:
             err=True,
         )
         return
-    format_output(profiles, ctx.obj.output_format, title="Profiles")
+    emit(
+        ctx,
+        profiles,
+        title="Profiles",
+    )
 
 
 @config_group.command("show")
@@ -66,7 +69,11 @@ def config_show(ctx: click.Context, profile_name: str) -> None:
     if not profile:
         click.echo(f"Profile '{profile_name}' not found.", err=True)
         return
-    format_output(profile, ctx.obj.output_format, title=f"Profile: {profile_name}")
+    emit(
+        ctx,
+        profile,
+        title=f"Profile: {profile_name}",
+    )
 
 
 @config_group.command("delete")
@@ -80,13 +87,13 @@ def config_delete(ctx: click.Context, profile_name: str, dry_run: bool) -> None:
         if not exists:
             click.echo(f"Profile '{profile_name}' not found.", err=True)
             return
-        format_output(
-            {"dry_run": True, "would": "delete profile", "profile": profile_name},
-            ctx.obj.output_format,
-        )
+        maybe_dry_run(ctx, dry_run, "delete profile", profile=profile_name)
         return
 
     if delete_profile(profile_name):
-        format_output({"deleted": profile_name}, ctx.obj.output_format)
+        emit(
+            ctx,
+            {"deleted": profile_name},
+        )
     else:
         click.echo(f"Profile '{profile_name}' not found.", err=True)

@@ -45,8 +45,10 @@ from typing import cast
 import click
 
 from deepvista_cli.auth.tokens import get_valid_token
-from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
+from deepvista_cli.commands import emit as _output
+from deepvista_cli.commands import get_client as _client
+from deepvista_cli.commands import maybe_dry_run
 from deepvista_cli.commands.agents import (
     AGENTS_DIR,
     DEFAULT_AGENT_ROLE,
@@ -58,7 +60,7 @@ from deepvista_cli.commands.agents import (
 )
 from deepvista_cli.commands.skill import emit_host_run_packet
 from deepvista_cli.config import CONFIG_DIR, credentials_path
-from deepvista_cli.output.formatter import format_output, output_error
+from deepvista_cli.output.formatter import output_error
 
 TASK_COLUMNS = ["id", "status", "command", "created_at", "finished_at", "exit_code"]
 
@@ -92,14 +94,6 @@ RUN_LOCK_PATH = CONFIG_DIR / "task_queue.run.lock"
 
 class _StaleAgentError(Exception):
     """Raised when an agent's project no longer exists and its local file has been deleted."""
-
-
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
-
-
-def _output(ctx: click.Context, data: object, **kwargs: object) -> None:
-    format_output(data, ctx.obj.output_format, **kwargs)  # type: ignore[arg-type]
 
 
 def _resolve_machine_agent_id(
@@ -587,6 +581,7 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
             env=run_env,
             bufsize=1,
         )
+
         def _watchdog() -> None:
             if not _done.wait(task_timeout):
                 timed_out.set()
@@ -1634,17 +1629,14 @@ def tasks_setup(ctx: click.Context, interval: int, remove: bool) -> None:
     entry = None if remove else _cron_entry(interval, getattr(ctx.obj, "profile", "default"))
     updated = kept + ([entry] if entry else [])
 
-    if ctx.obj.dry_run:
-        _output(
-            ctx,
-            {
-                "dry_run": True,
-                "would": "remove cron entry" if remove else "install cron entry",
-                "entry": entry,
-                "removed_entries": [line for line in existing if CRON_MARKER in line],
-            },
-            title="Dry Run: Task Queue Setup",
-        )
+    if maybe_dry_run(
+        ctx,
+        ctx.obj.dry_run,
+        "remove cron entry" if remove else "install cron entry",
+        entry=entry,
+        removed_entries=[line for line in existing if CRON_MARKER in line],
+        title="Dry Run: Task Queue Setup",
+    ):
         return
 
     if remove and len(kept) == len(existing):

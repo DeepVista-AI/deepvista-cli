@@ -9,13 +9,8 @@ import json
 
 import click
 
-from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.commands import apply_project_override, project_option
-from deepvista_cli.output.formatter import format_output
-
-
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
+from deepvista_cli.commands import apply_project_override, emit, maybe_dry_run, project_option
+from deepvista_cli.commands import get_client as _client
 
 
 @click.group("chat")
@@ -44,14 +39,12 @@ def chat_sessions(
     data = _client(ctx).post("/get_chat_sessions", body)
     sessions = data.get("sessions", [])
     result = {"sessions": sessions, "count": len(sessions), "has_more": data.get("has_more", False)}
-    format_output(
+    emit(
+        ctx,
         result,
-        ctx.obj.output_format,
         columns=["id", "summary", "created_at"],
         title="Chat Sessions",
         entity_type="chat",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -66,13 +59,11 @@ def chat_get(ctx: click.Context, chat_id: str, project_override: str | None) -> 
     """
     apply_project_override(ctx, project_override)
     data = _client(ctx).get(f"/chat_sessions/{chat_id}")
-    format_output(
+    emit(
+        ctx,
         data,
-        ctx.obj.output_format,
         title=f"Chat: {chat_id}",
         entity_type="chat",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
     )
 
 
@@ -85,19 +76,14 @@ def chat_delete(ctx: click.Context, chat_id: str, dry_run: bool) -> None:
 
     > [!CAUTION] This is a destructive write command — confirm with the user before executing.
     """
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "delete chat session", "chat_id": chat_id},
-            ctx.obj.output_format,
-            entity_type="chat",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "delete chat session", chat_id=chat_id, entity_type="chat"):
         return
 
     data = _client(ctx).delete(f"/chat_sessions/{chat_id}")
-    format_output(
-        data, ctx.obj.output_format, entity_type="chat", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
+    emit(
+        ctx,
+        data,
+        entity_type="chat",
     )
 
 
@@ -129,14 +115,7 @@ def chat_send(
     if chat_id and not new_chat:
         body["chat_id"] = chat_id
 
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "send message to DeepVista agent", "payload": body},
-            ctx.obj.output_format,
-            entity_type="chat",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
+    if maybe_dry_run(ctx, dry_run, "send message to DeepVista agent", body, entity_type="chat"):
         return
 
     for event in _client(ctx).stream_sse("/imagine", body):

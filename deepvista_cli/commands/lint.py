@@ -19,8 +19,8 @@ from typing import Any
 
 import click
 
-from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.output.formatter import format_output
+from deepvista_cli.commands import get_client as _client
+from deepvista_cli.commands import maybe_dry_run
 
 LINT_CHECKS = [
     "duplicates",
@@ -172,10 +172,6 @@ def _build_prompt(selected: list[str], fix: bool, *, cutoff_iso: str | None = No
     return "\n".join(lines)
 
 
-def _client(ctx: click.Context) -> DeepVistaClient:
-    return ctx.obj._client
-
-
 @click.command("lint")
 @click.option(
     "--check",
@@ -259,21 +255,18 @@ def lint_command(
     is_write_run = fix or any(c in _WRITE_CHECKS for c in selected)
 
     if dry_run:
-        payload: dict[str, Any] = {
-            "dry_run": True,
-            "would": "send lint prompt to DeepVista agent",
-            "checks": selected,
-            "fix": fix,
-            "payload": body,
-        }
+        extra: dict[str, Any] = {}
         if cutoff_iso:
-            payload["time_range"] = {"window": window, "cutoff_iso": cutoff_iso}
-        format_output(
-            payload,
-            ctx.obj.output_format,
+            extra["time_range"] = {"window": window, "cutoff_iso": cutoff_iso}
+        maybe_dry_run(
+            ctx,
+            dry_run,
+            "send lint prompt to DeepVista agent",
+            body,
+            checks=selected,
+            fix=fix,
             entity_type="chat",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
+            **extra,
         )
         return
 
