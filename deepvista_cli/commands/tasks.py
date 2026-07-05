@@ -935,40 +935,33 @@ def _ensure_agents_for_projects(
             continue
 
         # No local record — register a new agent for this project.
-        try:
-            config = _build_config_snapshot(agent_type)
-            data = _client(ctx).post(
-                "/agents",
-                {
-                    "name": _default_agent_name(agent_type),
-                    "agent_type": agent_type,
-                    "config": config,
-                },
-                extra_headers={"X-Project-Id": project_id},
+        config = _build_config_snapshot(agent_type)
+        data = _client(ctx).post(
+            "/agents",
+            {
+                "name": _default_agent_name(agent_type),
+                "agent_type": agent_type,
+                "config": config,
+            },
+            extra_headers={"X-Project-Id": project_id},
+        )
+        agent = data.get("agent")
+        if not agent or not agent.get("id"):
+            click.echo(
+                f"  [warn] could not register agent for project {project_id}: {data.get('error', 'unknown')}",
+                err=True,
             )
-            agent = data.get("agent")
-            if not agent or not agent.get("id"):
-                click.echo(
-                    f"  [warn] could not register agent for project {project_id}: {data.get('error', 'unknown')}",
-                    err=True,
-                )
-                continue
-            agent_id: str = agent["id"]
-            _save_agent_id(agent_type, agent_id, project_id, project_name or None)
-
-            try:
-                _client(ctx).post(
-                    f"/agents/{agent_id}/sync",
-                    {"status": "online", "sync_type": "manual", "config_patch": config},
-                    extra_headers={"X-Project-Id": project_id},
-                )
-            except SystemExit:
-                pass  # sync failure is non-fatal
-
-            click.echo(f"  registered agent {agent_id} for project {project_id}", err=True)
-        except SystemExit:
-            click.echo(f"  [warn] could not register agent for project {project_id} — skipping", err=True)
             continue
+        agent_id: str = agent["id"]
+        _save_agent_id(agent_type, agent_id, project_id, project_name or None)
+
+        _client(ctx).post(
+            f"/agents/{agent_id}/sync",
+            {"status": "online", "sync_type": "manual", "config_patch": config},
+            extra_headers={"X-Project-Id": project_id},
+        )
+        click.echo(f"  registered agent {agent_id} for project {project_id}", err=True)
+
 
         if agent_id not in seen_agent_ids:
             seen_agent_ids.add(agent_id)

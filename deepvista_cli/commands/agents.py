@@ -239,26 +239,6 @@ def _discover_skills(agent_type: str) -> list[str]:
     return list(dict.fromkeys(skills))
 
 
-def _read_memory_index(agent_type: str) -> str | None:
-    """Read memory index (MEMORY.md) for the current agent context."""
-    candidates: list[Path] = []
-
-    if agent_type in ("claude-code", "opencode"):
-        cwd = str(Path.cwd()).replace("/", "-")
-        candidates.append(_HOME / ".claude" / "projects" / cwd / "memory" / "MEMORY.md")
-        candidates.append(_HOME / ".claude" / "memory" / "MEMORY.md")
-
-    for path in candidates:
-        if path.is_file():
-            try:
-                content = path.read_text(encoding="utf-8").strip()
-                if content:
-                    return content
-            except OSError:
-                continue
-    return None
-
-
 def _read_mcp_servers(agent_type: str) -> list[dict[str, str]] | None:
     """Read MCP server configs from agent settings."""
     if agent_type not in ("claude-code", "opencode"):
@@ -442,11 +422,6 @@ def _build_config_snapshot(agent_type: str) -> dict:
     if skills:
         config["installed_skills"] = skills
 
-    # Memory
-    memory_index = _read_memory_index(agent_type)
-    if memory_index:
-        config["memory_index"] = memory_index
-
     # MCP servers
     mcp = _read_mcp_servers(agent_type)
     if mcp:
@@ -456,11 +431,6 @@ def _build_config_snapshot(agent_type: str) -> dict:
     perms = _read_permissions(agent_type)
     if perms:
         config["permissions"] = perms
-
-    # Hooks
-    hooks = _read_hooks(agent_type)
-    if hooks:
-        config["hooks"] = hooks
 
     # Git context
     git = _read_git_context()
@@ -749,74 +719,6 @@ def agents_get(ctx: click.Context, agent_id: str | None, agent_type: str | None)
         output_error(1, "Agent not found", data.get("error", ""))
         return
     _output(ctx, agent, title=f"Agent: {resolved_id}")
-
-
-# ---------------------------------------------------------------------------
-# update
-# ---------------------------------------------------------------------------
-
-
-@agents_group.command("update")
-@click.argument("agent_id", required=False, default=None)
-@click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
-@click.option("--name", default=None, help="New display name.")
-@click.option("--status", default=None, type=click.Choice(["online", "offline", "error"]), help="Set status.")
-@click.option(
-    "--system-prompt-file",
-    "system_prompt_file",
-    default=None,
-    type=click.Path(exists=True, dir_okay=False),
-    help="File whose contents replace this agent's system prompt (config.soul). Overrides the auto-read soul.",
-)
-@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
-@click.pass_context
-def agents_update(
-    ctx: click.Context,
-    agent_id: str | None,
-    agent_type: str | None,
-    name: str | None,
-    status: str | None,
-    system_prompt_file: str | None,
-    dry_run: bool,
-) -> None:
-    """Update an agent's name or status.
-
-    The system prompt (config.soul) comes from `--system-prompt-file` when
-    given, else it is auto-read from system files (CLAUDE.md, .cursorrules, …).
-
-    > [!CAUTION] This is a write command — confirm with the user before executing.
-    """
-    resolved_id = _resolve_agent_id(ctx, agent_id, agent_type)
-    resolved_type = agent_type or detect_agent_tool()[0]
-
-    body: dict = {}
-    if name:
-        body["name"] = name
-    if status:
-        body["status"] = status
-
-    # Explicit prompt file wins; otherwise auto-read soul from system files.
-    soul_content = _read_system_prompt_file(system_prompt_file) or _read_soul(resolved_type)
-    if soul_content:
-        body["config"] = {"soul": soul_content}
-
-    if not body:
-        output_error(3, "Nothing to update", "Provide --name, --status, or --system-prompt-file.")
-        return
-
-    if dry_run:
-        _output(
-            ctx,
-            {"dry_run": True, "would": "update agent", "agent_id": resolved_id, "payload": body},
-            title="Dry Run: Update Agent",
-        )
-        return
-
-    data = _client(ctx).patch(f"/agents/{resolved_id}", body)
-    if not data.get("success"):
-        output_error(1, "Update failed", data.get("error", ""))
-        return
-    _output(ctx, data["agent"], title="Updated Agent")
 
 
 # ---------------------------------------------------------------------------
