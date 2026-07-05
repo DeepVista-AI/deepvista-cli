@@ -587,6 +587,7 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
             env=run_env,
             bufsize=1,
         )
+
         def _watchdog() -> None:
             if not _done.wait(task_timeout):
                 timed_out.set()
