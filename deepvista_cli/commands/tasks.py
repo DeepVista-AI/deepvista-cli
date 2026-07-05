@@ -40,7 +40,6 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
 
 import click
 
@@ -55,6 +54,7 @@ from deepvista_cli.commands.agents import (
     _migrate_legacy_hooks,
     _save_agent_id,
 )
+from deepvista_cli.commands.project import _projects
 from deepvista_cli.commands.skill import emit_host_run_packet
 from deepvista_cli.config import CONFIG_DIR, credentials_path
 from deepvista_cli.output.formatter import format_output, output_error
@@ -871,8 +871,7 @@ def _ensure_agents_for_projects(
     all-projects mode.
 
     Returns ``((agent_id, project_id), project_names)`` where ``project_names``
-    maps project_id → human-readable name.  On network failure falls back to
-    the local-only list with an empty name map so offline/cron runs still work.
+    maps project_id → human-readable name.
     """
     try:
         detected, _ = detect_agent_tool()
@@ -880,21 +879,7 @@ def _ensure_agents_for_projects(
         detected = None
     agent_type = detected or "deepvista-cli"
 
-    try:
-        projects_raw = _client(ctx).get("/projects")
-    except SystemExit:
-        click.echo("  [warn] could not fetch projects — using locally registered agents only", err=True)
-        agents = _list_all_machine_agents()
-        if project_ids is not None:
-            agents = [(aid, pid) for aid, pid in agents if pid in project_ids]
-        # `pid in project_ids` narrows pid to str, so pyright infers the
-        # filtered list as list[tuple[str, str]] — invariant with the declared
-        # list[tuple[str, str | None]] return. Cast to reconcile (values are a
-        # subtype; the wider element type is what callers expect).
-        return cast("list[tuple[str, str | None]]", agents), {}
-
-    # Backend returns a JSON array directly for GET /projects.
-    projects: list[dict] = projects_raw if isinstance(projects_raw, list) else projects_raw.get("projects", [])
+    projects = _projects(ctx)
 
     # Build project_id → name map from the API response.
     project_names: dict[str, str] = {}
