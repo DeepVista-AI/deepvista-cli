@@ -185,81 +185,6 @@ def _remove_agent_id(
 
 
 # ---------------------------------------------------------------------------
-# Hook migration — heartbeat is now delivered by the DeepVista plugin
-# ---------------------------------------------------------------------------
-
-_HOOK_MARKER = "agents sync"
-
-
-def _migrate_legacy_hooks(agent_type: str) -> bool:
-    """Strip the legacy standalone heartbeat hook from agent settings.
-
-    The agent heartbeat is now owned by the DeepVista Claude Code plugin
-    (``plugins/claude-code`` → ``scripts/deepvista-agent-sync.sh``), which wraps
-    the ``agents sync`` call in the safe hook pattern (PATH export,
-    ``command -v`` guard, backgrounded, output redirected to a log, always
-    ``exit 0``). Earlier versions injected a *raw* ``deepvista agents sync`` Stop
-    hook straight into ``~/.claude/settings.json``; with no safety wrapper it
-    errored and exited non-zero on every Stop whenever DNS/auth failed, which
-    Claude Code surfaced as a looping "Stop hook feedback" (DV-1357).
-
-    Registering now removes that legacy hook so the plugin is the single source
-    of truth. Returns True if a legacy hook was removed.
-    """
-    if agent_type == "claude-code":
-        return _uninstall_claude_code_hooks()
-    # Other agent types can be added here
-    return False
-
-
-def _uninstall_hooks(agent_type: str) -> bool:
-    """Remove DeepVista hooks from agent settings."""
-    if agent_type == "claude-code":
-        return _uninstall_claude_code_hooks()
-    return False
-
-
-def _find_hook_command(entry: dict) -> str:
-    """Extract command string from a hook entry (handles nested format)."""
-    # Nested format: {"matcher": "", "hooks": [{"type": "command", "command": "..."}]}
-    for h in entry.get("hooks", []):
-        if isinstance(h, dict):
-            cmd = h.get("command", "")
-            if cmd:
-                return cmd
-    # Flat format fallback: {"command": "..."}
-    return entry.get("command", "")
-
-
-def _uninstall_claude_code_hooks() -> bool:
-    """Remove DeepVista hooks from ~/.claude/settings.json."""
-    settings_path = _HOME / ".claude" / "settings.json"
-    if not settings_path.is_file():
-        return False
-
-    try:
-        settings = _json.loads(settings_path.read_text(encoding="utf-8"))
-    except (_json.JSONDecodeError, OSError):
-        return False
-
-    hooks = settings.get("hooks", {})
-    changed = False
-
-    for event in list(hooks.keys()):
-        entries = hooks[event]
-        if not isinstance(entries, list):
-            continue
-        filtered = [e for e in entries if not (isinstance(e, dict) and _HOOK_MARKER in _find_hook_command(e))]
-        if len(filtered) != len(entries):
-            hooks[event] = filtered
-            changed = True
-
-    if changed:
-        settings_path.write_text(_json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-    return changed
-
-
-# ---------------------------------------------------------------------------
 # Environment scanning — fingerprint, skills, memory, MCP, permissions, hooks, git
 # ---------------------------------------------------------------------------
 
@@ -615,7 +540,6 @@ def _ensure_agent_registered(ctx: click.Context, agent_type: str) -> str:
     if not agent_id:
         output_error(1, "Auto-registration failed", error or "Unknown error")
         raise SystemExit(1)
-    _migrate_legacy_hooks(agent_type)
     return agent_id
 
 
@@ -739,7 +663,6 @@ def agents_register(
                 "would": "register agent",
                 "name": name,
                 "agent_type": agent_type,
-                "would_migrate_legacy_hooks": agent_type == "claude-code",
                 "config_snapshot": config,
                 "profile": profile,
             },
@@ -766,14 +689,6 @@ def agents_register(
         return
 
     _save_agent_id(agent_type, agent["id"], agent.get("project_id"))
-
-    # Heartbeat is now delivered by the DeepVista plugin; strip any legacy
-    # standalone hook a prior CLI version injected into settings.json (DV-1357).
-    if _migrate_legacy_hooks(agent_type):
-        click.echo(
-            _json.dumps({"hooks": "removed legacy standalone heartbeat hook (now provided by the DeepVista plugin)"}),
-            err=True,
-        )
 
     # Initial sync — set online immediately so dashboard shows green
     _client(ctx).post(
@@ -928,7 +843,6 @@ def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | No
                 "dry_run": True,
                 "would": "delete agent and remove local registration",
                 "agent_id": resolved_id,
-                "would_uninstall_hooks": agent_type == "claude-code",
             },
             title="Dry Run: Delete Agent",
         )
@@ -939,24 +853,18 @@ def agents_delete(ctx: click.Context, agent_id: str | None, agent_type: str | No
         output_error(1, "Delete failed", data.get("error", ""))
         return
 
-    # Remove local agent ID file + uninstall hooks
-    resolved_type = agent_type
+    # Remove local agent ID file
     if agent_type:
         _remove_agent_id(agent_type)
     else:
-        # Try to find and remove by scanning local files
         for path in AGENTS_DIR.glob("*.json"):
             try:
                 stored = _json.loads(path.read_text())
                 if stored.get("agent_id") == resolved_id:
-                    resolved_type = stored.get("agent_type")
                     path.unlink()
                     break
             except (_json.JSONDecodeError, KeyError):
                 continue
-
-    if resolved_type:
-        _uninstall_hooks(resolved_type)
 
     click.echo(_json.dumps({"success": True, "deleted": resolved_id}))
 

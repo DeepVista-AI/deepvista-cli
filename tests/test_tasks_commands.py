@@ -935,14 +935,10 @@ def _register_two_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     agents_dir = tmp_path / ".config" / "deepvista" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "claude-code__proj-1.json").write_text(
-        json.dumps(
-            {"agent_id": "agent-proj-1", "agent_type": "claude-code", "project_id": "proj-1"}
-        )
+        json.dumps({"agent_id": "agent-proj-1", "agent_type": "claude-code", "project_id": "proj-1"})
     )
     (agents_dir / "claude-code__proj-2.json").write_text(
-        json.dumps(
-            {"agent_id": "agent-proj-2", "agent_type": "claude-code", "project_id": "proj-2"}
-        )
+        json.dumps({"agent_id": "agent-proj-2", "agent_type": "claude-code", "project_id": "proj-2"})
     )
     import deepvista_cli.commands.agents as agents_module
     import deepvista_cli.commands.tasks as tq_module
@@ -970,6 +966,7 @@ def test_run_once_polls_only_current_project_agent(
     claimed_paths = {c[1] for c in stub.calls}
     assert "/agents/agent-proj-1/task-queue/claim" in claimed_paths
     assert "/agents/agent-proj-2/task-queue/claim" not in claimed_paths
+
 
 def test_run_type_filter_restricts_to_single_agent(
     isolated_home: Path,
@@ -1005,6 +1002,39 @@ def test_run_scoped_to_project_skips_other_agents_on_claim_failure(
     claimed_paths = {c[1] for c in stub.calls}
     assert "/agents/agent-proj-2/task-queue/claim" in claimed_paths
     assert "/agents/agent-proj-1/task-queue/claim" not in claimed_paths
+
+
+def test_run_prunes_gone_project_registration_on_startup(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local agent files for projects absent from GET /projects are removed before polling."""
+    agents_dir = isolated_home / ".config" / "deepvista" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    stale_file = agents_dir / "deepvista-cli__proj-gone.json"
+    stale_file.write_text(
+        json.dumps({"agent_id": "agent-gone", "agent_type": "deepvista-cli", "project_id": "proj-gone"})
+    )
+    (agents_dir / "deepvista-cli__proj-1.json").write_text(
+        json.dumps({"agent_id": "agent-proj-1", "agent_type": "deepvista-cli", "project_id": "proj-1"})
+    )
+    import deepvista_cli.commands.agents as agents_module
+    import deepvista_cli.commands.tasks as tq_module
+
+    monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", isolated_home / ".config" / "deepvista" / "task_queue.run.lock")
+
+    stub = _StubCtxClient()
+    stub.queue("/projects/me", {"id": "proj-1", "name": "Project 1"})
+    stub.queue("/projects", [{"id": "proj-1", "name": "Project 1"}])
+    stub.queue("/agents/agent-proj-1/task-queue/claim", {"success": True, "tasks": []})
+    _install_stub_client(monkeypatch, stub)
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--project", "proj-1"])
+    assert result.exit_code == 0, result.output
+    assert not stale_file.exists()
+    assert "removed stale agent agent-gone" in result.output
 
 
 # ---------------------------------------------------------------------------

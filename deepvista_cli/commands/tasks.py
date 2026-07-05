@@ -51,7 +51,6 @@ from deepvista_cli.commands.agents import (
     _build_config_snapshot,
     _default_agent_name,
     _load_agent_id,
-    _migrate_legacy_hooks,
     _save_agent_id,
 )
 from deepvista_cli.commands.project import _projects
@@ -815,17 +814,43 @@ def _iter_agent_files() -> list[tuple[str, str | None, Path]]:
     return result
 
 
-def _list_all_machine_agents() -> list[tuple[str, str | None]]:
-    """Return (agent_id, project_id) for every locally registered agent."""
-    return [(aid, proj_id) for aid, proj_id, _ in _iter_agent_files()]
-
-
 def _find_registered_agent_for_project(project_id: str) -> str | None:
     """Return a locally registered agent_id for ``project_id``, any type."""
     for agent_id, proj_id, _ in _iter_agent_files():
         if proj_id == project_id:
             return agent_id
     return None
+
+
+def _prune_agent_registrations_for_gone_projects(accessible_project_ids: set[str]) -> None:
+    """Delete local agent files whose ``project_id`` is absent from GET /projects."""
+    for agent_id, proj_id, path in _iter_agent_files():
+        if not proj_id or proj_id in accessible_project_ids:
+            continue
+        try:
+            path.unlink()
+            click.echo(
+                f"  removed stale agent {agent_id} (project {proj_id} no longer accessible)",
+                err=True,
+            )
+        except OSError:
+            pass
+
+
+def _append_scoped_local_agents(
+    seen_agent_ids: set[str],
+    result: list[tuple[str, str | None]],
+    *,
+    scope_project_ids: set[str] | None = None,
+) -> None:
+    """Append locally registered agents not yet in *result* (legacy globals in all-project mode)."""
+    for agent_id, proj_id, _path in _iter_agent_files():
+        if agent_id in seen_agent_ids:
+            continue
+        if scope_project_ids is not None and (not proj_id or proj_id not in scope_project_ids):
+            continue
+        seen_agent_ids.add(agent_id)
+        result.append((agent_id, proj_id))
 
 
 def _resolve_working_project(ctx: click.Context, project_override: str | None = None) -> str | None:
@@ -866,9 +891,9 @@ def _ensure_agents_for_projects(
     the detected host agent type (or ``deepvista-cli`` as a fallback).
 
     Stale local registrations whose project_id no longer appears in the API
-    response are deleted so they stop producing 404 warnings on every poll.
-    Agents with no project_id (legacy global registrations) are kept only in
-    all-projects mode.
+    response are deleted before lookups so they are not reused; agents with
+    no project_id (legacy global registrations) are kept only in all-projects
+    mode.
 
     Returns ``((agent_id, project_id), project_names)`` where ``project_names``
     maps project_id → human-readable name.
@@ -880,15 +905,14 @@ def _ensure_agents_for_projects(
     agent_type = detected or "deepvista-cli"
 
     projects = _projects(ctx)
+    accessible_project_ids: set[str] = set()
+    for project in projects:
+        if project_id := project.get("id"):
+            accessible_project_ids.add(str(project_id))
+    _prune_agent_registrations_for_gone_projects(accessible_project_ids)
 
     # Build project_id → name map from the API response.
     project_names: dict[str, str] = {}
-    for project in projects:
-        pid = project.get("id")
-        name = project.get("name") or project.get("title") or ""
-        if pid and name:
-            project_names[pid] = name
-
     seen_agent_ids: set[str] = set()
     result: list[tuple[str, str | None]] = []
 
@@ -898,10 +922,12 @@ def _ensure_agents_for_projects(
             continue
         if project_ids is not None and project_id not in project_ids:
             continue
-        project_name = project_names.get(project_id, "")
+
+        project_name = project.get("name") or project.get("title") or ""
+        project_names[project_id] = project_name
 
         # Reuse an existing local registration for this project.
-        existing_id = _find_registered_agent_for_project(project_id) or _load_agent_id(agent_type, project_id)
+        existing_id = _find_registered_agent_for_project(project_id)
         if existing_id:
             if existing_id not in seen_agent_ids:
                 seen_agent_ids.add(existing_id)
@@ -930,9 +956,6 @@ def _ensure_agents_for_projects(
             agent_id: str = agent["id"]
             _save_agent_id(agent_type, agent_id, project_id, project_name or None)
 
-            # Mirror what `agents register` does: migrate off the legacy
-            # standalone hook (plugin now owns the heartbeat) + initial sync.
-            _migrate_legacy_hooks(agent_type)
             try:
                 _client(ctx).post(
                     f"/agents/{agent_id}/sync",
@@ -951,30 +974,7 @@ def _ensure_agents_for_projects(
             seen_agent_ids.add(agent_id)
             result.append((agent_id, project_id))
 
-    # Prune stale registrations and append any remaining local agents.
-    # An agent file is stale if it has a project_id that no longer appears in
-    # the API response; deleting it prevents repeated 404 warnings each poll.
-    # Agents with no project_id (legacy global registrations) are kept only
-    # when polling all projects.
-    api_project_ids = {p.get("id") for p in projects if p.get("id")}
-    for agent_id, proj_id, path in _iter_agent_files():
-        if agent_id in seen_agent_ids:
-            continue
-        if project_ids is not None:
-            if not proj_id or proj_id not in project_ids:
-                continue
-        if proj_id and proj_id not in api_project_ids:
-            try:
-                path.unlink()
-                click.echo(
-                    f"  removed stale agent {agent_id} (project {proj_id} no longer accessible)",
-                    err=True,
-                )
-            except OSError:
-                pass
-            continue
-        seen_agent_ids.add(agent_id)
-        result.append((agent_id, proj_id))
+    _append_scoped_local_agents(seen_agent_ids, result, scope_project_ids=project_ids)
 
     return result, project_names
 
