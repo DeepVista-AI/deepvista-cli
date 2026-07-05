@@ -5,22 +5,22 @@ Run `deepvista skill --help` or `deepvista skill <cmd> --help` for full flag ref
 
 ## Commands
 
-`list` · `get` · `run` · `phase` · `complete` · `status`
-`create-from-note` · `discover` · `install` · `sync` · `load`
+`list` · `get` · `run` · `phase` · `complete`
+`create-from-note` · `sync` · `load`
 
 ## Agent conventions
 
-> [!CAUTION] `run`, `phase`, `complete`, `install` are writes. Confirm first.
+> [!CAUTION] `run`, `phase`, `complete` are writes. Confirm first.
 
-Read-only: `list`, `get`, `status`, `discover`, `sync --dry-run`, `load`.
+Read-only: `list`, `get`, `sync --dry-run`, `load`.
 
 Show the app URL after writes: `https://app.deepvista.ai/skills/<id>`
 
 ## Executing a workflow skill — required sequence
 
-> [!IMPORTANT] To run a workflow skill you **must** call `deepvista skill run --mode host <skill_id>` first. Do NOT call `skill get` and drive the phases manually — that skips the run lock, phase tracking, and the host runtime contract entirely.
+> [!IMPORTANT] To run a workflow skill you **must** call `deepvista skill run <skill_id>` first. Do NOT call `skill get` and drive the phases manually — that skips the run lock, phase tracking, and the host runtime contract entirely.
 
-`skill run --mode host` does three things `skill get` does not:
+`skill run` does three things `skill get` does not:
 1. Acquires the run lock (`status = "in_progress"`) on the skill card.
 2. Emits the host runtime contract that tells you to call the `skill phase` shims.
 3. Indicates the `active_phase` so resumed runs continue from the right place.
@@ -29,7 +29,7 @@ Show the app URL after writes: `https://app.deepvista.ai/skills/<id>`
 
 ```bash
 # 1. Initiate the run (acquires lock, emits run packet + host runtime contract)
-deepvista skill run --mode host <skill_id>
+deepvista skill run <skill_id>
 
 # 2. For each phase — open → execute → done
 deepvista skill phase open <skill_id> "Phase N: <title>"
@@ -40,21 +40,11 @@ deepvista skill phase done <skill_id> "Phase N: <title>" [--next-phase "Phase N+
 deepvista skill complete <skill_id> --review "<3–6 retrospective bullets>"
 ```
 
-If you called `skill get` and are already mid-workflow without a lock, call `skill run --mode host` now — it is idempotent on an already-in-progress card and will re-emit the correct active phase.
-
-## Non-obvious: `skill run` modes
-
-`skill run` has three modes (set with `--mode`, default `host`):
-
-| Mode | Behaviour |
-|---|---|
-| `host` | CLI prints a JSON run packet + SKILL.md body. The **host agent** (Claude Code, Cursor, etc.) drives the run using `skill phase` / `skill complete` shims. Use when the workflow needs host tools (Bash, Edit, MCPs, repo state). |
-| `deepvista` | Posts to `/imagine`, streams NDJSON from the DeepVista server agent end-to-end. Use for KB-internal workflows where server tools are sufficient. |
-| `auto` | Routes per-phase: server-side tool phases go to DeepVista, the rest stay host. |
+If you called `skill get` and are already mid-workflow without a lock, call `skill run` now — it is idempotent on an already-in-progress card and will re-emit the correct active phase.
 
 ## Non-obvious: host-mode shims
 
-After `skill run --mode host`, drive the run with:
+After `skill run`, drive the run with:
 
 ```bash
 deepvista skill phase open       <skill_id> "Phase N: <title>"
@@ -81,22 +71,11 @@ cache). Called by stubs — rarely needed directly.
 
 ```bash
 deepvista skill list
-deepvista skill run <skill_id> --input "Focus on Q4"          # host mode
-deepvista skill run <skill_id> --mode deepvista                # server agent
-deepvista skill run <skill_id> --mode auto                     # per-phase routing
+deepvista skill run <skill_id> --input "Focus on Q4"
 deepvista skill phase open <skill_id> "Phase 1: …"
 deepvista skill phase done <skill_id> "Phase 1: …" --artifact-card-id <id>
 deepvista skill complete <skill_id> --review "clean run, shipped Friday"
-deepvista skill discover --category workflow
 deepvista skill sync --dry-run
-```
-
-## Continuing a run
-
-`skill run` returns a `run_chat_id`. Continue with:
-
-```bash
-deepvista chat +send "Add one more step" --chat-id <run_chat_id>
 ```
 
 ## Importing a skill from a downloaded markdown file

@@ -1,7 +1,10 @@
-"""deepvista skill — list, get, run, status.
+"""deepvista skill — list, get, run, phase, complete, sync, load, create-from-note.
 
 Skills are structured checklist workflows stored as context cards (type=skill).
-Skill Runs are execution instances (type=skill_run) linked via a master chat session.
+A run executes in **host mode**: `skill run` prints a run packet (JSON header +
+SKILL.md body + host runtime contract) and the host agent (Claude Code /
+OpenClaw / Cursor) drives the workflow itself via the `skill phase ...` shims,
+finishing with `skill complete`.
 
 Resources: card · skill · chat
 """
@@ -21,29 +24,13 @@ from deepvista_cli import skill_catalog
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.commands import apply_project_override, project_option
 from deepvista_cli.output.formatter import format_output, output_error
-from deepvista_cli.workflow_doc import (
-    WorkflowDocument,
-    is_phase_server_routable,
-)
-
-# Run modes for `deepvista skill run`. ``host`` is the default — the
-# packet is printed to stdout for the host agent to drive; ``deepvista``
-# forwards to /imagine (legacy behaviour); ``auto`` decides per-phase by
-# inspecting each phase's ``tool_plan``.
-_RUN_MODES = ("host", "deepvista", "auto")
-_DEFAULT_RUN_MODE = "host"
+from deepvista_cli.workflow_doc import WorkflowDocument
 
 SKILL_COLUMNS = ["id", "title", "display_status", "updated_at"]
 
-SKILL_KINDS = ("workflow",)
-
-# Cap applied when a selector returns a large set so a single synthesis run stays
+# Cap applied to create-from-note sources so a single synthesis run stays
 # within the agent's usable context. Overridable via --limit.
 _DEFAULT_MULTI_NOTE_LIMIT = 5
-
-# Upper cap when scanning `/get_context_cards` for tag filtering — tags are filtered
-# client-side since the list endpoint has no native tag filter.
-_TAG_SCAN_LIMIT = 200
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
@@ -101,17 +88,11 @@ def skill_list(ctx: click.Context, limit: int, page_number: int, project_overrid
 def skill_get(ctx: click.Context, skill_id: str, project_override: str | None) -> None:
     """Get a Skill by ID.
 
-    Read-only — never modifies the Skill.
+    Read-only — never modifies the Skill. To *execute* a workflow skill with
+    phase tracking, use `deepvista skill run` instead of driving it manually.
     """
     apply_project_override(ctx, project_override)
     data = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
-    # Remind host agents that workflow skills must be executed via `skill run`,
-    # not by reading the body with `skill get` and driving phases manually.
-    attrs = data.get("attributes") or {}
-    if attrs.get("type") == "workflow":
-        data["run_hint"] = (
-            f"workflow skill — to execute with phase tracking run: deepvista skill run --mode host {skill_id}"
-        )
     format_output(
         data,
         ctx.obj.output_format,
@@ -132,17 +113,10 @@ def skill_get(ctx: click.Context, skill_id: str, project_override: str | None) -
 @click.option("--input", "user_input", default=None, help="Context or instructions for the run.")
 @click.option(
     "--mode",
-    type=click.Choice(_RUN_MODES, case_sensitive=False),
-    default=_DEFAULT_RUN_MODE,
-    show_default=True,
-    help=(
-        "Where the workflow executes. ``host`` (default) prints a run packet "
-        "for the host agent (Claude Code / OpenClaw) to drive itself via the "
-        "`deepvista skill phase ...` CLI shims. ``deepvista`` forwards to "
-        "/imagine so the DeepVista server agent runs the whole workflow "
-        "(legacy behaviour). ``auto`` decides per-phase from each phase's "
-        "tool_plan."
-    ),
+    type=click.Choice(("host",), case_sensitive=False),
+    default="host",
+    hidden=True,
+    help="Deprecated compatibility flag — host mode is the only mode.",
 )
 @click.option(
     "--webhook",
@@ -175,35 +149,23 @@ def skill_run(
     best_effort: bool,
     dry_run: bool,
 ) -> None:
-    """Run a Skill — host mode by default; ``--mode deepvista`` delegates the whole run server-side.
+    """Run a Skill — prints the run packet for the host agent to drive.
 
-    > [!CAUTION] This is a write command — host mode acquires the parent
-    > Skill card's run lock (``status="in_progress"``) and prints the run
-    > packet for the agent driving execution. Deepvista mode creates a new
-    > chat session and streams the server agent's response. Confirm with
-    > the user before executing.
+    > [!CAUTION] This is a write command — it acquires the parent Skill
+    > card's run lock (``status="in_progress"``) and prints the run packet
+    > for the agent driving execution. Confirm with the user before executing.
 
-    Host-mode output is a JSON header + the workflow's SKILL.md body + the
-    host runtime contract — all on stdout, no SSE. The host agent reads it
-    and drives the workflow using ``deepvista skill phase ...`` shims.
-
-    Deepvista-mode output is NDJSON (one JSON object per line) as the
-    server agent streams its response.
+    Output is a JSON header + the workflow's SKILL.md body + the host
+    runtime contract — all on stdout, no SSE. The host agent reads it and
+    drives the workflow using ``deepvista skill phase ...`` shims.
     """
     if not _UUID_RE.match(skill_id):
         output_error(3, "Invalid skill ID", f"Expected UUID format, got: {skill_id!r}")
-
-    mode = mode.lower()
-
-    if mode == "deepvista":
-        _skill_run_deepvista(ctx, skill_id, user_input, dry_run=dry_run)
-        return
 
     emit_host_run_packet(
         ctx,
         skill_id,
         user_input,
-        mode,
         dry_run=dry_run,
         webhook=webhook,
         best_effort=best_effort,
@@ -223,14 +185,13 @@ def emit_host_run_packet(
 ) -> None:
     """Fetch the skill, acquire the run lock, and print the host run packet.
 
-    Shared by ``skill run`` (host / auto modes) and ``tasks run --host``
-    (DV-955), which emits packets for webhook-queued workflow tasks instead
-    of subprocess-executing them — a queued workflow needs the surrounding
-    host agent to drive it. ``task_id`` (only known on the task-queue path)
-    threads the queue entry into the completion contract.
+    Shared by ``skill run`` and ``tasks run --host`` (DV-955), which emits
+    packets for webhook-queued workflow tasks instead of subprocess-executing
+    them — a queued workflow needs the surrounding host agent to drive it.
+    ``task_id`` (only known on the task-queue path) threads the queue entry
+    into the completion contract. ``mode`` is retained for the tasks.py call
+    signature; host is the only mode.
     """
-    # host / auto: fetch the card, optionally acquire the lock, and emit a
-    # run packet the host agent drives.
     card = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
     if not card or not card.get("description"):
         output_error(3, "Skill not found or has empty description", f"skill_id={skill_id}")
@@ -242,19 +203,6 @@ def emit_host_run_packet(
 
     active = doc.active_phase() or doc.first_pending_phase() or phases[0]
 
-    phase_routes: list[dict[str, str]] = []
-    if mode == "auto":
-        for p in phases:
-            phase_routes.append(
-                {
-                    "phase": p.title,
-                    "route": "deepvista" if is_phase_server_routable(p) else "host",
-                }
-            )
-    else:
-        for p in phases:
-            phase_routes.append({"phase": p.title, "route": "host"})
-
     run_header = {
         "type": "skill_run_packet",
         "mode": mode,
@@ -262,7 +210,6 @@ def emit_host_run_packet(
         "skill_title": card.get("title", ""),
         "active_phase": active.title,
         "phases": [{"index": p.index, "title": p.title, "state": p.state} for p in phases],
-        "phase_routes": phase_routes,
         "user_input": user_input or "",
         "skill_status": card.get("status", ""),
         "webhook": webhook,
@@ -273,7 +220,7 @@ def emit_host_run_packet(
 
     if dry_run:
         format_output(
-            {"dry_run": True, "would": f"emit host-mode run packet ({mode})", **run_header},
+            {"dry_run": True, "would": "emit host-mode run packet", **run_header},
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
@@ -302,36 +249,6 @@ def emit_host_run_packet(
     if webhook:
         click.echo()
         click.echo(_webhook_task_stanza(task_id))
-
-
-def _skill_run_deepvista(
-    ctx: click.Context, skill_id: str, user_input: str | None, *, dry_run: bool, force: bool = False
-) -> None:
-    """Forward the run to the DeepVista server agent via /imagine."""
-    instruction = user_input or "Run this skill"
-    body: dict[str, Any] = {
-        "user_instruction": f'<contextCard id="{skill_id}" cardType="skill"></contextCard> {instruction}',
-    }
-    if force:
-        body["force"] = True
-
-    if dry_run:
-        format_output(
-            {
-                "dry_run": True,
-                "would": "start DeepVista server-agent Skill run",
-                "skill_id": skill_id,
-                "instruction": instruction,
-            },
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
-        return
-
-    for event in _client(ctx).stream_sse("/imagine", body):
-        click.echo(json.dumps(event, default=str))
 
 
 def _load_host_runtime_contract() -> str:
@@ -388,10 +305,10 @@ def skill_phase_group() -> None:
     """Phase-level operations on an in-progress workflow Skill run.
 
     Used by host agents (Claude Code / OpenClaw / Cursor) that drove
-    ``deepvista skill run --mode host`` and are now advancing the
-    workflow themselves. Each command delegates the phase mutation to
-    the server via ``POST /workflow_phase`` — accordion and mermaid
-    markers are updated server-side in a single atomic write.
+    ``deepvista skill run`` and are now advancing the workflow
+    themselves. Each command delegates the phase mutation to the server
+    via ``POST /workflow_phase`` — accordion and mermaid markers are
+    updated server-side in a single atomic write.
     """
 
 
@@ -604,7 +521,7 @@ def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str) -> None:
         "title": card.get("title", ""),
         "active_phase": active.title if active else None,
         "reason": reason,
-        "resume_with": f"deepvista skill run --mode host {skill_id}",
+        "resume_with": f"deepvista skill run {skill_id}",
     }
     format_output(
         out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
@@ -627,7 +544,7 @@ def skill_phase_need_input(ctx: click.Context, skill_id: str, phase_label: str, 
 
     The user provides the required information and then resumes with:
 
-        deepvista skill run --mode host <skill_id>
+        deepvista skill run <skill_id>
     """
     result = _phase(ctx, skill_id, phase_label=phase_label, action="need_input", reason=reason)
     out = {
@@ -637,68 +554,10 @@ def skill_phase_need_input(ctx: click.Context, skill_id: str, phase_label: str, 
         "phase": phase_label,
         "title": result.get("title", ""),
         "reason": reason,
-        "resume_with": f"deepvista skill run --mode host {skill_id}",
+        "resume_with": f"deepvista skill run {skill_id}",
     }
     format_output(out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url)
     sys.exit(2)
-
-
-@skill_phase_group.command("run-on-deepvista")
-@click.argument("skill_id")
-@click.argument("phase_label")
-@click.option(
-    "--input",
-    "user_input",
-    default=None,
-    help="Extra context for the DeepVista agent on top of the phase-scoped instruction.",
-)
-@click.option("--dry-run", is_flag=True, default=False, help="Preview without calling /imagine.")
-@click.pass_context
-def skill_phase_run_on_deepvista(
-    ctx: click.Context, skill_id: str, phase_label: str, user_input: str | None, dry_run: bool
-) -> None:
-    """Delegate a single phase to the DeepVista server agent and return.
-
-    Used by ``--mode auto`` runs (and by the host agent on demand) when
-    the active phase's ``tool_plan`` is entirely server-side tools. The
-    server agent runs only that phase — it should mark the accordion
-    ``checked="true"`` and the mermaid node ``:::dvDone`` but NOT
-    advance further or set ``status="completed"``. Control returns to
-    the host once the server agent emits ``done: true`` for the phase.
-    """
-    # Validate phase exists locally before paying for an /imagine call.
-    _, doc = _load_skill_doc(ctx, skill_id)
-    if not any(p.title == phase_label for p in doc.phases()):
-        output_error(3, "Phase not found", f"No accordion titled {phase_label!r}")
-
-    extra = f" Extra context from the host: {user_input}" if user_input else ""
-    instruction = (
-        f'<contextCard id="{skill_id}" cardType="skill"></contextCard> '
-        f'Run ONLY the phase "{phase_label}". After completing it '
-        '(accordion checked="true", mermaid node :::dvDone), STOP. '
-        "Do NOT advance to any subsequent phase. Do NOT set "
-        'status="completed" — the host agent is driving the rest of the workflow.' + extra
-    )
-    body: dict[str, Any] = {"user_instruction": instruction, "force": True}
-
-    if dry_run:
-        format_output(
-            {
-                "dry_run": True,
-                "would": "delegate one phase to DeepVista server agent via /imagine",
-                "skill_id": skill_id,
-                "phase": phase_label,
-                "payload": body,
-            },
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
-        return
-
-    for event in _client(ctx).stream_sse("/imagine", body):
-        click.echo(json.dumps(event, default=str))
 
 
 @skill_group.command("complete")
@@ -735,34 +594,6 @@ def skill_complete(ctx: click.Context, skill_id: str, review: str, dry_run: bool
         {"card_id": skill_id, "description": doc.body, "reason": "host-skill-complete", "status": "completed"},
     )
     click.echo(json.dumps({"done": True, "skill_id": skill_id, "title": card.get("title", "")}, default=str))
-
-
-@skill_group.command("status")
-@click.argument("run_id", metavar="RUN_CHAT_ID")
-@click.pass_context
-def skill_status(ctx: click.Context, run_id: str) -> None:
-    """Check the status of a Skill run.
-
-    Read-only — uses the chat session endpoint to check run state.
-    """
-    data = _client(ctx).get(f"/chat_sessions/{run_id}")
-    session = data.get("session", data)
-    result = {
-        "id": run_id,  # Use 'id' so URL generation works
-        "chat_id": run_id,
-        "summary": session.get("summary", ""),
-        "run_status": session.get("run_status", ""),
-        "visibility": session.get("visibility", ""),
-        "created_at": session.get("created_at", ""),
-    }
-    format_output(
-        result,
-        ctx.obj.output_format,
-        title=f"Run: {run_id}",
-        entity_type="chat",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -897,86 +728,11 @@ def skill_load(ctx: click.Context, skill_id: str, no_cache: bool, ttl: int) -> N
 
 
 # ---------------------------------------------------------------------------
-# Marketplace: Discover & Install
-# ---------------------------------------------------------------------------
-
-DISCOVER_COLUMNS = ["id", "title", "category", "version", "installed"]
-
-
-@skill_group.command("discover")
-@click.option("--search", "-s", default=None, help="Search term to filter skills.")
-@click.option(
-    "--category",
-    "-c",
-    type=click.Choice(["persona", "productivity", "workflow"]),
-    default=None,
-    help="Filter by category.",
-)
-@click.option("--limit", default=50, help="Max results (default 50).")
-@click.pass_context
-def skill_discover(ctx: click.Context, search: str | None, category: str | None, limit: int) -> None:
-    """Discover public skills from the marketplace.
-
-    Read-only — browse available skills without installing anything.
-    Use `deepvista skill install <id>` to install a skill.
-    """
-    body: dict = {"limit": limit, "offset": 0}
-    if search:
-        body["search"] = search
-    if category:
-        body["category"] = category
-
-    data = _client(ctx).post("/discover_skills", body)
-    skills = data.get("skills", [])
-    result = {"skills": skills, "count": len(skills), "has_more": data.get("has_more", False)}
-    format_output(
-        result,
-        ctx.obj.output_format,
-        columns=DISCOVER_COLUMNS,
-        title="Marketplace Skills",
-        entity_type="skill",
-        base_url=ctx.obj.auth_url,
-        project_id=ctx.obj.project_id,
-    )
-
-
-@skill_group.command("install")
-@click.argument("skill_id")
-@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
-@click.pass_context
-def skill_install(ctx: click.Context, skill_id: str, dry_run: bool) -> None:
-    """Install a marketplace skill into your library.
-
-    > [!CAUTION] This is a write command — it creates a new Skill in your
-    > library from the marketplace. Confirm with the user before executing.
-
-    The skill_id must match an entry in the marketplace registry.
-    Use `deepvista skill discover` to browse available skills.
-    """
-    if dry_run:
-        format_output(
-            {"dry_run": True, "would": "install marketplace skill", "skill_id": skill_id},
-            ctx.obj.output_format,
-            entity_type="skill",
-            base_url=ctx.obj.auth_url,
-            project_id=ctx.obj.project_id,
-        )
-        return
-
-    data = _client(ctx).post("/install_marketplace_skill", {"skill_id": skill_id})
-
-    if data.get("already_installed"):
-        click.echo(json.dumps({"status": "already_installed", "card": data.get("card", {})}, indent=2, default=str))
-    else:
-        click.echo(json.dumps({"status": "installed", "card": data.get("card", {})}, indent=2, default=str))
-
-
-# ---------------------------------------------------------------------------
-# create-from-note — synthesize skills from a source note via the agent
+# create-from-note — synthesize skills from source notes via the agent
 # ---------------------------------------------------------------------------
 
 
-def _build_create_from_note_instruction(notes: list[tuple[str, str]], kinds: tuple[str, ...]) -> str:
+def _build_create_from_note_instruction(note_ids: list[str]) -> str:
     """Build a thin user instruction that lets the server-side skill do the work.
 
     Emits `<contextCard>` chips for each source note followed by a short trigger
@@ -984,167 +740,13 @@ def _build_create_from_note_instruction(notes: list[tuple[str, str]], kinds: tup
     `description` of `deepvista-skill-workflow` and loads its SKILL.md — that's
     where the full prompt, frontmatter rules, mermaid requirements, and
     `upsert_context_card` instructions live.
-
-    ``kinds`` is retained for forward-compatibility but currently only
-    ``workflow`` is supported (DV-750 — the persona maker was removed
-    server-side, so the CLI no longer offers it).
     """
-    if not notes:
+    if not note_ids:
         raise ValueError("at least one note is required")
 
-    chips = " ".join(f'<contextCard id="{nid}" cardType="note">{title or "Note"}</contextCard>' for nid, title in notes)
-
-    plural = len(notes) > 1
-    source_phrase = "these notes" if plural else "this note"
-    trigger = f"Create a workflow skill from {source_phrase}."
-
-    return f"{chips} {trigger}"
-
-
-# ---------------------------------------------------------------------------
-# Selector resolution — turn flags into a concrete list of note IDs
-# ---------------------------------------------------------------------------
-
-
-def _read_ids_from_file(path: str) -> list[str]:
-    """Read one ID per line from a file. ``-`` means stdin."""
-    if path == "-":
-        raw = sys.stdin.read()
-    else:
-        try:
-            with open(path, encoding="utf-8") as fh:
-                raw = fh.read()
-        except OSError as exc:
-            output_error(4, "Cannot read --from-file", str(exc))
-            return []  # unreachable; output_error exits
-
-    ids: list[str] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        # Tolerate `jq -r '.notes[].id'` style or whitespace-separated tokens.
-        ids.extend(tok for tok in line.split() if tok and not tok.startswith("#"))
-    return ids
-
-
-def _cards_to_pairs(cards: list[dict], *, skip_id: str | None = None) -> list[tuple[str, str]]:
-    """Extract ``(id, title)`` pairs from an API card list, dropping ``skip_id``."""
-    pairs: list[tuple[str, str]] = []
-    for card in cards:
-        cid = card.get("id")
-        if not cid or cid == skip_id:
-            continue
-        pairs.append((cid, card.get("title", "") or ""))
-    return pairs
-
-
-def _resolve_from_search(client: DeepVistaClient, query: str, limit: int) -> list[tuple[str, str]]:
-    body = {"query_text": query, "card_type": "note", "limit": limit}
-    data = client.post("/get_context_cards", body)
-    return _cards_to_pairs(data.get("cards", []))
-
-
-def _resolve_from_similar(client: DeepVistaClient, seed_id: str, limit: int) -> list[tuple[str, str]]:
-    """Find notes related to a seed card via hybrid search on its title + snippet.
-
-    Matches the behaviour of `card +similar` (card.py) so results feel consistent.
-    """
-    seed = client.post("/get_context_card", {"card_id": seed_id})
-    title = seed.get("title", "") or ""
-    snippet = seed.get("snippet", "") or ""
-    query = f"{title} {snippet}".strip()
-    if not query:
-        output_error(3, "Seed card has no content for similarity search", f"Card: {seed_id}")
-    # Ask for one extra so we can drop the seed itself and still satisfy --limit.
-    body = {"query_text": query, "card_type": "note", "limit": limit + 1}
-    data = client.post("/get_context_cards", body)
-    return _cards_to_pairs(data.get("cards", []), skip_id=seed_id)[:limit]
-
-
-def _resolve_from_tag(client: DeepVistaClient, tag: str, limit: int) -> list[tuple[str, str]]:
-    """Filter notes by tag (client-side — the list endpoint has no tag filter)."""
-    body = {"card_type": "note", "limit": _TAG_SCAN_LIMIT, "page_number": 1}
-    data = client.post("/get_context_cards", body)
-    matched = [c for c in data.get("cards", []) if tag in (c.get("tags") or [])]
-    return _cards_to_pairs(matched)[:limit]
-
-
-def _resolve_from_grep(client: DeepVistaClient, pattern: str, limit: int) -> list[tuple[str, str]]:
-    """Regex-match note content via `/grep_context_cards`."""
-    body = {
-        "pattern": pattern,
-        "case_insensitive": False,
-        "limit": limit,
-        "context_lines": 0,
-        "card_type": "note",
-    }
-    data = client.post("/grep_context_cards", body)
-    # The grep endpoint returns `matches` grouped by card; we only need ids+titles.
-    pairs: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    for match in data.get("matches", data.get("results", [])):
-        cid = match.get("card_id") or match.get("id")
-        if not cid or cid in seen:
-            continue
-        seen.add(cid)
-        pairs.append((cid, match.get("title", "") or ""))
-    return pairs[:limit]
-
-
-def _dedupe_pairs(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    """De-duplicate while preserving first-seen order. Prefer non-empty titles."""
-    seen: dict[str, str] = {}
-    order: list[str] = []
-    for cid, title in pairs:
-        if cid not in seen:
-            seen[cid] = title
-            order.append(cid)
-        elif not seen[cid] and title:
-            seen[cid] = title
-    return [(cid, seen[cid]) for cid in order]
-
-
-def _resolve_note_ids(
-    client: DeepVistaClient | None,
-    *,
-    positional: tuple[str, ...],
-    extra: tuple[str, ...],
-    from_file: str | None,
-    from_search: str | None,
-    from_similar: str | None,
-    from_tag: str | None,
-    from_grep: str | None,
-    limit: int,
-) -> list[tuple[str, str]]:
-    """Merge every source of note IDs into a single ordered, capped list.
-
-    ``client`` may be ``None`` when the caller only supplies explicit IDs (tests
-    rely on this). Selectors that need the API will fail loudly if it's missing.
-    """
-    pairs: list[tuple[str, str]] = [(nid, "") for nid in positional]
-    pairs.extend((nid, "") for nid in extra)
-    if from_file is not None:
-        pairs.extend((nid, "") for nid in _read_ids_from_file(from_file))
-
-    def require_client() -> DeepVistaClient:
-        if client is None:
-            raise RuntimeError("API client is required for search/similar/tag/grep selectors")
-        return client
-
-    if from_search:
-        pairs.extend(_resolve_from_search(require_client(), from_search, limit))
-    if from_similar:
-        if not _UUID_RE.match(from_similar):
-            output_error(3, "Invalid --from-similar seed", f"Expected UUID, got: {from_similar!r}")
-        pairs.extend(_resolve_from_similar(require_client(), from_similar, limit))
-    if from_tag:
-        pairs.extend(_resolve_from_tag(require_client(), from_tag, limit))
-    if from_grep:
-        pairs.extend(_resolve_from_grep(require_client(), from_grep, limit))
-
-    pairs = _dedupe_pairs(pairs)
-    return pairs[:limit]
+    chips = " ".join(f'<contextCard id="{nid}" cardType="note">Note</contextCard>' for nid in note_ids)
+    source_phrase = "these notes" if len(note_ids) > 1 else "this note"
+    return f"{chips} Create a workflow skill from {source_phrase}."
 
 
 @skill_group.command("create-from-note")
@@ -1156,48 +758,10 @@ def _resolve_note_ids(
     help="Source note by ID. Repeatable — pass multiple to synthesize across notes.",
 )
 @click.option(
-    "--from-file",
-    default=None,
-    metavar="PATH",
-    help="Read note IDs (one per line) from a file. Use '-' for stdin.",
-)
-@click.option(
-    "--from-search",
-    default=None,
-    metavar="QUERY",
-    help="Resolve source notes via hybrid search (same backend as `card +search`).",
-)
-@click.option(
-    "--from-similar",
-    default=None,
-    metavar="SEED_NOTE_ID",
-    help="Resolve source notes related to a seed note (graph-style neighbours).",
-)
-@click.option(
-    "--from-tag",
-    default=None,
-    metavar="TAG",
-    help="Resolve source notes whose tags list contains TAG.",
-)
-@click.option(
-    "--from-grep",
-    default=None,
-    metavar="REGEX",
-    help="Resolve source notes whose content matches a regex.",
-)
-@click.option(
     "--limit",
     type=click.IntRange(1, 25),
     default=_DEFAULT_MULTI_NOTE_LIMIT,
-    help=f"Cap resolved source notes (default {_DEFAULT_MULTI_NOTE_LIMIT}, max 25).",
-)
-@click.option(
-    "--kind",
-    "kinds",
-    type=click.Choice(SKILL_KINDS, case_sensitive=False),
-    multiple=True,
-    default=SKILL_KINDS,
-    help="Which skill kinds to synthesize. Repeatable. Currently only `workflow` is supported.",
+    help=f"Cap source notes (default {_DEFAULT_MULTI_NOTE_LIMIT}, max 25).",
 )
 @click.option("--chat-id", default=None, help="Continue an existing synthesis session.")
 @click.option(
@@ -1214,24 +778,17 @@ def skill_create_from_note(
     ctx: click.Context,
     note_ids_positional: tuple[str, ...],
     note_id_flags: tuple[str, ...],
-    from_file: str | None,
-    from_search: str | None,
-    from_similar: str | None,
-    from_tag: str | None,
-    from_grep: str | None,
     limit: int,
-    kinds: tuple[str, ...],
     chat_id: str | None,
     assume_yes: bool,
     dry_run: bool,
 ) -> None:
-    """Synthesize skill card(s) from one or more notes via the DeepVista agent.
+    """Synthesize a workflow skill from one or more notes via the DeepVista agent.
 
-    Pass a single note UUID positionally for the original single-note behaviour,
-    or combine multiple notes via repeated positionals, `--note-id`, `--from-file`
-    (including stdin via `-`), `--from-search`, `--from-similar`, `--from-tag`,
-    and `--from-grep`. The agent produces one `workflow` skill (executable
-    steps), grounded in the union of all resolved notes and linked back to
+    Pass note UUIDs positionally or via repeated `--note-id`. To find source
+    notes first, use `deepvista card +search` / `+grep` / `+similar` and pass
+    the resulting IDs here. The agent produces one `workflow` skill (executable
+    steps), grounded in the union of all source notes and linked back to
     every source.
 
     The actual synthesis prompt lives server-side in `deepvista-skill-workflow`.
@@ -1244,42 +801,17 @@ def skill_create_from_note(
     > [!CAUTION] This is a write command — the agent creates skill cards in
     > the user's project. Confirm before executing.
     """
-    # Validate any directly-supplied IDs up front — cheap + gives a useful error.
     for nid in (*note_ids_positional, *note_id_flags):
         if not _UUID_RE.match(nid):
             output_error(3, "Invalid note ID", f"Expected UUID format, got: {nid!r}")
 
-    # Selectors that require API access skip in dry-run with no client yet? We still
-    # want to dry-run from real data to show the exact prompt the agent will see,
-    # so the client is always built lazily on first access.
-    selectors_used = any([from_file, from_search, from_similar, from_tag, from_grep])
-    api_needed = bool(from_search or from_similar or from_tag or from_grep)
+    # De-duplicate while preserving first-seen order, then cap.
+    note_ids = list(dict.fromkeys((*note_ids_positional, *note_id_flags)))[:limit]
 
-    client = _client(ctx) if api_needed else None
-    resolved = _resolve_note_ids(
-        client,
-        positional=note_ids_positional,
-        extra=note_id_flags,
-        from_file=from_file,
-        from_search=from_search,
-        from_similar=from_similar,
-        from_tag=from_tag,
-        from_grep=from_grep,
-        limit=limit,
-    )
+    if not note_ids:
+        output_error(3, "No source notes given", "pass a NOTE_ID positionally or via --note-id")
 
-    if not resolved:
-        hint = (
-            "pass a NOTE_ID or a selector (--note-id, --from-file, --from-search, "
-            "--from-similar, --from-tag, --from-grep)"
-        )
-        output_error(3, "No source notes resolved", hint if not selectors_used else "selectors returned zero notes")
-
-    # De-dup `--kind` while preserving order. Empty tuple shouldn't happen (has default).
-    seen_k: set[str] = set()
-    selected = tuple(k for k in (kinds or SKILL_KINDS) if not (k in seen_k or seen_k.add(k)))
-
-    instruction = _build_create_from_note_instruction(resolved, selected)
+    instruction = _build_create_from_note_instruction(note_ids)
     body: dict[str, Any] = {"user_instruction": instruction}
     if chat_id:
         body["chat_id"] = chat_id
@@ -1288,10 +820,8 @@ def skill_create_from_note(
         format_output(
             {
                 "dry_run": True,
-                "would": "synthesize skills from note(s) via DeepVista agent",
-                "note_ids": [nid for nid, _ in resolved],
-                "resolved_notes": [{"id": nid, "title": title} for nid, title in resolved],
-                "kinds": list(selected),
+                "would": "synthesize a workflow skill from note(s) via DeepVista agent",
+                "note_ids": note_ids,
                 "payload": body,
             },
             ctx.obj.output_format,
@@ -1303,16 +833,12 @@ def skill_create_from_note(
 
     if not assume_yes:
         click.confirm(
-            (
-                f"The agent will create {len(selected)} skill card(s) synthesized from "
-                f"{len(resolved)} source note(s). Continue?"
-            ),
+            f"The agent will create a workflow skill synthesized from {len(note_ids)} source note(s). Continue?",
             abort=True,
         )
 
     try:
-        active_client = client or _client(ctx)
-        for event in active_client.stream_sse("/imagine", body):
+        for event in _client(ctx).stream_sse("/imagine", body):
             click.echo(json.dumps(event, default=str))
     except (KeyboardInterrupt, click.Abort):
         click.echo(json.dumps({"type": "interrupted", "message": "skill synthesis aborted by user"}), err=True)
