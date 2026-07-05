@@ -27,8 +27,8 @@ Print this verbatim, then stop:
 > - `/deepvista run` — execute today's *Daily Planning* note. Reads the note's
 >   `## Planning` workflow chips and runs each workflow Skill with a subagent,
 >   then appends the results under a `## Summary — <timestamp>` block.
-> - `/refresh-skills` — resync the DeepVista skill catalog and agent
->   definitions immediately (bypasses the 60-minute throttle).
+> - `/refresh-skills` — resync the DeepVista skill catalog immediately
+>   (bypasses the 60-minute throttle).
 >
 > **Generating today's plan**
 >

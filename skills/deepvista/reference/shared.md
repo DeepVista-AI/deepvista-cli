@@ -64,7 +64,6 @@ deepvista agents register --type claude-code --name "My Claude"
 This installs a `Stop` hook in `~/.claude/settings.json` that sends a heartbeat after each turn.
 
 ```bash
-deepvista agents get --type claude-code      # check registration
 deepvista agents list                         # all registered agents
 deepvista agents sync --type claude-code --status online   # manual heartbeat
 deepvista agents delete --type claude-code    # unregister + remove hook
