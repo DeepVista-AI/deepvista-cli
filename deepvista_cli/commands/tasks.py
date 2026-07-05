@@ -994,13 +994,6 @@ def _ensure_agents_for_projects(
     return result, project_names
 
 
-def _ensure_agents_for_all_projects(
-    ctx: click.Context,
-) -> tuple[list[tuple[str, str | None]], dict[str, str]]:
-    """Ensure local agents exist for every accessible project (legacy helper)."""
-    return _ensure_agents_for_projects(ctx, project_ids=None)
-
-
 def _agent_type_label(agent_id: str) -> str:
     """Return the agent_type stored in the local registration file for this agent."""
     if not AGENTS_DIR.exists():
