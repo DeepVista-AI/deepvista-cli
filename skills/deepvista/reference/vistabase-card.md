@@ -14,16 +14,17 @@ Use [notes.md](notes.md) for note-only ergonomics.
 ## Commands
 
 `list` · `get` · `create` · `update` · `edit` · `delete`
+`index` · `history` · `diff` · `restore`
 `+search` · `+similar` · `+grep` · `+pin` · `+archive`
 
 ## Agent conventions
 
-> [!CAUTION] `create`, `update`, `edit`, `delete`, `+pin`, `+archive` are writes.
+> [!CAUTION] `create`, `update`, `edit`, `delete`, `index`, `restore`, `+pin`, `+archive` are writes.
 > Confirm first. Use `--dry-run` to preview.
 
 - **Always use `--content-file <absolute-path>`** for large content — never inline.
 - Show the app URL after any write: `https://app.deepvista.ai/vistabase/<id>`
-- Read-only commands (`list`, `get`, `+search`, `+similar`, `+grep`) are safe to run
+- Read-only commands (`list`, `get`, `history`, `diff`, `+search`, `+similar`, `+grep`) are safe to run
   without confirmation.
 
 ## Non-obvious gotchas
@@ -36,6 +37,12 @@ the current body — it is replaced with `--new-string`. Fails if not found. Use
 **`+search` vs `+grep`:** `+search` is hybrid vector+keyword (fuzzy, semantic).
 `+grep` is literal/regex. Use `+search` for concepts, `+grep` for exact strings like
 `TODO`, URLs, or identifiers.
+
+**`index`** — queues entity extraction + embedding refresh on unprocessed cards
+(`--type note` by default). Run after bulk imports or a long offline period.
+
+**`history` / `diff` / `restore`** — version history for any card. `restore`
+captures the current state as a new version first, so it's reversible.
 
 ## Examples
 
