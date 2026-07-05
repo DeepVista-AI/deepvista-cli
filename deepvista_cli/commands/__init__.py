@@ -37,6 +37,21 @@ def apply_project_override(ctx: click.Context, project_override: str | None) -> 
         ctx.obj.project_id = project_override
 
 
+def deprecation_warning(old: str, replacement: str) -> None:
+    """Print a deprecation notice for a command to stderr.
+
+    Written to *stderr* so it never contaminates the JSON payload on stdout
+    that agents and shell pipelines parse. ``old`` and ``replacement`` are the
+    command paths without the ``deepvista`` prefix, e.g.
+    ``deprecation_warning("card +pin", "card update <id> --status pinned")``.
+    """
+    click.echo(
+        f"⚠️  `deepvista {old}` is deprecated and will be removed in a future release; "
+        f"use `deepvista {replacement}` instead.",
+        err=True,
+    )
+
+
 def resolve_content(content: str | None, content_file: str | None) -> str | None:
     """Resolve content from ``--content`` or ``--content-file``.
 

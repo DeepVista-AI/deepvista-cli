@@ -11,7 +11,7 @@ the skill in real notes, links it back via `related_context_card_ids`, and
 publishes it to the user's project so it's reusable across sessions.
 
 If the source material isn't already a DeepVista note, capture it first
-(`deepvista notes create` / `deepvista notes +quick`) and then run
+(`deepvista card create --type note` / `deepvista notes +quick`) and then run
 `deepvista skill create-from-note`.
 
 ## After editing Python files

@@ -43,7 +43,7 @@ deepvista notes +quick "<exact user statement or tight paraphrase>"
 Structured fact (multi-line, or when the user shares formatted content):
 
 ```bash
-deepvista notes create \
+deepvista card create --type note \
   --title "<short title>" \
   --content-file <path>
 ```
@@ -54,7 +54,7 @@ For content dictated in-conversation, write it to a tempfile first:
 cat > /tmp/capture-$$.md <<'EOF'
 <markdown content here>
 EOF
-deepvista notes create --title "…" --content-file /tmp/capture-$$.md
+deepvista card create --type note --title "…" --content-file /tmp/capture-$$.md
 rm /tmp/capture-$$.md
 ```
 
@@ -78,5 +78,6 @@ to work.
 
 ## See also
 
-- [notes.md](notes.md) — the underlying `+quick` and `create` commands
+- [notes.md](notes.md) — the note-only `+quick` command
+- [vistabase-card.md](vistabase-card.md) — the `card create --type note` command
 - [shared.md](shared.md) — auth, agent registration

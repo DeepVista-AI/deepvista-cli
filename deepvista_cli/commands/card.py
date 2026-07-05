@@ -22,7 +22,12 @@ from __future__ import annotations
 import click
 
 from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.commands import apply_project_override, project_option, resolve_content
+from deepvista_cli.commands import (
+    apply_project_override,
+    deprecation_warning,
+    project_option,
+    resolve_content,
+)
 from deepvista_cli.output.formatter import format_output, output_error
 
 CARD_TYPES = [
@@ -47,7 +52,8 @@ def _client(ctx: click.Context) -> DeepVistaClient:
 
 
 @click.group("card")
-def card_group() -> None:
+@click.pass_context
+def card_group(ctx: click.Context) -> None:
     """Manage knowledge cards (context cards).
 
     Use `card` for incidental info an agent records mid-conversation
@@ -55,6 +61,11 @@ def card_group() -> None:
     For explicit user notes use `deepvista notes`; for session transcripts
     use `deepvista session`.
     """
+    # `vistabase` is a backward-compatible alias for the exact same command
+    # object (registered a second time in main.py). Warn when invoked that way
+    # so callers migrate to `card`; the alias itself is hidden from --help.
+    if ctx.info_name == "vistabase":
+        deprecation_warning("vistabase", "card")
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +186,10 @@ def card_create(
     """
     import json as _json
 
+    from deepvista_cli import session_note as sn
+    from deepvista_cli.client.origin import detect_agent_tool
+    from deepvista_cli.commands.agents import load_agent_id_for_active_agent
+
     apply_project_override(ctx, project_override)
     description = resolve_content(description, content_file)
     body: dict = {
@@ -184,11 +199,24 @@ def card_create(
     }
     if description:
         body["description"] = description
+
+    # DV-791: prepend the combined agent tag so agent-authored cards are
+    # filterable by the AgentFilter UI alongside notes / +quick / session
+    # writes. This makes `card create --type note` behave identically to the
+    # (now deprecated) `notes create` path.
+    agent, _ = detect_agent_tool()
+    agent_id = load_agent_id_for_active_agent()
+    parsed_tags: list[str] = [sn.build_agent_tag(agent, agent_id)]
     if tags:
         try:
-            body["tags"] = _json.loads(tags)
+            user_tags = _json.loads(tags)
         except _json.JSONDecodeError:
             output_error(3, "Invalid --tags JSON", f"Got: {tags}")
+        else:
+            if not isinstance(user_tags, list):
+                output_error(3, "Invalid --tags JSON", "Expected a JSON array of strings.")
+            parsed_tags.extend(user_tags)
+    body["tags"] = parsed_tags
 
     if dry_run:
         format_output(
@@ -405,7 +433,11 @@ def card_similar(ctx: click.Context, card_id: str, limit: int) -> None:
     """Find context cards similar to a given card.
 
     Read-only — never modifies your knowledge base.
+
+    Deprecated — this is just `card get` (to read the title/snippet) followed by
+    a `card +search` on that text. Run `card +search` directly instead.
     """
+    deprecation_warning("card +similar", "card +search")
     card = _client(ctx).post("/get_context_card", {"card_id": card_id})
     title = card.get("title", "")
     snippet = card.get("snippet", "")
@@ -436,8 +468,12 @@ def card_similar(ctx: click.Context, card_id: str, limit: int) -> None:
 def card_pin(ctx: click.Context, card_id: str, dry_run: bool) -> None:
     """Pin a context card.
 
+    Deprecated — equivalent to `card update <id> --status pinned` (same
+    `/update_context_card` endpoint). Use `card update` instead.
+
     > [!CAUTION] This is a write command.
     """
+    deprecation_warning("card +pin", "card update <id> --status pinned")
     if dry_run:
         format_output(
             {"dry_run": True, "would": "pin card", "card_id": card_id},
@@ -461,8 +497,12 @@ def card_pin(ctx: click.Context, card_id: str, dry_run: bool) -> None:
 def card_archive(ctx: click.Context, card_id: str, dry_run: bool) -> None:
     """Archive a context card.
 
+    Deprecated — equivalent to `card update <id> --status archived` (same
+    `/update_context_card` endpoint). Use `card update` instead.
+
     > [!CAUTION] This is a write command.
     """
+    deprecation_warning("card +archive", "card update <id> --status archived")
     if dry_run:
         format_output(
             {"dry_run": True, "would": "archive card", "card_id": card_id},

@@ -45,11 +45,11 @@ other reference file assumes you know it.
 |---|---|---|
 | `deepvista auth` / `agents` / `config` / `upgrade` | authenticating, registering an agent, switching profiles, checking for updates | [shared.md](reference/shared.md) |
 | `deepvista project` | listing projects, picking / switching the **working project** that scopes every other command (`X-Project-Id` + `/project/{id}/…` links) | [project.md](reference/project.md) |
-| `deepvista notes` | taking a note the user **explicitly asked to record**, listing / updating / deleting notes, quick-capture of a single-line fact, re-indexing notes for entity extraction | [notes.md](reference/notes.md) |
+| `deepvista notes` | note-only helpers — quick-capture a single-line fact (`+quick`), re-index notes for entity extraction (`index`), and note version history (`history` / `diff` / `restore`); note CRUD (`list` / `get` / `create` / `update` / `delete`) is deprecated in favour of `deepvista card --type note` | [notes.md](reference/notes.md) |
 | `deepvista session` | recording an agent conversation transcript as a rolling `type=session` card via the `init` / `tick` / `finalize` hook lifecycle | [session.md](reference/session.md) |
 | `deepvista lint` | periodic LLM health check over the vistabase — duplicates, contradictions, stale claims, orphans, missing cross-references, data gaps | [lint.md](reference/lint.md) |
 | `deepvista schedule` | activating / deactivating / listing the opt-in recurring daily-planning job | `deepvista schedule --help` |
-| `deepvista card` (alias: `vistabase`) | creating / searching / pinning / archiving / grepping knowledge base cards across any type (person, topic, file, note, todo, etc.) for **incidental info the agent records mid-conversation** | [vistabase-card.md](reference/vistabase-card.md) |
+| `deepvista card` | creating / searching / pinning (`update --status pinned`) / archiving / grepping knowledge base cards across any type (person, topic, file, note, todo, etc.) for **incidental info the agent records mid-conversation** (the `vistabase` alias is deprecated) | [vistabase-card.md](reference/vistabase-card.md) |
 | `deepvista chat` | sending a message to the AI agent, listing / deleting chat sessions, continuing a conversation | [chat.md](reference/chat.md) |
 | `deepvista skill` | listing, running, installing, discovering, **creating new skills**, or **catalog-syncing** (`sync` / `load`) structured Skill workflows | [skill.md](reference/skill.md) |
 | `deepvista tasks` | running this **Machine**'s dispatched work: `tasks run` polls for tasks (web-chat prompts run headless via `claude -p`, plus queued CLI commands / workflow runs) and `tasks list` shows them | [tasks.md](reference/tasks.md) |
@@ -108,7 +108,8 @@ skill in real notes, links it back via `related_context_card_ids`, and
 publishes it to the user's project so it's reusable across sessions.
 
 If the source material isn't yet a DeepVista note, capture it first
-(`deepvista notes create` / `+quick`) and *then* run `create-from-note`.
+(`deepvista card create --type note` / `deepvista notes +quick`) and *then* run
+`create-from-note`.
 
 ## Conventions agents must follow
 
@@ -122,7 +123,7 @@ If the source material isn't yet a DeepVista note, capture it first
 3. **Use `--content-file` for non-trivial content.** Never paste large content,
    files, or URLs inline — pass `--content-file <absolute-path>` (or `--content-file -`
    to read from stdin) so the exact bytes are stored.
-4. **Read-only commands are safe.** `list`, `get`, `+search`, `+grep`, `+similar`,
+4. **Read-only commands are safe.** `list`, `get`, `+search`, `+grep`,
    `show`, `discover`, `export`, `status` — run without confirmation.
 5. **Check `--help` for exact flags.** When you need exact flag syntax or available options,
    run `deepvista <subcommand> --help` rather than guessing from memory.

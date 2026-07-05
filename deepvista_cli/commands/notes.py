@@ -19,7 +19,12 @@ import click
 from deepvista_cli import session_note as sn
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
-from deepvista_cli.commands import apply_project_override, project_option, resolve_content
+from deepvista_cli.commands import (
+    apply_project_override,
+    deprecation_warning,
+    project_option,
+    resolve_content,
+)
 from deepvista_cli.commands.session import session_finalize, session_init, session_tick
 from deepvista_cli.output.formatter import format_output, output_error
 
@@ -49,8 +54,11 @@ def notes_group() -> None:
 def notes_list(ctx: click.Context, limit: int, page_number: int, project_override: str | None) -> None:
     """List all notes.
 
+    Deprecated — equivalent to `card list --type note`. Use `card` instead.
+
     Read-only — never modifies your notes.
     """
+    deprecation_warning("notes list", "card list --type note")
     apply_project_override(ctx, project_override)
     data = _client(ctx).post(
         "/get_context_cards",
@@ -80,8 +88,11 @@ def notes_list(ctx: click.Context, limit: int, page_number: int, project_overrid
 def notes_get(ctx: click.Context, note_id: str, project_override: str | None) -> None:
     """Get a note by ID.
 
+    Deprecated — equivalent to `card get <id>`. Use `card` instead.
+
     Read-only.
     """
+    deprecation_warning("notes get", "card get <id>")
     apply_project_override(ctx, project_override)
     data = _client(ctx).post("/get_context_card", {"card_id": note_id, "card_type": "note"})
     format_output(
@@ -117,8 +128,12 @@ def notes_create(
 ) -> None:
     """Create a new note.
 
+    Deprecated — equivalent to `card create --type note` (which now applies the
+    same agent tagging). Use `card` instead.
+
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
+    deprecation_warning("notes create", "card create --type note")
     apply_project_override(ctx, project_override)
     description = resolve_content(description, content_file)
 
@@ -188,8 +203,11 @@ def notes_update(
 ) -> None:
     """Update a note.
 
+    Deprecated — equivalent to `card update <id>`. Use `card` instead.
+
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
+    deprecation_warning("notes update", "card update <id>")
     description = resolve_content(description, content_file)
     body: dict = {"card_id": note_id}
     if title:
@@ -230,8 +248,11 @@ def notes_update(
 def notes_delete(ctx: click.Context, note_id: str, dry_run: bool) -> None:
     """Delete a note.
 
+    Deprecated — equivalent to `card delete <id> --type note`. Use `card` instead.
+
     > [!CAUTION] This is a destructive write command — confirm with the user before executing.
     """
+    deprecation_warning("notes delete", "card delete <id> --type note")
     if dry_run:
         format_output(
             {"dry_run": True, "would": "delete note", "note_id": note_id},
@@ -354,6 +375,7 @@ def notes_session_init(
 
     > [!CAUTION] This is a write command (creates a card on first call).
     """
+    deprecation_warning("notes session-init", "session init")
     ctx.invoke(
         session_init,
         session_id=session_id,
@@ -375,6 +397,7 @@ def notes_session_tick(ctx: click.Context, session_id: str, transcript: str, dry
 
     > [!CAUTION] This is a write command.
     """
+    deprecation_warning("notes session-tick", "session tick")
     ctx.invoke(session_tick, session_id=session_id, transcript=transcript, dry_run=dry_run)
 
 
@@ -393,6 +416,7 @@ def notes_session_finalize(
 
     > [!CAUTION] This is a write command.
     """
+    deprecation_warning("notes session-finalize", "session finalize")
     ctx.invoke(
         session_finalize,
         session_id=session_id,

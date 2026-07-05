@@ -3,8 +3,10 @@
 `deepvista card` manages every knowledge base entry. Types: `person`, `organization`,
 `message`, `todo`, `topic`, `keypoint`, `file`, `note`, `skill`, `skill_run`.
 
-`deepvista vistabase` is a backward-compatible alias — every `card` subcommand
-works under `vistabase` too (hidden from `--help`).
+> [!WARNING] `deepvista vistabase` is a **deprecated** backward-compatible alias
+> for `deepvista card` (every `card` subcommand works under it, hidden from
+> `--help`). It prints a deprecation notice and will be removed in a future major
+> release. Use `deepvista card`.
 
 Run `deepvista card --help` or `deepvista card <cmd> --help` for full flag reference.
 
@@ -14,16 +16,29 @@ Use [notes.md](notes.md) for note-only ergonomics.
 ## Commands
 
 `list` · `get` · `create` · `update` · `edit` · `delete`
-`+search` · `+similar` · `+grep` · `+pin` · `+archive`
+`+search` · `+grep`
+
+### Deprecated helpers
+
+These print a deprecation notice and will be removed in a future major release:
+
+| Deprecated | Replacement |
+|---|---|
+| `card +pin <id>` | `card update <id> --status pinned` |
+| `card +archive <id>` | `card update <id> --status archived` |
+| `card +similar <id>` | `card +search "<title/topic>"` |
+
+All three hit the same endpoints as their replacements (`+pin`/`+archive` →
+`/update_context_card`; `+similar` is just `card get` + `card +search`).
 
 ## Agent conventions
 
-> [!CAUTION] `create`, `update`, `edit`, `delete`, `+pin`, `+archive` are writes.
+> [!CAUTION] `create`, `update`, `edit`, `delete` are writes.
 > Confirm first. Use `--dry-run` to preview.
 
 - **Always use `--content-file <absolute-path>`** for large content — never inline.
 - Show the app URL after any write: `https://app.deepvista.ai/vistabase/<id>`
-- Read-only commands (`list`, `get`, `+search`, `+similar`, `+grep`) are safe to run
+- Read-only commands (`list`, `get`, `+search`, `+grep`) are safe to run
   without confirmation.
 
 ## Non-obvious gotchas
@@ -52,8 +67,8 @@ deepvista card create --type topic \
 # Targeted patch
 deepvista card edit <id> --old-string "old API URL" --new-string "new API URL"
 
-# Pin
-deepvista card +pin <id>
+# Pin (formerly `card +pin <id>`)
+deepvista card update <id> --status pinned
 ```
 
 ## See also

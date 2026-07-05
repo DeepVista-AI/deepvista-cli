@@ -54,8 +54,8 @@ deepvista skill create-from-note --from-similar 0d5d1fb2-... --limit 4 --yes
 deepvista skill create-from-note --from-grep "DRI|operating rhythm" --yes
 
 # Pipe from a prior search
-deepvista notes list --limit 100 \
-  | jq -r '.notes[] | select(.title | test("positioning"; "i")) | .id' \
+deepvista card list --type note --limit 100 \
+  | jq -r '.cards[] | select(.title | test("positioning"; "i")) | .id' \
   | deepvista skill create-from-note --from-file - --kind workflow --yes
 
 # Preview first

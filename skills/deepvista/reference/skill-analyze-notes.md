@@ -1,7 +1,7 @@
 # Analyze notes — surface themes, patterns, open questions
 
-Not a separate Skill — a pattern for using `card +search`, `notes list`, and
-`notes create` together to synthesize findings from many notes.
+Not a separate Skill — a pattern for using `card +search`, `card list`, and
+`card create` together to synthesize findings from many notes.
 
 Use when the user says: "analyze my notes", "summarize my notes", "what have I been
 thinking about", "find patterns", "what are common topics", "review my notes".
@@ -14,12 +14,12 @@ thinking about", "find patterns", "what are common topics", "review my notes".
    ```
    Fall back to a broad list if the topic is unclear:
    ```bash
-   deepvista notes list --limit 20
+   deepvista card list --type note --limit 20
    ```
 
 2. **Read** the full content of the top candidates (read-only):
    ```bash
-   deepvista notes get <note_id>
+   deepvista card get <note_id>
    ```
 
 3. **Analyze** in your own reasoning — identify themes, decisions, open questions, a
@@ -31,7 +31,7 @@ thinking about", "find patterns", "what are common topics", "review my notes".
 
    > [!CAUTION] Write operation.
    ```bash
-   deepvista notes create \
+   deepvista card create --type note \
      --title "Analysis — <topic> — 2026-04-20" \
      --content-file /tmp/analysis.md
    ```
@@ -52,10 +52,10 @@ thinking about", "find patterns", "what are common topics", "review my notes".
 deepvista card +search "project alpha" --type note --limit 15
 
 # Read a candidate
-deepvista notes get note_abc123
+deepvista card get note_abc123
 
 # Save the synthesis
-deepvista notes create \
+deepvista card create --type note \
   --title "Weekly Themes — 2026-04-20" \
   --content-file /tmp/themes.md \
   --tags '["analysis","weekly"]'

@@ -11,12 +11,30 @@ flag reference.
 
 ## Commands
 
-`list` · `get` · `create` · `update` · `delete` · `index` · `+quick`
-`history` · `diff` · `restore`
+Note-specific surface (no `card` equivalent):
 
-> [!NOTE] `session-init` / `session-tick` / `session-finalize` are thin
-> aliases that forward to `deepvista session …` (DV-742). Prefer the
-> top-level `deepvista session` group in new scripts.
+`index` · `+quick` · `history` · `diff` · `restore`
+
+### Deprecated commands
+
+These print a deprecation notice and will be removed in a future major release.
+They are thin wrappers over `card` with `card_type=note` hardcoded — use `card`
+directly:
+
+| Deprecated | Replacement |
+|---|---|
+| `notes list` | `card list --type note` |
+| `notes get <id>` | `card get <id>` |
+| `notes create` | `card create --type note` |
+| `notes update <id>` | `card update <id>` |
+| `notes delete <id>` | `card delete <id> --type note` |
+| `notes session-init` | `session init` |
+| `notes session-tick` | `session tick` |
+| `notes session-finalize` | `session finalize` |
+
+`card create --type note` now applies the same agent tagging that `notes create`
+did, so the migration is behaviour-preserving. `session-*` forward to
+`deepvista session …` (DV-742).
 
 ## Agent conventions
 
@@ -39,9 +57,9 @@ deepvista notes +quick "Alice confirmed the API deadline is April 15"
 Run after bulk imports or after a long offline period. Pair with
 `deepvista lint --check missing-refs`.
 
-**`session-*` (alias)** — see [session.md](session.md). New hook installs
-should call `deepvista session init|tick|finalize` directly; the `notes
-session-*` subcommands are thin aliases that delegate there.
+**`session-*` (deprecated alias)** — see [session.md](session.md). New hook
+installs should call `deepvista session init|tick|finalize` directly; the `notes
+session-*` subcommands are deprecated thin aliases that delegate there.
 
 **`history` / `diff` / `restore`** — version history. `restore` captures the current
 state as a new version first, so it's reversible.
@@ -59,22 +77,22 @@ Manual install: copy `plugins/claude-code/hooks/` into `~/.claude/hooks/` and wi
 ## Examples
 
 ```bash
-# Quick capture
+# Quick capture (note-only)
 deepvista notes +quick "Decided to drop legacy auth middleware — compliance req"
 
 # Structured note from file
-deepvista notes create --title "Standup 2026-04-20" \
+deepvista card create --type note --title "Standup 2026-04-20" \
   --content-file /tmp/standup.md --tags '["standup"]'
 
 # Read then edit
-deepvista notes get <note_id>
-deepvista notes update <note_id> --title "Standup — April 20"
+deepvista card get <note_id>
+deepvista card update <note_id> --title "Standup — April 20"
 
 # From stdin
 curl -sL https://example.com/page.md | \
-  deepvista notes create --title "Reference page" --content-file -
+  deepvista card create --type note --title "Reference page" --content-file -
 
-# Index after bulk import
+# Index after bulk import (note-only)
 deepvista notes index --limit 100
 ```
 
