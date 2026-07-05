@@ -49,7 +49,6 @@ from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
 from deepvista_cli.commands.agents import (
     AGENTS_DIR,
-    DEFAULT_AGENT_ROLE,
     _build_config_snapshot,
     _default_agent_name,
     _load_agent_id,
@@ -104,12 +103,11 @@ def _output(ctx: click.Context, data: object, **kwargs: object) -> None:
 
 def _resolve_machine_agent_id(
     agent_type: str | None,
-    agent_role: str | None,
     project_id: str | None = None,
 ) -> tuple[str, str | None] | None:
     """Find the registered agent this machine's queue belongs to.
 
-    Resolution order: explicit --type/--role/--project, then the detected host
+    Resolution order: explicit --type/--project, then the detected host
     tool, then the most recently registered agent of any type on this machine.
 
     Returns ``(agent_id, project_id)`` so callers can surface the project in
@@ -125,7 +123,7 @@ def _resolve_machine_agent_id(
             return None
 
     if agent_type:
-        agent_id = _load_agent_id(agent_type, agent_role, project_id)
+        agent_id = _load_agent_id(agent_type, project_id)
         if not agent_id:
             return None
         # Re-read the file to get project_id alongside the agent_id.
@@ -140,7 +138,7 @@ def _resolve_machine_agent_id(
     except Exception:
         detected = None
     if detected:
-        agent_id = _load_agent_id(detected, agent_role, project_id)
+        agent_id = _load_agent_id(detected, project_id)
         if agent_id:
             for path in AGENTS_DIR.glob(f"{detected}__*.json"):
                 result = _read(path)
@@ -172,10 +170,9 @@ def _resolve_machine_agent_id(
 
 def _require_machine_agent_id(
     agent_type: str | None,
-    agent_role: str | None,
     project_id: str | None = None,
 ) -> tuple[str, str | None]:
-    result = _resolve_machine_agent_id(agent_type, agent_role, project_id)
+    result = _resolve_machine_agent_id(agent_type, project_id)
     if not result:
         output_error(3, "No registered agent on this machine", "Run 'deepvista agents register' first.")
         raise SystemExit(3)
@@ -587,6 +584,7 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
             env=run_env,
             bufsize=1,
         )
+
         def _watchdog() -> None:
             if not _done.wait(task_timeout):
                 timed_out.set()
@@ -918,9 +916,7 @@ def _ensure_agents_for_projects(
         project_name = project_names.get(project_id, "")
 
         # Reuse an existing local registration for this project.
-        existing_id = _find_registered_agent_for_project(project_id) or _load_agent_id(
-            agent_type, DEFAULT_AGENT_ROLE, project_id
-        )
+        existing_id = _find_registered_agent_for_project(project_id) or _load_agent_id(agent_type, project_id)
         if existing_id:
             if existing_id not in seen_agent_ids:
                 seen_agent_ids.add(existing_id)
@@ -935,7 +931,6 @@ def _ensure_agents_for_projects(
                 {
                     "name": _default_agent_name(agent_type),
                     "agent_type": agent_type,
-                    "agent_role": DEFAULT_AGENT_ROLE,
                     "config": config,
                 },
                 extra_headers={"X-Project-Id": project_id},
@@ -948,8 +943,7 @@ def _ensure_agents_for_projects(
                 )
                 continue
             agent_id: str = agent["id"]
-            agent_role_saved = agent.get("agent_role", DEFAULT_AGENT_ROLE)
-            _save_agent_id(agent_type, agent_id, agent_role_saved, project_id, project_name or None)
+            _save_agent_id(agent_type, agent_id, project_id, project_name or None)
 
             # Mirror what `agents register` does: migrate off the legacy
             # standalone hook (plugin now owns the heartbeat) + initial sync.
@@ -1143,7 +1137,6 @@ def _claim_and_run_all(
 
 @tasks_group.command("run")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
-@click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
 @click.option(
     "--project",
     "project_id",
@@ -1186,7 +1179,6 @@ def _claim_and_run_all(
 def tasks_run(
     ctx: click.Context,
     agent_type: str | None,
-    agent_role: str | None,
     project_id: str | None,
     host_mode: bool,
     run_once: bool,
@@ -1197,8 +1189,8 @@ def tasks_run(
 
     Scopes to the working project (``project use``, global ``--project``, or
     ``DEEPVISTA_PROJECT_ID``), falling back to your backend default project.
-    Override per-invocation with ``--project``. Pass ``--type``/``--role`` to
-    resolve a specific local agent registration instead.
+    Override per-invocation with ``--project``. Pass ``--type`` to resolve a
+    specific local agent registration instead.
 
     Default mode polls in the foreground — claim, execute, sleep
     --poll-interval, repeat — until --total-time elapses (or forever when
@@ -1224,10 +1216,10 @@ def tasks_run(
         raise SystemExit(2)
 
     project_names: dict[str, str] = {}
-    if agent_type or agent_role:
+    if agent_type:
         # Explicit agent filter — single-agent mode (backward-compatible).
         working_project = _resolve_working_project(ctx, project_id)
-        agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, working_project)
+        agent_id, resolved_project_id = _require_machine_agent_id(agent_type, working_project)
         agents = [(agent_id, resolved_project_id)]
     else:
         working_project = _resolve_working_project(ctx, project_id)
@@ -1330,7 +1322,6 @@ TASK_CARD_COLUMNS = ["id", "status", "title", "agent_id", "created_at"]
 
 @tasks_group.command("list")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
-@click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
 @click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
 @click.option(
     "--status", "status_filter", default=None, help="Filter task cards by status (pending/running/completed/failed)."
@@ -1339,7 +1330,6 @@ TASK_CARD_COLUMNS = ["id", "status", "title", "agent_id", "created_at"]
 def tasks_list(
     ctx: click.Context,
     agent_type: str | None,
-    agent_role: str | None,
     project_id: str | None,
     status_filter: str | None,
 ) -> None:
@@ -1348,7 +1338,7 @@ def tasks_list(
     Lists **task cards** (web-chat prompts) claimable by this Machine in its
     project. Read-only.
     """
-    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, project_id)
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, project_id)
     headers = {"X-Project-Id": resolved_project_id} if resolved_project_id else None
     params = {"status": status_filter} if status_filter else None
     data = _client(ctx).get(f"/agents/{agent_id}/tasks", params=params, extra_headers=headers)
@@ -1395,7 +1385,6 @@ def _task_timestamp(task: dict) -> datetime | None:
     help="Only delete tasks last updated more than N days ago.",
 )
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
-@click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
 @click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would be deleted without deleting.")
 @click.pass_context
@@ -1405,7 +1394,6 @@ def tasks_clean(
     statuses: tuple[str, ...],
     older_than_days: int | None,
     agent_type: str | None,
-    agent_role: str | None,
     project_id: str | None,
     dry_run: bool,
 ) -> None:
@@ -1418,7 +1406,7 @@ def tasks_clean(
 
     > [!CAUTION] Destructive — deleted tasks cannot be recovered. Confirm with the user.
     """
-    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, project_id)
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, project_id)
     headers = {"X-Project-Id": resolved_project_id} if resolved_project_id else None
     client = _client(ctx)
 
@@ -1482,7 +1470,6 @@ def tasks_clean(
 @click.argument("task_id")
 @click.argument("note")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
-@click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
 @click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
 @click.pass_context
 def tasks_note(
@@ -1490,7 +1477,6 @@ def tasks_note(
     task_id: str,
     note: str,
     agent_type: str | None,
-    agent_role: str | None,
     project_id: str | None,
 ) -> None:
     """Append a progress note to a running task card's run log (DV-1247).
@@ -1503,7 +1489,7 @@ def tasks_note(
         deepvista tasks note <task-id> "Step 1 done: found 3 failing tests"
         deepvista tasks note <task-id> "Needs human: please approve the PR at github.com/…"
     """
-    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, agent_role, project_id)
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, project_id)
     headers = {"X-Project-Id": resolved_project_id} if resolved_project_id else None
     data = _client(ctx).post(
         f"/agents/{agent_id}/tasks/{task_id}/note",
@@ -1526,7 +1512,6 @@ def tasks_note(
 )
 @click.option("--note", default=None, help="Short outcome note stored as the task's output tail.")
 @click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
-@click.option("--role", "agent_role", default=None, help="Resolve agent by role (with --type).")
 @click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
 @click.pass_context
 def tasks_complete(
@@ -1535,7 +1520,6 @@ def tasks_complete(
     status: str,
     note: str | None,
     agent_type: str | None,
-    agent_role: str | None,
     project_id: str | None,
 ) -> None:
     """Report the terminal outcome of a claimed workflow task (DV-955).
@@ -1545,7 +1529,7 @@ def tasks_complete(
     tasks report automatically; this is only needed for workflow tasks,
     which stay ``running`` until someone reports them.
     """
-    agent_id, _ = _require_machine_agent_id(agent_type, agent_role, project_id)
+    agent_id, _ = _require_machine_agent_id(agent_type, project_id)
     data = _client(ctx).post(
         f"/agents/{agent_id}/task-queue/{task_id}/result",
         {"status": status, "exit_code": 0 if status == "completed" else 1, "output_tail": note},

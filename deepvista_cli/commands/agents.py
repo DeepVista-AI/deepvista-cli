@@ -22,13 +22,8 @@ from deepvista_cli.client.origin import build_origin, detect_agent_tool
 from deepvista_cli.config import CONFIG_DIR
 from deepvista_cli.output.formatter import format_output, output_error
 
-AGENT_COLUMNS = ["id", "name", "agent_type", "agent_role", "status", "last_heartbeat_at", "updated_at"]
+AGENT_COLUMNS = ["id", "name", "agent_type", "status", "last_heartbeat_at", "updated_at"]
 AGENTS_DIR = CONFIG_DIR / "agents"
-
-# DV-832: agent_role is open-text. We provide a default but do not
-# enforce a closed set — the product list (sales, marketing, product,
-# engineering, hiring, content, misc, …) may change.
-DEFAULT_AGENT_ROLE = "misc"
 
 # Backend error codes (mirror of ai/chat_service/routers/agents.py constants).
 # Surfaced via the JSON response body so the CLI can recover programmatically
@@ -56,34 +51,27 @@ _AGENT_TYPE_LABELS = {
 # ---------------------------------------------------------------------------
 
 
-def _agent_id_path(agent_type: str, agent_role: str | None = None, project_id: str | None = None) -> Path:
-    """Path to the local agent registration file for a given (type, role[, project]).
+def _agent_id_path(agent_type: str, project_id: str | None = None) -> Path:
+    """Path to the local agent registration file for a given (type[, project]).
 
-    DV-832: cache key is ``<type>__<role>.json`` so a single machine can host
-    multiple roles. When ``project_id`` is supplied the key becomes
-    ``<type>__<role>__<project_id>.json`` so a machine can also host the same
-    role for multiple projects without one overwriting the other. When
-    ``agent_role`` is omitted we fall back to the legacy ``<type>.json``
-    filename for read-only adoption — see ``_load_agent_id``.
+    Cache key is ``<type>.json`` or ``<type>__<project_id>.json`` so a machine
+    can host the same agent type for multiple projects without overwriting.
     """
-    if agent_role and project_id:
-        return AGENTS_DIR / f"{agent_type}__{agent_role}__{project_id}.json"
-    if agent_role:
-        return AGENTS_DIR / f"{agent_type}__{agent_role}.json"
+    if project_id:
+        return AGENTS_DIR / f"{agent_type}__{project_id}.json"
     return AGENTS_DIR / f"{agent_type}.json"
 
 
 def _save_agent_id(
     agent_type: str,
     agent_id: str,
-    agent_role: str = DEFAULT_AGENT_ROLE,
     project_id: str | None = None,
     project_name: str | None = None,
 ) -> None:
     """Persist agent ID locally after registration."""
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = _agent_id_path(agent_type, agent_role, project_id)
-    data: dict = {"agent_id": agent_id, "agent_type": agent_type, "agent_role": agent_role}
+    path = _agent_id_path(agent_type, project_id)
+    data: dict = {"agent_id": agent_id, "agent_type": agent_type}
     if project_id:
         data["project_id"] = project_id
     if project_name:
@@ -92,66 +80,33 @@ def _save_agent_id(
     os.chmod(path, 0o600)
 
 
+def _read_agent_id_file(path: Path) -> dict | None:
+    try:
+        return _json.loads(path.read_text())
+    except (_json.JSONDecodeError, OSError, KeyError):
+        return None
+
+
 def _load_agent_id(
     agent_type: str,
-    agent_role: str | None = None,
     project_id: str | None = None,
 ) -> str | None:
-    """Load locally stored agent ID for a given (type, [role], [project_id]).
+    """Load locally stored agent ID for a given (type[, project_id]).
 
     Resolution order:
-    1. Exact ``<type>__<role>__<project_id>.json`` when both role and project_id given.
-    2. ``<type>__<role>.json`` when only role given (DV-832).
-    3. Most-recently-modified file matching the type (no role/project filter).
-
-    When ``project_id`` is supplied without a role the scan is filtered to
-    files whose JSON content has a matching ``project_id``.
-    Migrates the legacy ``<type>.json`` file on first read by treating it as
-    the ``misc`` role.
+    1. Exact ``<type>__<project_id>.json`` when project_id is given.
+    2. Most-recently-modified file matching the type, filtered by project_id
+       when supplied (also picks up legacy ``<type>__<role>__<project>.json``).
+    3. Legacy ``<type>.json`` when no project filter applies.
     """
-    if agent_role and project_id:
-        # Prefer the project-keyed file; fall back to the role-only file (old
-        # registrations that pre-date project_id storage).
-        for path in [
-            _agent_id_path(agent_type, agent_role, project_id),
-            _agent_id_path(agent_type, agent_role),
-        ]:
-            if not path.exists():
-                continue
-            try:
-                data = _json.loads(path.read_text())
-                stored_project = data.get("project_id")
-                # Accept role-only files only when their project_id matches or is absent.
-                if stored_project and stored_project != project_id:
-                    continue
+    if project_id:
+        exact = _agent_id_path(agent_type, project_id)
+        if exact.exists():
+            if data := _read_agent_id_file(exact):
                 if aid := data.get("agent_id"):
                     return aid
-            except (_json.JSONDecodeError, KeyError):
-                continue
-        return None
 
-    if agent_role:
-        # Any project for this role — prefer the newest project-keyed file,
-        # fall back to the role-only file.
-        candidates: list[tuple[float, Path]] = []
-        if AGENTS_DIR.exists():
-            for p in AGENTS_DIR.glob(f"{agent_type}__{agent_role}*.json"):
-                try:
-                    candidates.append((p.stat().st_mtime, p))
-                except OSError:
-                    continue
-        candidates.sort(reverse=True)
-        for _, path in candidates:
-            try:
-                if aid := _json.loads(path.read_text()).get("agent_id"):
-                    return aid
-            except (_json.JSONDecodeError, KeyError):
-                continue
-        return None
-
-    # No role specified — scan all per-role files for this type, prefer newest.
-    # When project_id is given, filter to matching entries.
-    candidates = []
+    candidates: list[tuple[float, Path]] = []
     if AGENTS_DIR.exists():
         for p in AGENTS_DIR.glob(f"{agent_type}__*.json"):
             try:
@@ -159,9 +114,8 @@ def _load_agent_id(
             except OSError:
                 continue
 
-    # Legacy fallback: the pre-DV-832 ``<type>.json`` file (treated as role=misc).
     legacy = AGENTS_DIR / f"{agent_type}.json"
-    if legacy.exists():
+    if legacy.exists() and not project_id:
         try:
             candidates.append((legacy.stat().st_mtime, legacy))
         except OSError:
@@ -172,16 +126,15 @@ def _load_agent_id(
 
     candidates.sort(reverse=True)
     for _, path in candidates:
-        try:
-            data = _json.loads(path.read_text())
-            if project_id:
-                stored = data.get("project_id")
-                if stored and stored != project_id:
-                    continue
-            if aid := data.get("agent_id"):
-                return aid
-        except (_json.JSONDecodeError, KeyError):
+        data = _read_agent_id_file(path)
+        if not data:
             continue
+        if project_id:
+            stored = data.get("project_id")
+            if stored and stored != project_id:
+                continue
+        if aid := data.get("agent_id"):
+            return aid
     return None
 
 
@@ -206,27 +159,21 @@ def load_agent_id_for_active_agent() -> str | None:
 
 def _remove_agent_id(
     agent_type: str,
-    agent_role: str | None = None,
     project_id: str | None = None,
 ) -> None:
     """Remove local agent registration file(s) for this type.
 
-    When ``agent_role`` and ``project_id`` are both given, only that exact
-    project-keyed file is removed. When only ``agent_role`` is given, all
-    files for that role (across all projects) are removed. Without either,
-    every cache for this type (including the legacy ``<type>.json``) is
-    cleared — used when a stale local record needs to be wiped before
-    re-registration (DV-751).
+    When ``project_id`` is given, only registrations for that project are
+    removed (including legacy role-keyed filenames). Without it, every cache
+    for this type (including the legacy ``<type>.json``) is cleared.
     """
-    if agent_role and project_id:
-        _agent_id_path(agent_type, agent_role, project_id).unlink(missing_ok=True)
-        return
-
-    if agent_role:
-        # Remove all project-keyed and role-only files for this role.
+    if project_id:
+        _agent_id_path(agent_type, project_id).unlink(missing_ok=True)
         if AGENTS_DIR.exists():
-            for path in AGENTS_DIR.glob(f"{agent_type}__{agent_role}*.json"):
-                path.unlink(missing_ok=True)
+            for path in AGENTS_DIR.glob(f"{agent_type}__*.json"):
+                data = _read_agent_id_file(path)
+                if data and data.get("project_id") == project_id:
+                    path.unlink(missing_ok=True)
         return
 
     if AGENTS_DIR.exists():
@@ -633,7 +580,6 @@ def _register_agent_via_api(
     name: str,
     agent_type: str,
     config: dict,
-    agent_role: str = DEFAULT_AGENT_ROLE,
 ) -> tuple[str | None, str | None]:
     """POST /agents and persist the resulting ID. Adopts a pre-existing agent.
 
@@ -644,11 +590,11 @@ def _register_agent_via_api(
     """
     data = _client(ctx).post(
         "/agents",
-        {"name": name, "agent_type": agent_type, "agent_role": agent_role, "config": config},
+        {"name": name, "agent_type": agent_type, "config": config},
     )
     agent = data.get("agent")
     if agent and agent.get("id"):
-        _save_agent_id(agent_type, agent["id"], agent.get("agent_role", agent_role), agent.get("project_id"))
+        _save_agent_id(agent_type, agent["id"], agent.get("project_id"))
         return agent["id"], None
     return None, data.get("error", "Registration failed")
 
@@ -658,16 +604,14 @@ def _ensure_agent_registered(ctx: click.Context, agent_type: str) -> str:
 
     Used by hook-driven flows (``agents sync``) so a fresh ``deepvista auth
     login`` does not need a follow-up ``agents register`` for SOUL / MEMORY
-    pushes to start working (DV-751). Auto-registration defaults to the
-    ``misc`` role; users opt into a specific role via ``agents register
-    --role`` or ``agents update --role``.
+    pushes to start working (DV-751).
     """
     existing = _load_agent_id(agent_type)
     if existing:
         return existing
     config = _build_config_snapshot(agent_type)
     name = _default_agent_name(agent_type)
-    agent_id, error = _register_agent_via_api(ctx, name, agent_type, config, DEFAULT_AGENT_ROLE)
+    agent_id, error = _register_agent_via_api(ctx, name, agent_type, config)
     if not agent_id:
         output_error(1, "Auto-registration failed", error or "Unknown error")
         raise SystemExit(1)
@@ -734,13 +678,6 @@ def agents_group() -> None:
     help="Agent tool type. Auto-detected from the current environment when omitted (DV-1429).",
 )
 @click.option(
-    "--role",
-    "agent_role",
-    default=DEFAULT_AGENT_ROLE,
-    show_default=True,
-    help="Functional role this agent owns (free-text, e.g. engineering, marketing).",
-)
-@click.option(
     "--system-prompt-file",
     "system_prompt_file",
     default=None,
@@ -754,16 +691,15 @@ def agents_register(
     ctx: click.Context,
     name: str,
     agent_type: str | None,
-    agent_role: str,
     system_prompt_file: str | None,
     dry_run: bool,
 ) -> None:
     """Register a new agent and save its ID locally.
 
     Auto-reads soul from system files (CLAUDE.md, .cursorrules, etc.) unless
-    `--system-prompt-file` is given. Identity is `(type, role, project)` —
-    register the same type under a different role to spin up another agent on
-    the same machine.
+    `--system-prompt-file` is given. Identity is keyed by ``(type, project)`` —
+    register the same type under a different project to spin up another agent
+    on the same machine.
 
     `--type` is auto-detected from the current environment (Claude Code, Cursor,
     …) when omitted; pass it explicitly to override (DV-1429).
@@ -782,9 +718,9 @@ def agents_register(
             return
         agent_type = detected
 
-    existing_id = _load_agent_id(agent_type, agent_role)
+    existing_id = _load_agent_id(agent_type)
     if existing_id:
-        msg = f"Agent type '{agent_type}' role '{agent_role}' already registered locally "
+        msg = f"Agent type '{agent_type}' already registered locally "
         msg += f"(id: {existing_id}). Use 'agents update' to modify."
         click.echo(_json.dumps({"warning": msg}), err=True)
         return
@@ -803,7 +739,6 @@ def agents_register(
                 "would": "register agent",
                 "name": name,
                 "agent_type": agent_type,
-                "agent_role": agent_role,
                 "would_migrate_legacy_hooks": agent_type == "claude-code",
                 "config_snapshot": config,
                 "profile": profile,
@@ -814,7 +749,7 @@ def agents_register(
 
     data = _client(ctx).post(
         "/agents",
-        {"name": name, "agent_type": agent_type, "agent_role": agent_role, "config": config},
+        {"name": name, "agent_type": agent_type, "config": config},
     )
 
     agent = data.get("agent")
@@ -830,7 +765,7 @@ def agents_register(
         output_error(1, "Registration failed", "Backend did not return an agent")
         return
 
-    _save_agent_id(agent_type, agent["id"], agent.get("agent_role", agent_role), agent.get("project_id"))
+    _save_agent_id(agent_type, agent["id"], agent.get("project_id"))
 
     # Heartbeat is now delivered by the DeepVista plugin; strip any legacy
     # standalone hook a prior CLI version injected into settings.json (DV-1357).
@@ -912,12 +847,6 @@ def agents_get(ctx: click.Context, agent_id: str | None, agent_type: str | None)
 @click.option("--name", default=None, help="New display name.")
 @click.option("--status", default=None, type=click.Choice(["online", "offline", "error"]), help="Set status.")
 @click.option(
-    "--role",
-    "agent_role",
-    default=None,
-    help="Reassign agent_role (free-text).",
-)
-@click.option(
     "--system-prompt-file",
     "system_prompt_file",
     default=None,
@@ -932,11 +861,10 @@ def agents_update(
     agent_type: str | None,
     name: str | None,
     status: str | None,
-    agent_role: str | None,
     system_prompt_file: str | None,
     dry_run: bool,
 ) -> None:
-    """Update an agent's name, status, or role.
+    """Update an agent's name or status.
 
     The system prompt (config.soul) comes from `--system-prompt-file` when
     given, else it is auto-read from system files (CLAUDE.md, .cursorrules, …).
@@ -951,8 +879,6 @@ def agents_update(
         body["name"] = name
     if status:
         body["status"] = status
-    if agent_role:
-        body["agent_role"] = agent_role
 
     # Explicit prompt file wins; otherwise auto-read soul from system files.
     soul_content = _read_system_prompt_file(system_prompt_file) or _read_soul(resolved_type)
@@ -960,7 +886,7 @@ def agents_update(
         body["config"] = {"soul": soul_content}
 
     if not body:
-        output_error(3, "Nothing to update", "Provide --name, --status, or --role.")
+        output_error(3, "Nothing to update", "Provide --name, --status, or --system-prompt-file.")
         return
 
     if dry_run:
@@ -1165,10 +1091,9 @@ def agents_export(
 ) -> None:
     """Export managed agents as Claude Code plugin agent definitions.
 
-    Each distinct managed-agent role (DV-832 ``agent_role``) becomes one
-    ``<role>.md`` subagent under ``--target``, so it is callable inline in
-    Claude Code — e.g. ``@marketing summarize this week``. Re-runs are
-    idempotent and throttled; hand-curated agents are never overwritten.
+    Each managed agent becomes one ``<name>.md`` subagent under ``--target``,
+    callable inline in Claude Code — e.g. ``@my-agent summarize this week``.
+    Re-runs are idempotent and throttled; hand-curated agents are never overwritten.
 
     Read/write on disk only — never calls remote write endpoints. Safe to wire
     into a SessionStart hook: it exits 0 on any failure, leaving the previous
@@ -1214,12 +1139,10 @@ def agents_status(ctx: click.Context) -> None:
     data = _client(ctx).get("/agents")
     agents = data.get("agents", [])
 
-    # Annotate with local registration info. Match by (type, role) first;
-    # fall back to type-only for legacy single-role caches.
+    # Annotate with local registration info.
     for agent in agents:
         atype = agent.get("agent_type", "") or ""
-        arole = agent.get("agent_role")
-        local_id = _load_agent_id(atype, arole) or _load_agent_id(atype)
+        local_id = _load_agent_id(atype)
         agent["locally_registered"] = local_id == agent.get("id")
 
     result = {"agents": agents, "count": len(agents)}

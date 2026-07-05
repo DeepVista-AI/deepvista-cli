@@ -122,12 +122,11 @@ def _register_local_agent(
     agents_dir = tmp_path / ".config" / "deepvista" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     suffix = f"__{project_id}" if project_id else ""
-    (agents_dir / f"deepvista-cli__misc{suffix}.json").write_text(
+    (agents_dir / f"deepvista-cli{suffix}.json").write_text(
         json.dumps(
             {
                 "agent_id": agent_id,
                 "agent_type": "deepvista-cli",
-                "agent_role": "misc",
                 "project_id": project_id,
             }
         )
@@ -935,14 +934,14 @@ def _register_two_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     """Write two agent registration files (different projects) and redirect state dirs."""
     agents_dir = tmp_path / ".config" / "deepvista" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
-    (agents_dir / "claude-code__misc__proj-1.json").write_text(
+    (agents_dir / "claude-code__proj-1.json").write_text(
         json.dumps(
-            {"agent_id": "agent-proj-1", "agent_type": "claude-code", "agent_role": "misc", "project_id": "proj-1"}
+            {"agent_id": "agent-proj-1", "agent_type": "claude-code", "project_id": "proj-1"}
         )
     )
-    (agents_dir / "claude-code__misc__proj-2.json").write_text(
+    (agents_dir / "claude-code__proj-2.json").write_text(
         json.dumps(
-            {"agent_id": "agent-proj-2", "agent_type": "claude-code", "agent_role": "misc", "project_id": "proj-2"}
+            {"agent_id": "agent-proj-2", "agent_type": "claude-code", "project_id": "proj-2"}
         )
     )
     import deepvista_cli.commands.agents as agents_module
@@ -982,7 +981,7 @@ def test_ensure_agents_for_all_projects_registers_missing_and_reuses_existing(
     stub.queue("/projects", [{"id": "proj-a"}, {"id": "proj-b"}])
     stub.queue(
         "/agents",
-        {"agent": {"id": "new-agent-b", "agent_type": "deepvista-cli", "agent_role": "misc"}},
+        {"agent": {"id": "new-agent-b", "agent_type": "deepvista-cli"}},
     )
     # Initial sync posted after registration (mirrors `agents register` flow).
     stub.queue("/agents/new-agent-b/sync", {"success": True, "agent": {"id": "new-agent-b"}})
@@ -991,12 +990,11 @@ def test_ensure_agents_for_all_projects_registers_missing_and_reuses_existing(
     agents_dir = isolated_home / ".config" / "deepvista" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     # proj-a already has a local registration.
-    (agents_dir / "deepvista-cli__misc__proj-a.json").write_text(
+    (agents_dir / "deepvista-cli__proj-a.json").write_text(
         json.dumps(
             {
                 "agent_id": "existing-agent-a",
                 "agent_type": "deepvista-cli",
-                "agent_role": "misc",
                 "project_id": "proj-a",
             }
         )
@@ -1031,7 +1029,7 @@ def test_ensure_agents_for_all_projects_registers_missing_and_reuses_existing(
     assert "new-agent-b" in agent_ids
 
     # Verify the new registration was saved locally.
-    saved = json.loads((agents_dir / "deepvista-cli__misc__proj-b.json").read_text())
+    saved = json.loads((agents_dir / "deepvista-cli__proj-b.json").read_text())
     assert saved["agent_id"] == "new-agent-b"
     assert saved["project_id"] == "proj-b"
 
@@ -1100,7 +1098,7 @@ def test_run_prunes_stale_agent_on_agent_not_found(
     )
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
-    agent_file = isolated_home / ".config" / "deepvista" / "agents" / "deepvista-cli__misc__proj-default.json"
+    agent_file = isolated_home / ".config" / "deepvista" / "agents" / "deepvista-cli__proj-default.json"
     assert agent_file.exists()
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
