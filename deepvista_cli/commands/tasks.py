@@ -1358,6 +1358,7 @@ def tasks_run(
 
     project_names: dict[str, str] = {}
     working_project = _resolve_working_project(ctx, project_id)
+    agents: list[tuple[str, str | None]]
     if agent_type:
         # Explicit agent filter — single-agent mode (backward-compatible).
         if working_project:
