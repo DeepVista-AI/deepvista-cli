@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -733,10 +735,11 @@ def test_run_polling_executes_tasks_across_passes(
     result = CliRunner().invoke(cli, ["tasks", "run", "--poll-interval", "30", "--total-time", "45"])
     assert result.exit_code == 0, result.output
 
-    # Pass 1 ran the task (and printed it); pass 2 was empty; summary totals 1.
+    # Pass 1 claims the task; it may still be running when the first JSON blob
+    # is emitted. The final summary waits for in-flight work.
     payloads = _parse_json_objects(result.output)
-    assert payloads[0]["tasks_run"] == 1
-    assert payloads[-1] == {"agent_id": "agent-uuid-1", "polls": 2, "tasks_run": 1, "failed": 0}
+    assert payloads[-1]["tasks_run"] == 1
+    assert payloads[-1]["failed"] == 0
 
 
 def test_run_host_polling_hands_back_after_workflow_packet(
@@ -764,9 +767,7 @@ def test_run_host_polling_hands_back_after_workflow_packet(
     # the packet instead of sitting behind a blocked foreground poll.
     result = CliRunner().invoke(cli, ["tasks", "run", "--host"])
     assert result.exit_code == 0, result.output
-    assert [c[1] for c in stub.calls if c[1].endswith("/task-queue/claim")] == [
-        "/agents/agent-uuid-1/task-queue/claim"
-    ]
+    assert [c[1] for c in stub.calls if c[1].endswith("/task-queue/claim")] == ["/agents/agent-uuid-1/task-queue/claim"]
     assert clock.sleeps == []
 
 
@@ -810,11 +811,99 @@ def test_run_reclaims_stale_lock_and_releases_on_exit(
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
-    assert [c[1] for c in stub.calls if c[1].endswith("/task-queue/claim")] == [
-        "/agents/agent-uuid-1/task-queue/claim"
-    ]
+    assert [c[1] for c in stub.calls if c[1].endswith("/task-queue/claim")] == ["/agents/agent-uuid-1/task-queue/claim"]
     # Lock was reclaimed for the run and removed afterwards.
     assert not tq_module.RUN_LOCK_PATH.exists()
+
+
+# ---------------------------------------------------------------------------
+# parallel execution
+# ---------------------------------------------------------------------------
+
+
+def test_run_executes_multiple_task_cards_in_parallel(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Claimed task cards run concurrently up to --max-parallel."""
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    tasks = [{"id": f"tc-{i}", "prompt": f"task {i}", "title": f"Task {i}"} for i in range(3)]
+    stub.queue("/agents/agent-uuid-1/tasks/claim", {"success": True, "tasks": tasks})
+    stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
+    for task in tasks:
+        stub.queue(f"/agents/agent-uuid-1/tasks/{task['id']}/result", {"success": True})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.tasks as tq_module
+
+    active = 0
+    peak = 0
+    active_lock = threading.Lock()
+    start_barrier = threading.Barrier(3)
+
+    def fake_popen(argv, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal active, peak
+        with active_lock:
+            active += 1
+            peak = max(peak, active)
+        start_barrier.wait(timeout=2)
+        with active_lock:
+            active -= 1
+        return _FakeStreamJsonProc(
+            _stream_json_lines({"type": "result", "subtype": "success", "is_error": False, "result": "ok"}),
+        )
+
+    monkeypatch.setattr(tq_module.subprocess, "Popen", fake_popen)
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--max-parallel", "3"])
+    assert result.exit_code == 0, result.output
+    payload = _parse_first_json(result.output)
+    assert payload["tasks_run"] == 3
+    assert peak >= 2, f"expected overlapping runs, peak concurrency was {peak}"
+
+
+def test_run_max_parallel_caps_concurrency(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--max-parallel limits how many headless runs are active at once."""
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    tasks = [{"id": f"tc-{i}", "prompt": f"task {i}"} for i in range(4)]
+    stub.queue("/agents/agent-uuid-1/tasks/claim", {"success": True, "tasks": tasks})
+    stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
+    for task in tasks:
+        stub.queue(f"/agents/agent-uuid-1/tasks/{task['id']}/result", {"success": True})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.tasks as tq_module
+
+    active = 0
+    peak = 0
+    active_lock = threading.Lock()
+
+    def fake_popen(argv, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal active, peak
+        with active_lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)
+        with active_lock:
+            active -= 1
+        return _FakeStreamJsonProc(
+            _stream_json_lines({"type": "result", "subtype": "success", "is_error": False, "result": "ok"}),
+        )
+
+    monkeypatch.setattr(tq_module.subprocess, "Popen", fake_popen)
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--max-parallel", "2"])
+    assert result.exit_code == 0, result.output
+    assert peak <= 2, f"expected at most 2 concurrent runs, saw {peak}"
+    payload = _parse_first_json(result.output)
+    assert payload["tasks_run"] == 4
 
 
 # ---------------------------------------------------------------------------
