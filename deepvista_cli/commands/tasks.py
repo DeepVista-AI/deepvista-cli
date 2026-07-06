@@ -38,6 +38,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -48,10 +49,8 @@ from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
 from deepvista_cli.commands.agents import (
     AGENTS_DIR,
-    _build_config_snapshot,
-    _default_agent_name,
     _load_agent_id,
-    _save_agent_id,
+    resolve_or_register_machine,
 )
 from deepvista_cli.commands.project import _projects
 from deepvista_cli.commands.skill import emit_host_run_packet
@@ -89,7 +88,12 @@ RUN_LOCK_PATH = CONFIG_DIR / "task_queue.run.lock"
 
 
 class _StaleAgentError(Exception):
-    """Raised when an agent's project no longer exists and its local file has been deleted."""
+    """Raised when a local agent registration is invalid on the server."""
+
+    def __init__(self, agent_id: str, *, recoverable: bool = True) -> None:
+        super().__init__(agent_id)
+        self.agent_id = agent_id
+        self.recoverable = recoverable
 
 
 def _client(ctx: click.Context) -> DeepVistaClient:
@@ -173,7 +177,11 @@ def _require_machine_agent_id(
 ) -> tuple[str, str | None]:
     result = _resolve_machine_agent_id(agent_type, project_id)
     if not result:
-        output_error(3, "No registered agent on this machine", "Run 'deepvista agents sync' first.")
+        output_error(
+            3,
+            "No registered agent on this machine",
+            "Run `deepvista tasks run` to auto-register, or `deepvista agents sync`.",
+        )
         raise SystemExit(3)
     return result
 
@@ -750,7 +758,7 @@ def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str
                 else str(data.get("error") or "not found on server")
             )
             _prune_stale_agent(agent_id, reason)
-            raise _StaleAgentError(agent_id)
+            raise _StaleAgentError(agent_id, recoverable=code != "project_not_found")
         detail = data.get("error") or data.get("detail") or "unknown"
         click.echo(
             f"  [warn] could not claim task cards for agent {agent_id}: {detail}",
@@ -886,9 +894,8 @@ def _ensure_agents_for_projects(
     (legacy all-projects mode).  Otherwise only the listed projects are
     registered and returned.
 
-    For projects that already have a local registration the existing agent_id
-    is reused; for new projects a fresh agent is registered on-the-fly using
-    the detected host agent type (or ``deepvista-cli`` as a fallback).
+    For each project, ``resolve_or_register_machine`` validates the local cache
+    against the server and registers (or adopts) a managed agent when needed.
 
     Stale local registrations whose project_id no longer appears in the API
     response are deleted before lookups so they are not reused; agents with
@@ -926,42 +933,14 @@ def _ensure_agents_for_projects(
         project_name = project.get("name") or project.get("title") or ""
         project_names[project_id] = project_name
 
-        # Reuse an existing local registration for this project.
-        existing_id = _find_registered_agent_for_project(project_id)
-        if existing_id:
-            if existing_id not in seen_agent_ids:
-                seen_agent_ids.add(existing_id)
-                result.append((existing_id, project_id))
-            continue
-
-        # No local record — register a new agent for this project.
-        config = _build_config_snapshot(agent_type)
-        data = _client(ctx).post(
-            "/agents",
-            {
-                "name": _default_agent_name(agent_type),
-                "agent_type": agent_type,
-                "config": config,
-            },
-            extra_headers={"X-Project-Id": project_id},
+        agent_id = resolve_or_register_machine(
+            ctx,
+            project_id,
+            agent_type=agent_type,
+            project_name=project_name or None,
         )
-        agent = data.get("agent")
-        if not agent or not agent.get("id"):
-            click.echo(
-                f"  [warn] could not register agent for project {project_id}: {data.get('error', 'unknown')}",
-                err=True,
-            )
+        if not agent_id:
             continue
-        agent_id: str = agent["id"]
-        _save_agent_id(agent_type, agent_id, project_id, project_name or None)
-
-        _client(ctx).post(
-            f"/agents/{agent_id}/sync",
-            {"status": "online", "sync_type": "manual", "config_patch": config},
-            extra_headers={"X-Project-Id": project_id},
-        )
-        click.echo(f"  registered agent {agent_id} for project {project_id}", err=True)
-
         if agent_id not in seen_agent_ids:
             seen_agent_ids.add(agent_id)
             result.append((agent_id, project_id))
@@ -1043,8 +1022,9 @@ def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[
     )
     status_code = data.get("_status_code", 200) if isinstance(data, dict) else 200
     if isinstance(data, dict) and _agent_is_gone(data, status_code):
+        code = str(data.get("error_code") or "").lower()
         _prune_stale_agent(agent_id, str(data.get("error") or "not found on server"))
-        raise _StaleAgentError(agent_id)
+        raise _StaleAgentError(agent_id, recoverable=code != "project_not_found")
     if status_code >= 400 or not data.get("success", True):
         error = data.get("error", "Unknown error") if isinstance(data, dict) else "Unknown error"
         if isinstance(error, dict):
@@ -1063,46 +1043,85 @@ def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[
     return results, workflow_tasks
 
 
+def _with_agent_recovery[T](
+    ctx: click.Context,
+    agent_id: str,
+    project_id: str | None,
+    operation: str,
+    fn: Callable[[str], T],
+) -> tuple[T | None, str, bool]:
+    """Run ``fn(agent_id)``; on a recoverable stale error, re-register and retry once."""
+    try:
+        return fn(agent_id), agent_id, False
+    except _StaleAgentError as exc:
+        if not exc.recoverable or not project_id:
+            return None, agent_id, True
+        new_id = resolve_or_register_machine(ctx, project_id, quiet=True)
+        if not new_id:
+            return None, agent_id, True
+        click.echo(f"  re-registered agent {new_id} for project {project_id} ({operation})", err=True)
+        try:
+            return fn(new_id), new_id, False
+        except _StaleAgentError:
+            return None, new_id, True
+
+
 def _claim_and_run_all(
     ctx: click.Context,
     agents: list[tuple[str, str | None]],
     host_mode: bool,
-) -> tuple[list[dict], list[tuple[str, dict]], set[str]]:
+) -> tuple[list[dict], list[tuple[str, dict]], set[str], dict[str, str]]:
     """Claim and execute tasks for all agents in one poll pass.
 
-    Returns ``(command_results, [(agent_id, workflow_task)], pruned_agent_ids)``.
-    ``pruned_agent_ids`` contains agent_ids whose local registration was deleted
-    because the project no longer exists; the caller should remove them from the
-    live agents list so they are not retried on subsequent polls.
-    Per-agent claim failures are logged and skipped so a single stale
-    registration does not prevent the others from being serviced.
+    Returns ``(command_results, [(agent_id, workflow_task)], pruned_agent_ids,
+    replacements)`` where ``replacements`` maps a stale agent_id to its
+    re-registered successor.
     """
     all_results: list[dict] = []
     all_workflow_tasks: list[tuple[str, dict]] = []
     pruned: set[str] = set()
+    replacements: dict[str, str] = {}
     for agent_id, project_id in agents:
-        # DV-1247: task cards (plain prompts run via `claude -p`) — independent
-        # of host mode; a Machine runs them headless without a host agent.
-        try:
-            all_results.extend(_claim_and_run_task_cards(ctx, agent_id, project_id))
-        except _StaleAgentError:
+        card_results, active_id, failed = _with_agent_recovery(
+            ctx,
+            agent_id,
+            project_id,
+            "task cards",
+            lambda aid: _claim_and_run_task_cards(ctx, aid, project_id),
+        )
+        if failed:
             pruned.add(agent_id)
-            continue  # skip the CLI-command claim for a pruned agent
-        except SystemExit:
-            click.echo(f"  [warn] failed to claim task cards for agent {agent_id} — skipping", err=True)
+            if active_id != agent_id:
+                pruned.add(active_id)
+            continue
+        if active_id != agent_id:
+            replacements[agent_id] = active_id
+        all_results.extend(card_results or [])
 
-        # DV-936 / DV-955: queued CLI commands + host-driven workflow runs.
         try:
-            results, wf_tasks = _claim_and_run(ctx, agent_id, host_mode)
-        except _StaleAgentError:
-            pruned.add(agent_id)
-            continue
+            queue_out, queue_agent_id, queue_failed = _with_agent_recovery(
+                ctx,
+                active_id,
+                project_id,
+                "task queue",
+                lambda aid: _claim_and_run(ctx, aid, host_mode),
+            )
         except SystemExit:
-            click.echo(f"  [warn] failed to claim tasks for agent {agent_id} — skipping", err=True)
+            click.echo(f"  [warn] failed to claim tasks for agent {active_id} — skipping", err=True)
             continue
-        all_results.extend(results)
-        all_workflow_tasks.extend((agent_id, t) for t in wf_tasks)
-    return all_results, all_workflow_tasks, pruned
+        if queue_failed or queue_out is None:
+            pruned.add(agent_id)
+            if queue_agent_id != agent_id:
+                pruned.add(queue_agent_id)
+            continue
+        queue_results, wf_tasks = queue_out
+        if queue_agent_id != agent_id:
+            replacements[agent_id] = queue_agent_id
+        active_id = queue_agent_id
+
+        all_results.extend(queue_results)
+        all_workflow_tasks.extend((active_id, t) for t in wf_tasks)
+    return all_results, all_workflow_tasks, pruned, replacements
 
 
 @tasks_group.command("run")
@@ -1186,13 +1205,23 @@ def tasks_run(
         raise SystemExit(2)
 
     project_names: dict[str, str] = {}
+    working_project = _resolve_working_project(ctx, project_id)
     if agent_type:
         # Explicit agent filter — single-agent mode (backward-compatible).
-        working_project = _resolve_working_project(ctx, project_id)
-        agent_id, resolved_project_id = _require_machine_agent_id(agent_type, working_project)
-        agents = [(agent_id, resolved_project_id)]
+        if working_project:
+            agent_id = resolve_or_register_machine(ctx, working_project, agent_type=agent_type)
+            if not agent_id:
+                output_error(
+                    3,
+                    f"No registered agent for project {working_project}",
+                    "Run 'deepvista tasks run' (auto-registers) or check project access.",
+                )
+                raise SystemExit(3)
+            agents = [(agent_id, working_project)]
+        else:
+            agent_id, resolved_project_id = _require_machine_agent_id(agent_type, working_project)
+            agents = [(agent_id, resolved_project_id)]
     else:
-        working_project = _resolve_working_project(ctx, project_id)
         if not working_project:
             output_error(
                 3,
@@ -1205,7 +1234,7 @@ def tasks_run(
             output_error(
                 3,
                 f"No registered agent for project {working_project}",
-                "Run 'deepvista agents sync' or retry after logging in.",
+                "Run 'deepvista tasks run' (auto-registers) or check project access.",
             )
             raise SystemExit(3)
 
@@ -1220,9 +1249,11 @@ def tasks_run(
         while True:
             polls += 1
             ts = time.strftime("%H:%M:%S")
-            results, workflow_tasks, pruned = _claim_and_run_all(ctx, agents, host_mode)
+            results, workflow_tasks, pruned, replacements = _claim_and_run_all(ctx, agents, host_mode)
             if pruned:
                 agents = [(aid, pid) for aid, pid in agents if aid not in pruned]
+            if replacements:
+                agents = [(replacements.get(aid, aid), pid) for aid, pid in agents]
             total_results.extend(results)
 
             # Print a per-poll status line so the operator can see the poller

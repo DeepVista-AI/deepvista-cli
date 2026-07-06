@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -40,10 +41,17 @@ class _StubCtxClient:
         self.calls.append((method, path, body))
         q = self.responses.get(path)
         if not q:
+            # Startup validation + online sync for locally cached agents.
+            if method == "GET" and re.fullmatch(r"/agents/[^/]+", path):
+                agent_id = path.rsplit("/", 1)[-1]
+                return {"agent": {"id": agent_id}}
+            if method == "POST" and re.fullmatch(r"/agents/[^/]+/sync", path):
+                agent_id = path.split("/")[2]
+                return {"success": True, "agent": {"id": agent_id}}
             # DV-1247 task-card endpoints are claimed on every poll pass; tests
             # that don't exercise task cards get an empty default so the legacy
             # task-queue assertions stay focused.
-            if "/tasks/claim" in path:
+            if "/tasks/claim" in path or "/task-queue/claim" in path:
                 return {"success": True, "tasks": []}
             if path.endswith("/tasks") or "/tasks/" in path:
                 return {"success": True, "tasks": []}
@@ -119,6 +127,12 @@ def _register_local_agent(
     project_id: str = DEFAULT_PROJECT_ID,
 ) -> None:
     """Write a local agent registration file and point the command module at it."""
+    import deepvista_cli.commands.agents as agents_module
+    import deepvista_cli.commands.tasks as tq_module
+
+    monkeypatch.setattr(agents_module, "detect_agent_tool", lambda: ("deepvista-cli", "test"))
+    monkeypatch.setattr(tq_module, "detect_agent_tool", lambda: ("deepvista-cli", "test"))
+
     agents_dir = tmp_path / ".config" / "deepvista" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     suffix = f"__{project_id}" if project_id else ""
@@ -131,9 +145,6 @@ def _register_local_agent(
             }
         )
     )
-    import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.tasks as tq_module
-
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
     # Keep the run lock inside the pytest tmp dir, away from ~/.config.
@@ -238,8 +249,8 @@ def test_run_once_exits_immediately_when_queue_empty(
     assert result.exit_code == 0, result.output
     payload = _parse_first_json(result.output)
     assert payload["tasks_run"] == 0
-    non_setup_calls = [c[1] for c in stub.calls if c[1] not in {"/projects", "/projects/me"} and "/tasks" not in c[1]]
-    assert non_setup_calls == ["/agents/agent-uuid-1/task-queue/claim"]
+    claim_calls = [c[1] for c in stub.calls if c[1].endswith("/task-queue/claim")]
+    assert claim_calls == ["/agents/agent-uuid-1/task-queue/claim"]
 
 
 def test_run_executes_claimed_task_and_reports_result(
@@ -642,7 +653,7 @@ def test_run_polls_until_total_time(
     assert result.exit_code == 0, result.output
 
     # Passes at t=0, 10, 20; a fourth pass would start past the 25s budget.
-    claim_calls = [c[1] for c in stub.calls if c[1] not in {"/projects", "/projects/me"} and "/tasks" not in c[1]]
+    claim_calls = [c[1] for c in stub.calls if c[1].endswith("/task-queue/claim")]
     assert claim_calls == ["/agents/agent-uuid-1/task-queue/claim"] * 3
     assert clock.sleeps == [10, 10]
 
@@ -710,7 +721,7 @@ def test_run_host_polling_hands_back_after_workflow_packet(
     # the packet instead of sitting behind a blocked foreground poll.
     result = CliRunner().invoke(cli, ["tasks", "run", "--host"])
     assert result.exit_code == 0, result.output
-    assert [c[1] for c in stub.calls if c[1] not in {"/projects", "/projects/me"} and "/tasks" not in c[1]] == [
+    assert [c[1] for c in stub.calls if c[1].endswith("/task-queue/claim")] == [
         "/agents/agent-uuid-1/task-queue/claim"
     ]
     assert clock.sleeps == []
@@ -756,7 +767,7 @@ def test_run_reclaims_stale_lock_and_releases_on_exit(
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
-    assert [c[1] for c in stub.calls if c[1] not in {"/projects", "/projects/me"} and "/tasks" not in c[1]] == [
+    assert [c[1] for c in stub.calls if c[1].endswith("/task-queue/claim")] == [
         "/agents/agent-uuid-1/task-queue/claim"
     ]
     # Lock was reclaimed for the run and removed afterwards.
@@ -932,6 +943,12 @@ def test_cron_entry_runs_once_per_tick():
 
 def _register_two_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Write two agent registration files (different projects) and redirect state dirs."""
+    import deepvista_cli.commands.agents as agents_module
+    import deepvista_cli.commands.tasks as tq_module
+
+    monkeypatch.setattr(agents_module, "detect_agent_tool", lambda: ("claude-code", "test"))
+    monkeypatch.setattr(tq_module, "detect_agent_tool", lambda: ("claude-code", "test"))
+
     agents_dir = tmp_path / ".config" / "deepvista" / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     (agents_dir / "claude-code__proj-1.json").write_text(
@@ -940,9 +957,6 @@ def _register_two_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     (agents_dir / "claude-code__proj-2.json").write_text(
         json.dumps({"agent_id": "agent-proj-2", "agent_type": "claude-code", "project_id": "proj-2"})
     )
-    import deepvista_cli.commands.agents as agents_module
-    import deepvista_cli.commands.tasks as tq_module
-
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", tmp_path / ".config" / "deepvista" / "task_queue.run.lock")
@@ -981,7 +995,7 @@ def test_run_type_filter_restricts_to_single_agent(
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--type", "claude-code", "--project", "proj-1"])
     assert result.exit_code == 0, result.output
 
-    claimed_paths = [c[1] for c in stub.calls if "/tasks" not in c[1]]
+    claimed_paths = [c[1] for c in stub.calls if c[1].endswith("/task-queue/claim")]
     assert claimed_paths == ["/agents/agent-proj-1/task-queue/claim"]
 
 
@@ -1021,6 +1035,8 @@ def test_run_prunes_gone_project_registration_on_startup(
     import deepvista_cli.commands.agents as agents_module
     import deepvista_cli.commands.tasks as tq_module
 
+    monkeypatch.setattr(agents_module, "detect_agent_tool", lambda: ("deepvista-cli", "test"))
+    monkeypatch.setattr(tq_module, "detect_agent_tool", lambda: ("deepvista-cli", "test"))
     monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
     monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", isolated_home / ".config" / "deepvista" / "task_queue.run.lock")
@@ -1042,23 +1058,22 @@ def test_run_prunes_gone_project_registration_on_startup(
 # ---------------------------------------------------------------------------
 
 
-def test_run_prunes_stale_agent_on_agent_not_found(
+def test_run_reregisters_stale_agent_on_agent_not_found(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A stale/unknown agent (AGENT_NOT_FOUND) is pruned once and not re-spammed.
-
-    The backend returns error_code AGENT_NOT_FOUND ("Machine not found" on the
-    task-card claim); previously that fell through to the generic warn and
-    repeated every poll. It must now delete the local registration and drop the
-    agent from the live list.
-    """
+    """A stale local agent is re-registered on claim failure and polling continues."""
     stub = _StubCtxClient()
     _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/tasks/claim",
         {"success": False, "error": "Machine not found", "error_code": "AGENT_NOT_FOUND"},
     )
+    stub.queue(
+        "/agents",
+        {"success": True, "agent": {"id": "agent-uuid-2", "project_id": DEFAULT_PROJECT_ID}},
+    )
+    stub.queue("/agents/agent-uuid-2/task-queue/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
     agent_file = isolated_home / ".config" / "deepvista" / "agents" / "deepvista-cli__proj-default.json"
@@ -1067,13 +1082,12 @@ def test_run_prunes_stale_agent_on_agent_not_found(
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
 
     assert result.exit_code == 0, result.output
-    # Pruned: local registration deleted so it is never retried.
-    assert not agent_file.exists()
+    saved = json.loads(agent_file.read_text())
+    assert saved["agent_id"] == "agent-uuid-2"
     assert "removed stale agent agent-uuid-1" in result.output
-    # It took the prune path, NOT the repeated claim-failure warn.
+    assert "re-registered agent agent-uuid-2" in result.output
     assert "could not claim task cards" not in result.output
-    # The task-queue claim is skipped for a pruned agent.
-    assert "/agents/agent-uuid-1/task-queue/claim" not in {c[1] for c in stub.calls}
+    assert "/agents/agent-uuid-2/task-queue/claim" in {c[1] for c in stub.calls}
 
 
 # ---------------------------------------------------------------------------

@@ -126,24 +126,145 @@ def _default_agent_name(agent_type: str) -> str:
     return f"{label} — {hostname}"
 
 
+def _find_local_registration_for_project(
+    project_id: str,
+    agent_type: str | None = None,
+) -> tuple[str, str] | None:
+    """Return ``(agent_id, agent_type)`` from the local cache for ``project_id``."""
+    if agent_type:
+        if cached := _load_agent_id(agent_type, project_id):
+            return cached, agent_type
+    if not AGENTS_DIR.exists():
+        return None
+    candidates: list[tuple[float, Path]] = []
+    for path in AGENTS_DIR.glob("*.json"):
+        try:
+            candidates.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+    for _, path in sorted(candidates, reverse=True):
+        data = _read_agent_id_file(path)
+        if not data or data.get("project_id") != project_id:
+            continue
+        aid = data.get("agent_id")
+        if not aid:
+            continue
+        atype = str(data.get("agent_type") or agent_type or "deepvista-cli")
+        return str(aid), atype
+    return None
+
+
+def _project_headers(project_id: str) -> dict[str, str]:
+    return {"X-Project-Id": project_id}
+
+
+def _resolve_agent_type(agent_type: str | None = None) -> str:
+    if agent_type:
+        return agent_type
+    try:
+        detected, _ = detect_agent_tool()
+    except Exception:
+        detected = None
+    return detected or "deepvista-cli"
+
+
+def _agent_exists_on_server(ctx: click.Context, agent_id: str, project_id: str) -> bool:
+    """Return True when ``agent_id`` is a managed agent for this user in ``project_id``."""
+    data = _client(ctx).get(f"/agents/{agent_id}", extra_headers=_project_headers(project_id))
+    return bool(data.get("agent"))
+
+
+def _sync_machine_online(
+    ctx: click.Context,
+    agent_id: str,
+    project_id: str,
+    config: dict,
+) -> None:
+    _client(ctx).post(
+        f"/agents/{agent_id}/sync",
+        {"status": "online", "sync_type": "manual", "config_patch": config},
+        extra_headers=_project_headers(project_id),
+    )
+
+
 def _register_agent_via_api(
     ctx: click.Context,
     name: str,
     agent_type: str,
     config: dict,
+    *,
+    project_id: str | None = None,
+    project_name: str | None = None,
+    agent_role: str = "misc",
 ) -> tuple[str | None, str | None]:
-    data = _client(ctx).post(
-        "/agents",
-        {"name": name, "agent_type": agent_type, "config": config},
-    )
+    body: dict = {
+        "name": name,
+        "agent_type": agent_type,
+        "agent_role": agent_role,
+        "config": config,
+    }
+    extra_headers = _project_headers(project_id) if project_id else None
+    data = _client(ctx).post("/agents", body, extra_headers=extra_headers)
     agent = data.get("agent")
+    save_project_id = project_id or (agent.get("project_id") if agent else None)
     if agent and agent.get("id"):
-        _save_agent_id(agent_type, agent["id"], agent.get("project_id"))
+        _save_agent_id(agent_type, agent["id"], save_project_id, project_name)
         return agent["id"], None
     if data.get("error_code") == ERROR_CODE_AGENT_ALREADY_REGISTERED and agent and agent.get("id"):
-        _save_agent_id(agent_type, agent["id"], agent.get("project_id"))
+        _save_agent_id(agent_type, agent["id"], save_project_id, project_name)
         return agent["id"], None
     return None, data.get("error", "Registration failed")
+
+
+def resolve_or_register_machine(
+    ctx: click.Context,
+    project_id: str,
+    *,
+    agent_type: str | None = None,
+    agent_role: str = "misc",
+    project_name: str | None = None,
+    quiet: bool = False,
+) -> str | None:
+    """Resolve this machine's managed agent for ``project_id``, registering when needed.
+
+    Trust-but-verify flow:
+      1. Use the local cache when the server still knows that agent id.
+      2. Otherwise register (or adopt an existing server row via
+         ``AGENT_ALREADY_REGISTERED``), save locally, and mark online.
+    """
+    resolved_type = _resolve_agent_type(agent_type)
+    config = _build_config_snapshot(resolved_type)
+
+    local = _find_local_registration_for_project(project_id, resolved_type)
+    cached_id = local[0] if local else None
+    cached_type = local[1] if local else resolved_type
+    if cached_id and _agent_exists_on_server(ctx, cached_id, project_id):
+        _sync_machine_online(ctx, cached_id, project_id, config)
+        return cached_id
+    if cached_id:
+        _remove_agent_id(cached_type, project_id)
+
+    agent_id, error = _register_agent_via_api(
+        ctx,
+        _default_agent_name(resolved_type),
+        resolved_type,
+        config,
+        project_id=project_id,
+        project_name=project_name,
+        agent_role=agent_role,
+    )
+    if not agent_id:
+        if not quiet:
+            click.echo(
+                f"  [warn] could not register agent for project {project_id}: {error or 'unknown'}",
+                err=True,
+            )
+        return None
+
+    _sync_machine_online(ctx, agent_id, project_id, config)
+    if not quiet:
+        click.echo(f"  registered agent {agent_id} for project {project_id}", err=True)
+    return agent_id
 
 
 def _ensure_agent_registered(ctx: click.Context, agent_type: str) -> str:
