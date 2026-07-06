@@ -78,6 +78,9 @@ CRON_LOG_PATH = CONFIG_DIR / "task_queue.log"
 # Seconds between polls when `run` is left in its default polling mode.
 DEFAULT_POLL_INTERVAL_SECONDS = 10
 
+# Idle polls between heartbeat lines in default (non-verbose) mode (~5 min at 10s).
+IDLE_HEARTBEAT_POLLS = 30
+
 # Single-instance lock for `tasks run` (DV-1079) — holds the owner PID.
 RUN_LOCK_PATH = CONFIG_DIR / "task_queue.run.lock"
 
@@ -568,11 +571,22 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         if skill_id and phase_label:
             _update_phase_note(ctx, skill_id, phase_label, text)
 
+    _last_logged_activity = [""]
+    _last_logged_elapsed = [0]
+
     def _progress() -> None:
         while not _done.wait(10):
             elapsed = int(time.monotonic() - _start)
-            click.echo(f"    task {short_id}… still running ({elapsed}s elapsed) — {_activity_text[0]}", err=True)
-            _report_activity(f"⏳ still running ({elapsed}s) — {_activity_text[0]}", force=True)
+            activity = _activity_text[0]
+            activity_changed = activity != _last_logged_activity[0]
+            milestone = elapsed in (10, 30, 60) or (elapsed > 60 and elapsed - _last_logged_elapsed[0] >= 60)
+            if not activity_changed and not milestone:
+                continue
+            _last_logged_activity[0] = activity
+            _last_logged_elapsed[0] = elapsed
+            summary = activity if len(activity) <= 60 else activity[:57] + "…"
+            click.echo(f"    … {elapsed}s  {summary}", err=True)
+            _report_activity(f"⏳ still running ({elapsed}s) — {activity}", force=True)
 
     _t = threading.Thread(target=_progress, daemon=True)
     _t.start()
@@ -973,6 +987,128 @@ def _project_display(project_id: str | None, project_names: dict[str, str]) -> s
     return f"{name}  ({short})" if name else project_id
 
 
+def _format_uptime(seconds: float) -> str:
+    """Compact human duration for poll status lines."""
+    total = int(seconds)
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s" if secs else f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m"
+
+
+def _styled_dim(text: str) -> str:
+    """Dim text when stderr is a TTY (poll status lines go to stdout but color follows stderr)."""
+    if sys.stderr.isatty():
+        return click.style(text, dim=True)
+    return text
+
+
+def _should_emit_poll_json(
+    ctx: click.Context,
+    *,
+    run_once: bool,
+    total_time: int | None,
+    has_work: bool,
+    is_final_summary: bool,
+    verbose: bool,
+) -> bool:
+    """Whether to emit structured output for a poll pass.
+
+    Cron (--run-once) and bounded runs (--total-time) keep JSON for scripting.
+    Continuous foreground polling skips per-task JSON when stdout is a TTY so
+    operators are not drowned in duplicate blobs after every task.
+    """
+    if run_once or is_final_summary:
+        return True
+    if total_time is not None and has_work:
+        return True
+    if verbose and has_work:
+        return True
+    if has_work and sys.stdout.isatty():
+        return False
+    return has_work
+
+
+class _PollStatus:
+    """Human-friendly poll loop logging with quiet idle by default."""
+
+    def __init__(self, poll_interval: int, *, verbose: bool, quiet: bool) -> None:
+        self.poll_interval = poll_interval
+        self.verbose = verbose
+        self.quiet = quiet
+        self.idle_streak = 0
+        self.started = time.monotonic()
+        self.tasks_ok = 0
+        self.tasks_failed = 0
+
+    def on_idle(self, poll_num: int) -> None:
+        if self.quiet:
+            return
+        self.idle_streak += 1
+        if self.verbose:
+            ts = time.strftime("%H:%M:%S")
+            next_ts = time.strftime("%H:%M:%S", time.localtime(time.time() + self.poll_interval))
+            click.echo(
+                f"[{ts}] idle · poll #{poll_num} · next in {self.poll_interval}s (at {next_ts})",
+            )
+        elif self.idle_streak == 1:
+            click.echo(
+                _styled_dim(
+                    f"listening · poll #{poll_num} · every {self.poll_interval}s · Ctrl+C to stop",
+                ),
+            )
+        elif self.idle_streak % IDLE_HEARTBEAT_POLLS == 0:
+            uptime = _format_uptime(time.monotonic() - self.started)
+            click.echo(
+                _styled_dim(
+                    f"… {uptime} idle ({self.idle_streak} polls) · {self.tasks_ok} done · {self.tasks_failed} failed …",
+                ),
+            )
+
+    def on_work(self, poll_num: int, detail: str) -> None:
+        if self.quiet:
+            return
+        self.idle_streak = 0
+        ts = time.strftime("%H:%M:%S")
+        if self.verbose:
+            click.echo(f"[{ts}] poll #{poll_num} → {detail}")
+        else:
+            click.echo(f"[{ts}] {detail}")
+
+    def record_results(self, results: list[dict]) -> None:
+        for result in results:
+            if result.get("status") == "failed":
+                self.tasks_failed += 1
+            else:
+                self.tasks_ok += 1
+
+    def on_tasks_finished(self, results: list[dict]) -> None:
+        if self.quiet or self.verbose or not results:
+            return
+        failed = sum(1 for r in results if r.get("status") == "failed")
+        ok = len(results) - failed
+        uptime = _format_uptime(time.monotonic() - self.started)
+        parts = [f"listening · {ok} task(s) done"]
+        if failed:
+            parts.append(f"{failed} failed")
+        parts.append(f"uptime {uptime}")
+        click.echo(_styled_dim(" · ".join(parts)))
+
+    def on_shutdown(self, polls: int) -> None:
+        if self.quiet:
+            return
+        uptime = _format_uptime(time.monotonic() - self.started)
+        click.echo(
+            _styled_dim(
+                f"stopped · {polls} polls · {self.tasks_ok + self.tasks_failed} task(s) "
+                f"({self.tasks_ok} ok, {self.tasks_failed} failed) · uptime {uptime}",
+            ),
+        )
+
+
 def _print_run_header(
     ctx: click.Context,
     agents: list[tuple[str, str | None]],
@@ -1164,6 +1300,20 @@ def _claim_and_run_all(
     type=click.IntRange(1),
     help="Stop polling after this many seconds (default: poll until interrupted).",
 )
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Log every poll (including idle ticks and sleep schedule).",
+)
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    default=False,
+    help="Suppress poll status lines; keep structured output and task execution logs.",
+)
 @click.pass_context
 def tasks_run(
     ctx: click.Context,
@@ -1173,6 +1323,8 @@ def tasks_run(
     run_once: bool,
     poll_interval: int,
     total_time: int | None,
+    verbose: bool,
+    quiet: bool,
 ) -> None:
     """Poll the task queue for the current project and execute claimed tasks (DV-1079).
 
@@ -1242,23 +1394,27 @@ def tasks_run(
 
     _print_run_header(ctx, agents, project_names, host_mode, run_once, poll_interval, total_time)
 
+    poll_status: _PollStatus | None = None
+    if not run_once:
+        poll_status = _PollStatus(poll_interval, verbose=verbose, quiet=quiet)
+
     started = time.monotonic()
     polls = 0
     total_results: list[dict] = []
     try:
         while True:
             polls += 1
-            ts = time.strftime("%H:%M:%S")
             results, workflow_tasks, pruned, replacements = _claim_and_run_all(ctx, agents, host_mode)
             if pruned:
                 agents = [(aid, pid) for aid, pid in agents if aid not in pruned]
             if replacements:
                 agents = [(replacements.get(aid, aid), pid) for aid, pid in agents]
             total_results.extend(results)
+            if poll_status is not None:
+                poll_status.record_results(results)
 
-            # Print a per-poll status line so the operator can see the poller
-            # is alive and whether new events arrived.
-            if results or workflow_tasks:
+            has_work = bool(results or workflow_tasks)
+            if has_work:
                 failed = sum(1 for r in results if r["status"] == "failed")
                 task_count = len(results) + len(workflow_tasks)
                 detail = f"{task_count} task(s) claimed"
@@ -1266,13 +1422,29 @@ def tasks_run(
                     detail += f" ({len(workflow_tasks)} workflow)"
                 if failed:
                     detail += f", {failed} failed"
-                click.echo(f"[{ts}] poll #{polls} → {detail}")
-            else:
-                click.echo(f"[{ts}] poll #{polls} → no new tasks")
+                if poll_status is not None:
+                    poll_status.on_work(polls, detail)
+                elif not quiet:
+                    ts = time.strftime("%H:%M:%S")
+                    click.echo(f"[{ts}] poll #{polls} → {detail}")
+            elif poll_status is not None:
+                poll_status.on_idle(polls)
+            elif verbose and not quiet:
+                ts = time.strftime("%H:%M:%S")
+                next_ts = time.strftime("%H:%M:%S", time.localtime(time.time() + poll_interval))
+                click.echo(
+                    f"[{ts}] idle · poll #{polls} · next in {poll_interval}s (at {next_ts})",
+                )
 
-            # Emit structured output for non-empty passes (and always for
-            # --run-once so cron logs capture every tick).
-            if run_once or results or workflow_tasks:
+            emit_json = _should_emit_poll_json(
+                ctx,
+                run_once=run_once,
+                total_time=total_time,
+                has_work=has_work,
+                is_final_summary=False,
+                verbose=verbose,
+            )
+            if emit_json:
                 agent_ids = agents[0][0] if len(agents) == 1 else [a[0] for a in agents]
                 _output(
                     ctx,
@@ -1285,6 +1457,9 @@ def tasks_run(
                     },
                     title="Task Queue",
                 )
+
+            if poll_status is not None and results:
+                poll_status.on_tasks_finished(results)
 
             # Workflow packets go last so the runtime contract (and its
             # completion instructions) is the freshest thing in the host
@@ -1299,6 +1474,8 @@ def tasks_run(
                 # poll loop would deadlock the run. Hand control back.
                 return
             if total_time is not None and (time.monotonic() - started) + poll_interval > total_time:
+                if poll_status is not None:
+                    poll_status.on_shutdown(polls)
                 agent_ids = agents[0][0] if len(agents) == 1 else [a[0] for a in agents]
                 _output(
                     ctx,
@@ -1311,9 +1488,14 @@ def tasks_run(
                     title="Task Queue (polling finished)",
                 )
                 return
-            next_ts = time.strftime("%H:%M:%S", time.localtime(time.time() + poll_interval))
-            click.echo(f"  sleeping {poll_interval}s — next poll at {next_ts}")
+            if verbose and not quiet:
+                next_ts = time.strftime("%H:%M:%S", time.localtime(time.time() + poll_interval))
+                click.echo(f"  sleeping {poll_interval}s — next poll at {next_ts}")
             time.sleep(poll_interval)
+    except KeyboardInterrupt:
+        if poll_status is not None:
+            poll_status.on_shutdown(polls)
+        raise SystemExit(130) from None
     finally:
         _release_run_lock()
 

@@ -658,8 +658,51 @@ def test_run_polls_until_total_time(
     assert clock.sleeps == [10, 10]
 
     # Empty passes are quiet; only the final summary is printed.
+    assert "listening" in result.output
+    assert "poll #2" not in result.output
+    assert "sleeping" not in result.output
     payload = _parse_first_json(result.output)
     assert payload == {"agent_id": "agent-uuid-1", "polls": 3, "tasks_run": 0, "failed": 0}
+
+
+def test_run_verbose_logs_every_idle_poll(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    for _ in range(2):
+        stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+    _install_fake_clock(monkeypatch)
+
+    result = CliRunner().invoke(
+        cli,
+        ["tasks", "run", "--poll-interval", "10", "--total-time", "15", "--verbose"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "poll #1" in result.output
+    assert "poll #2" in result.output
+    assert "sleeping 10s" in result.output
+
+
+def test_run_quiet_suppresses_idle_status_lines(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    stub.queue("/agents/agent-uuid-1/task-queue/claim", {"success": True, "tasks": []})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--quiet"])
+    assert result.exit_code == 0, result.output
+    assert "listening" not in result.output
+    assert "poll #" not in result.output
+    payload = _parse_first_json(result.output)
+    assert payload["tasks_run"] == 0
 
 
 def test_run_polling_executes_tasks_across_passes(
