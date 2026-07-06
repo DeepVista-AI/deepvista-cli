@@ -37,6 +37,30 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [2.0.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v1.2.0...v2.0.0) (2026-07-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* simplify the CLI surface (84 → 69 commands, −1,470 lines) ([#189](https://github.com/DeepVista-AI/deepvista-cli/issues/189))
+
+### Features
+
+* **DV-1428:** stream task-card execution incrementally, report live progress ([#185](https://github.com/DeepVista-AI/deepvista-cli/issues/185)) ([7f081b5](https://github.com/DeepVista-AI/deepvista-cli/commit/7f081b598085d52280fb84c4396d573672b6cb5a))
+* **DV-1429:** tasks clean, auto-detect agent --type, prune stale agents ([#183](https://github.com/DeepVista-AI/deepvista-cli/issues/183)) ([38252e7](https://github.com/DeepVista-AI/deepvista-cli/commit/38252e71b33275bc7976037192a082c7f2ccb391))
+* run task queue jobs in parallel (max 5) ([#193](https://github.com/DeepVista-AI/deepvista-cli/issues/193)) ([b22a727](https://github.com/DeepVista-AI/deepvista-cli/commit/b22a7275a59aef3e69896846a86ddfb263d43a24))
+* simplify the CLI surface (84 → 69 commands, −1,470 lines) ([#189](https://github.com/DeepVista-AI/deepvista-cli/issues/189)) ([5056442](https://github.com/DeepVista-AI/deepvista-cli/commit/50564429a84ff044967cab8db831e282b5fac67b))
+
+
+### Bug Fixes
+
+* **tasks:** use single-quoted f-string to avoid escaped double quotes in task note hint ([#181](https://github.com/DeepVista-AI/deepvista-cli/issues/181)) ([297de78](https://github.com/DeepVista-AI/deepvista-cli/commit/297de78ee188cd9dcd9b4031b5b29b76733b160d))
+
+
+### Documentation
+
+* **DV-1434:** fix schedule command docstring to reference schedule_job cards ([#182](https://github.com/DeepVista-AI/deepvista-cli/issues/182)) ([d01f98d](https://github.com/DeepVista-AI/deepvista-cli/commit/d01f98d03a21256ee96ee4cae8b78f81c4b44a85))
+
 ## [1.2.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v1.1.0...v1.2.0) (2026-06-27)
 
 
