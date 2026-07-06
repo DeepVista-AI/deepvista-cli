@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import threading
 from collections.abc import Iterator
 from typing import Any, NoReturn
 
@@ -32,6 +33,7 @@ class DeepVistaClient:
     def __init__(self, config: CLIConfig) -> None:
         self.config = config
         self._client: httpx.Client | None = None
+        self._lock = threading.Lock()
 
     def _get_client(self) -> httpx.Client:
         if self._client is None:
@@ -140,25 +142,26 @@ class DeepVistaClient:
             )
             sys.exit(0)
 
-        try:
-            client = self._get_client()
-            if method == "GET":
-                resp = client.get(path, headers=headers, params=params)
-            elif method == "POST":
-                resp = client.post(path, headers=headers, json=body or {})
-            elif method == "PATCH":
-                resp = client.patch(path, headers=headers, json=body or {})
-            elif method == "DELETE":
-                resp = client.delete(path, headers=headers, params=params)
-            else:
-                raise ValueError(f"Unsupported method: {method}")
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            self._handle_network_error(exc)
+        with self._lock:
+            try:
+                client = self._get_client()
+                if method == "GET":
+                    resp = client.get(path, headers=headers, params=params)
+                elif method == "POST":
+                    resp = client.post(path, headers=headers, json=body or {})
+                elif method == "PATCH":
+                    resp = client.patch(path, headers=headers, json=body or {})
+                elif method == "DELETE":
+                    resp = client.delete(path, headers=headers, params=params)
+                else:
+                    raise ValueError(f"Unsupported method: {method}")
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                self._handle_network_error(exc)
 
-        self._log_response(resp)
-        if resp.status_code >= 400:
-            self._handle_error(resp)
-        return resp.json()
+            self._log_response(resp)
+            if resp.status_code >= 400:
+                self._handle_error(resp)
+            return resp.json()
 
     def get(self, path: str, params: dict | None = None, extra_headers: dict[str, str] | None = None) -> Any:
         """HTTP GET, returns parsed JSON."""
@@ -184,19 +187,20 @@ class DeepVistaClient:
                 err=True,
             )
             sys.exit(0)
-        try:
-            client = self._get_client()
-            resp = client.post(path, headers=headers, json=body or {})
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            self._handle_network_error(exc)
-        self._log_response(resp)
-        try:
-            data = resp.json()
-            if isinstance(data, dict):
-                data["_status_code"] = resp.status_code
-            return data
-        except Exception:
-            return {"error": resp.text, "status_code": resp.status_code, "_status_code": resp.status_code}
+        with self._lock:
+            try:
+                client = self._get_client()
+                resp = client.post(path, headers=headers, json=body or {})
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                self._handle_network_error(exc)
+            self._log_response(resp)
+            try:
+                data = resp.json()
+                if isinstance(data, dict):
+                    data["_status_code"] = resp.status_code
+                return data
+            except Exception:
+                return {"error": resp.text, "status_code": resp.status_code, "_status_code": resp.status_code}
 
     def patch(self, path: str, body: dict | None = None) -> Any:
         """HTTP PATCH, returns parsed JSON."""

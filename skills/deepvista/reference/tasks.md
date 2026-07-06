@@ -38,6 +38,7 @@ deepvista tasks run --run-once      # one pass then exit (what `setup`'s cron us
 deepvista tasks run --poll-interval 30
 deepvista tasks run --total-time 600   # poll for up to 10 minutes
 deepvista tasks run --project <id>     # override the working project for this run
+deepvista tasks run --max-parallel 3   # cap concurrent headless runs (default 5)
 ```
 
 - **Current project by default**: scopes to the working project (`project use`,
@@ -48,6 +49,10 @@ deepvista tasks run --project <id>     # override the working project for this r
 - **Single instance**: a PID lock (`~/.config/deepvista/task_queue.run.lock`)
   means only one `tasks run` is active per Machine — a foreground poller and a
   cron tick never double-claim.
+- **Parallel execution**: up to 5 headless runs (`claude -p` task cards and
+  queued CLI commands) execute concurrently by default. Override with
+  `--max-parallel N`. The poll loop keeps claiming new work while earlier
+  runs finish — a long task no longer blocks the whole queue.
 - **Headless execution**: each task runs `claude -p "/deepvista <prompt>"`.
   - Override the binary with `DEEPVISTA_CLAUDE_BIN` (also the test seam).
   - Permission posture defaults to `bypassPermissions` (unattended); override

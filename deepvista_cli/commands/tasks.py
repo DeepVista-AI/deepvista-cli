@@ -13,7 +13,9 @@ Polling (DV-1079): `run` polls in the foreground by default (--poll-interval,
 bounded by --total-time when given); --run-once does a single claim/execute
 pass, which is what the cron entry installed by `setup` uses. A PID lock file
 allows only one `tasks run` per machine at a time, so a foreground
-poller and cron ticks never double-claim.
+poller and cron ticks never double-claim. Headless runs (task cards and queued
+CLI commands) execute concurrently up to --max-parallel (default 5) so a long
+`claude -p` task does not block the rest of the queue.
 
 Workflow tasks (DV-955): webhook-queued `deepvista skill run` entries can't
 be subprocess-executed — a workflow needs the surrounding host agent (Claude
@@ -39,6 +41,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -77,6 +80,10 @@ CRON_LOG_PATH = CONFIG_DIR / "task_queue.log"
 
 # Seconds between polls when `run` is left in its default polling mode.
 DEFAULT_POLL_INTERVAL_SECONDS = 10
+
+# Max concurrent headless task runs (task cards + queued CLI commands) per
+# `tasks run` poller. Long `claude -p` runs no longer block the whole queue.
+DEFAULT_MAX_PARALLEL_TASKS = 5
 
 # Idle polls between heartbeat lines in default (non-verbose) mode (~5 min at 10s).
 IDLE_HEARTBEAT_POLLS = 30
@@ -752,8 +759,8 @@ def _prune_stale_agent(agent_id: str, reason: str) -> None:
     click.echo(f"  removed stale agent {agent_id} ({reason})", err=True)
 
 
-def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
-    """Claim this Machine's pending task cards in ``project_id`` and run each headless.
+def _claim_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
+    """Claim pending task cards for this Machine without executing them.
 
     Raises ``_StaleAgentError`` when the server reports the agent/machine is gone
     (AGENT_NOT_FOUND / project_not_found / 404) and the local registration file has
@@ -779,8 +786,12 @@ def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str
             err=True,
         )
         return []
-    tasks = data.get("tasks") or []
-    return [_run_task_card(ctx, agent_id, project_id, task) for task in tasks]
+    return list(data.get("tasks") or [])
+
+
+def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
+    """Claim this Machine's pending task cards and run each headless (sequential)."""
+    return [_run_task_card(ctx, agent_id, project_id, task) for task in _claim_task_cards(ctx, agent_id, project_id)]
 
 
 # ---------------------------------------------------------------------------
@@ -1117,6 +1128,7 @@ def _print_run_header(
     run_once: bool,
     poll_interval: int,
     total_time: int | None,
+    max_parallel: int,
 ) -> None:
     """Print a startup banner summarising the account, agents, and polling config."""
     tokens = get_valid_token(credentials_path(getattr(ctx.obj, "profile", "default")))
@@ -1147,11 +1159,19 @@ def _print_run_header(
     click.echo(f"profile  : {profile}  ({api_url})")
     click.echo(f"mode     : {mode}")
     click.echo(f"host     : {'yes (workflow tasks included)' if host_mode else 'no (command tasks only)'}")
+    click.echo(f"parallel : up to {max_parallel} concurrent headless run(s)")
     click.echo("")
 
 
 def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[list[dict], list[dict]]:
     """One claim/execute pass; returns (command task results, workflow tasks)."""
+    command_tasks, workflow_tasks = _claim_queue_tasks(ctx, agent_id, host_mode)
+    results = [_execute_task(ctx, agent_id, task) for task in command_tasks]
+    return results, workflow_tasks
+
+
+def _claim_queue_tasks(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[list[dict], list[dict]]:
+    """Claim pending task-queue entries without executing them."""
     data = _client(ctx).post_nofatal(
         f"/agents/{agent_id}/task-queue/claim",
         None if host_mode else {"command_only": True},
@@ -1170,13 +1190,50 @@ def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[
 
     tasks = data.get("tasks") or []
     command_tasks = [t for t in tasks if not _is_workflow_task(t)]
-    # Workflow tasks only reach this list in host mode (headless claims are
-    # command_only) — the guard below covers a backend that predates the
-    # filter, so a cron tick never swallows a packet nobody will read.
     workflow_tasks = [t for t in tasks if _is_workflow_task(t)] if host_mode else []
+    return command_tasks, workflow_tasks
 
-    results = [_execute_task(ctx, agent_id, task) for task in command_tasks]
-    return results, workflow_tasks
+
+class _TaskExecutor:
+    """Bounded worker pool for concurrent headless task execution."""
+
+    def __init__(self, max_workers: int) -> None:
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="deepvista-task")
+        self._futures: list[Future[dict]] = []
+
+    def submit(self, fn: Callable[[], dict]) -> None:
+        self._futures.append(self._executor.submit(fn))
+
+    def drain_completed(self) -> list[dict]:
+        still_pending: list[Future[dict]] = []
+        done: list[dict] = []
+        for fut in self._futures:
+            if fut.done():
+                try:
+                    done.append(fut.result())
+                except Exception as exc:
+                    done.append({"status": "failed", "error": str(exc)})
+            else:
+                still_pending.append(fut)
+        self._futures = still_pending
+        return done
+
+    def wait_all(self) -> list[dict]:
+        results: list[dict] = []
+        for fut in self._futures:
+            try:
+                results.append(fut.result())
+            except Exception as exc:
+                results.append({"status": "failed", "error": str(exc)})
+        self._futures = []
+        return results
+
+    @property
+    def in_flight(self) -> int:
+        return len(self._futures)
+
+    def shutdown(self) -> None:
+        self._executor.shutdown(wait=True, cancel_futures=False)
 
 
 def _with_agent_recovery[T](
@@ -1202,28 +1259,28 @@ def _with_agent_recovery[T](
             return None, new_id, True
 
 
-def _claim_and_run_all(
+def _claim_and_submit_all(
     ctx: click.Context,
     agents: list[tuple[str, str | None]],
     host_mode: bool,
-) -> tuple[list[dict], list[tuple[str, dict]], set[str], dict[str, str]]:
-    """Claim and execute tasks for all agents in one poll pass.
+    executor: _TaskExecutor,
+) -> tuple[int, list[tuple[str, dict]], set[str], dict[str, str]]:
+    """Claim pending work for all agents and submit runs to the executor.
 
-    Returns ``(command_results, [(agent_id, workflow_task)], pruned_agent_ids,
-    replacements)`` where ``replacements`` maps a stale agent_id to its
-    re-registered successor.
+    Returns ``(submitted_count, [(agent_id, workflow_task)], pruned_agent_ids,
+    replacements)``.
     """
-    all_results: list[dict] = []
+    submitted = 0
     all_workflow_tasks: list[tuple[str, dict]] = []
     pruned: set[str] = set()
     replacements: dict[str, str] = {}
     for agent_id, project_id in agents:
-        card_results, active_id, failed = _with_agent_recovery(
+        task_cards, active_id, failed = _with_agent_recovery(
             ctx,
             agent_id,
             project_id,
             "task cards",
-            lambda aid: _claim_and_run_task_cards(ctx, aid, project_id),
+            lambda aid: _claim_task_cards(ctx, aid, project_id),
         )
         if failed:
             pruned.add(agent_id)
@@ -1232,7 +1289,11 @@ def _claim_and_run_all(
             continue
         if active_id != agent_id:
             replacements[agent_id] = active_id
-        all_results.extend(card_results or [])
+        for task in task_cards or []:
+            run_agent_id = active_id
+            run_project_id = project_id
+            executor.submit(lambda t=task, a=run_agent_id, p=run_project_id: _run_task_card(ctx, a, p, t))
+            submitted += 1
 
         try:
             queue_out, queue_agent_id, queue_failed = _with_agent_recovery(
@@ -1240,7 +1301,7 @@ def _claim_and_run_all(
                 active_id,
                 project_id,
                 "task queue",
-                lambda aid: _claim_and_run(ctx, aid, host_mode),
+                lambda aid: _claim_queue_tasks(ctx, aid, host_mode),
             )
         except SystemExit:
             click.echo(f"  [warn] failed to claim tasks for agent {active_id} — skipping", err=True)
@@ -1250,14 +1311,17 @@ def _claim_and_run_all(
             if queue_agent_id != agent_id:
                 pruned.add(queue_agent_id)
             continue
-        queue_results, wf_tasks = queue_out
+        command_tasks, wf_tasks = queue_out
         if queue_agent_id != agent_id:
             replacements[agent_id] = queue_agent_id
         active_id = queue_agent_id
 
-        all_results.extend(queue_results)
+        for task in command_tasks:
+            run_agent_id = active_id
+            executor.submit(lambda t=task, a=run_agent_id: _execute_task(ctx, a, t))
+            submitted += 1
         all_workflow_tasks.extend((active_id, t) for t in wf_tasks)
-    return all_results, all_workflow_tasks, pruned, replacements
+    return submitted, all_workflow_tasks, pruned, replacements
 
 
 @tasks_group.command("run")
@@ -1314,6 +1378,13 @@ def _claim_and_run_all(
     default=False,
     help="Suppress poll status lines; keep structured output and task execution logs.",
 )
+@click.option(
+    "--max-parallel",
+    default=DEFAULT_MAX_PARALLEL_TASKS,
+    show_default=True,
+    type=click.IntRange(1, 20),
+    help="Max concurrent headless task runs (task cards and queued CLI commands).",
+)
 @click.pass_context
 def tasks_run(
     ctx: click.Context,
@@ -1325,6 +1396,7 @@ def tasks_run(
     total_time: int | None,
     verbose: bool,
     quiet: bool,
+    max_parallel: int,
 ) -> None:
     """Poll the task queue for the current project and execute claimed tasks (DV-1079).
 
@@ -1341,12 +1413,12 @@ def tasks_run(
     Only one `tasks run` may be active per machine — concurrent
     invocations exit with an error instead of double-claiming the queue.
 
-    Plain command tasks run sequentially via subprocess and their results
-    are reported back. Workflow tasks (webhook-queued skill runs) are only
-    claimed in host mode: their run packets are printed for the surrounding
-    agent to drive — polling stops at that point so the host agent can act —
-    and the entries stay ``running`` until the agent calls
-    ``tasks complete``.
+    Plain command tasks and task cards run concurrently (up to --max-parallel)
+    via subprocess / `claude -p`; their results are reported back as each
+    finishes. Workflow tasks (webhook-queued skill runs) are only claimed in
+    host mode: their run packets are printed for the surrounding agent to
+    drive — polling stops at that point so the host agent can act — and the
+    entries stay ``running`` until the agent calls ``tasks complete``.
     """
     if not _acquire_run_lock():
         output_error(
@@ -1393,7 +1465,7 @@ def tasks_run(
 
     host_mode = host_mode or _detect_host_agent()
 
-    _print_run_header(ctx, agents, project_names, host_mode, run_once, poll_interval, total_time)
+    _print_run_header(ctx, agents, project_names, host_mode, run_once, poll_interval, total_time, max_parallel)
 
     poll_status: _PollStatus | None = None
     if not run_once:
@@ -1402,27 +1474,32 @@ def tasks_run(
     started = time.monotonic()
     polls = 0
     total_results: list[dict] = []
+    executor = _TaskExecutor(max_workers=max_parallel)
     try:
         while True:
             polls += 1
-            results, workflow_tasks, pruned, replacements = _claim_and_run_all(ctx, agents, host_mode)
+            submitted, workflow_tasks, pruned, replacements = _claim_and_submit_all(ctx, agents, host_mode, executor)
             if pruned:
                 agents = [(aid, pid) for aid, pid in agents if aid not in pruned]
             if replacements:
                 agents = [(replacements.get(aid, aid), pid) for aid, pid in agents]
+
+            results = executor.drain_completed()
             total_results.extend(results)
             if poll_status is not None:
                 poll_status.record_results(results)
 
-            has_work = bool(results or workflow_tasks)
+            has_work = bool(submitted or results or workflow_tasks)
             if has_work:
-                failed = sum(1 for r in results if r["status"] == "failed")
-                task_count = len(results) + len(workflow_tasks)
+                failed = sum(1 for r in results if r.get("status") == "failed")
+                task_count = submitted + len(workflow_tasks)
                 detail = f"{task_count} task(s) claimed"
+                if executor.in_flight:
+                    detail += f" ({executor.in_flight} running)"
                 if workflow_tasks:
                     detail += f" ({len(workflow_tasks)} workflow)"
                 if failed:
-                    detail += f", {failed} failed"
+                    detail += f", {failed} finished failed"
                 if poll_status is not None:
                     poll_status.on_work(polls, detail)
                 elif not quiet:
@@ -1445,14 +1522,15 @@ def tasks_run(
                 is_final_summary=False,
                 verbose=verbose,
             )
-            if emit_json:
+            if emit_json and not run_once:
                 agent_ids = agents[0][0] if len(agents) == 1 else [a[0] for a in agents]
                 _output(
                     ctx,
                     {
                         "agent_id": agent_ids,
                         "tasks_run": len(results),
-                        "failed": sum(1 for r in results if r["status"] == "failed"),
+                        "tasks_in_flight": executor.in_flight,
+                        "failed": sum(1 for r in results if r.get("status") == "failed"),
                         "results": results,
                         "workflow_tasks": len(workflow_tasks),
                     },
@@ -1469,6 +1547,19 @@ def tasks_run(
                 _emit_workflow_task(ctx, wf_agent_id, task)
 
             if run_once:
+                total_results.extend(executor.wait_all())
+                agent_ids = agents[0][0] if len(agents) == 1 else [a[0] for a in agents]
+                _output(
+                    ctx,
+                    {
+                        "agent_id": agent_ids,
+                        "tasks_run": len(total_results),
+                        "failed": sum(1 for r in total_results if r.get("status") == "failed"),
+                        "results": total_results,
+                        "workflow_tasks": len(workflow_tasks),
+                    },
+                    title="Task Queue",
+                )
                 return
             if workflow_tasks:
                 # The host agent has packets to drive; blocking it inside the
@@ -1477,6 +1568,7 @@ def tasks_run(
             if total_time is not None and (time.monotonic() - started) + poll_interval > total_time:
                 if poll_status is not None:
                     poll_status.on_shutdown(polls)
+                total_results.extend(executor.wait_all())
                 agent_ids = agents[0][0] if len(agents) == 1 else [a[0] for a in agents]
                 _output(
                     ctx,
@@ -1484,7 +1576,7 @@ def tasks_run(
                         "agent_id": agent_ids,
                         "polls": polls,
                         "tasks_run": len(total_results),
-                        "failed": sum(1 for r in total_results if r["status"] == "failed"),
+                        "failed": sum(1 for r in total_results if r.get("status") == "failed"),
                     },
                     title="Task Queue (polling finished)",
                 )
@@ -1498,6 +1590,7 @@ def tasks_run(
             poll_status.on_shutdown(polls)
         raise SystemExit(130) from None
     finally:
+        executor.shutdown()
         _release_run_lock()
 
 
