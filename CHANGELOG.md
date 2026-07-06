@@ -37,6 +37,49 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [1.0.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v0.1.17...v1.0.0) (2026-07-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* simplify the CLI surface (84 → 69 commands, −1,470 lines) ([#189](https://github.com/DeepVista-AI/deepvista-cli/issues/189))
+* **DV-1281:** CLI help/docs cleanup — drop deprecated aliases, remove TUI, collapse vistabase into card ([#167](https://github.com/DeepVista-AI/deepvista-cli/issues/167))
+
+### Features
+
+* **DV-1079:** poll by default in task_queue run with single-instance lock ([#162](https://github.com/DeepVista-AI/deepvista-cli/issues/162)) ([eef464e](https://github.com/DeepVista-AI/deepvista-cli/commit/eef464e3ab6cb1591130b79903238a1a7327bc61))
+* **DV-1247:** `tasks` group runs web-chat task cards via claude -p ([#165](https://github.com/DeepVista-AI/deepvista-cli/issues/165)) ([4c95aed](https://github.com/DeepVista-AI/deepvista-cli/commit/4c95aedb99104f3567b10e1d77f8c3b668627177))
+* **DV-1277:** clean session-card title + link task runs to their chat ([#169](https://github.com/DeepVista-AI/deepvista-cli/issues/169)) ([b4de0c7](https://github.com/DeepVista-AI/deepvista-cli/commit/b4de0c7435bf89f475a25443e80524ab1da8420a))
+* **DV-1281:** CLI help/docs cleanup — drop deprecated aliases, remove TUI, collapse vistabase into card ([#167](https://github.com/DeepVista-AI/deepvista-cli/issues/167)) ([b7f308b](https://github.com/DeepVista-AI/deepvista-cli/commit/b7f308be5a03421c9b08eab1622209a94826b72d))
+* **DV-1294:** make the CLI a project-scoped client ([#170](https://github.com/DeepVista-AI/deepvista-cli/issues/170)) ([708d107](https://github.com/DeepVista-AI/deepvista-cli/commit/708d10739aa0ccf11319379a76fdea6cf646c493))
+* **DV-1324:** add dv CLI alias ([#177](https://github.com/DeepVista-AI/deepvista-cli/issues/177)) ([f1973a3](https://github.com/DeepVista-AI/deepvista-cli/commit/f1973a35b488477df187ff2ccb5c0662b2f3efa8))
+* **DV-1428:** stream task-card execution incrementally, report live progress ([#185](https://github.com/DeepVista-AI/deepvista-cli/issues/185)) ([7f081b5](https://github.com/DeepVista-AI/deepvista-cli/commit/7f081b598085d52280fb84c4396d573672b6cb5a))
+* **DV-1429:** tasks clean, auto-detect agent --type, prune stale agents ([#183](https://github.com/DeepVista-AI/deepvista-cli/issues/183)) ([38252e7](https://github.com/DeepVista-AI/deepvista-cli/commit/38252e71b33275bc7976037192a082c7f2ccb391))
+* **DV-853:** productionize the deepvista subagents ([#147](https://github.com/DeepVista-AI/deepvista-cli/issues/147)) ([45e9ba1](https://github.com/DeepVista-AI/deepvista-cli/commit/45e9ba17de08243fe84be3de6826c72116360351))
+* **DV-871:** move daily-planning to server; add schedule command ([#151](https://github.com/DeepVista-AI/deepvista-cli/issues/151)) ([7c317e7](https://github.com/DeepVista-AI/deepvista-cli/commit/7c317e7d6f71763f6622354b8581ead8b10ef8ea))
+* **DV-936:** task_queue run/list/setup commands ([#155](https://github.com/DeepVista-AI/deepvista-cli/issues/155)) ([0d90691](https://github.com/DeepVista-AI/deepvista-cli/commit/0d9069106d14068d657e16415be80dec95f12085))
+* **DV-941:** add windows install script and trampoline troubleshooting docs ([#156](https://github.com/DeepVista-AI/deepvista-cli/issues/156)) ([eed7335](https://github.com/DeepVista-AI/deepvista-cli/commit/eed7335ffdc1dfcfd84523ed0e77be066b7fe9c3))
+* **DV-942:** print next-step hints after auth login ([#157](https://github.com/DeepVista-AI/deepvista-cli/issues/157)) ([0fca6c9](https://github.com/DeepVista-AI/deepvista-cli/commit/0fca6c9309623ee690c2c9e16870d528b558fd80))
+* **session:** skip session init for configured CWD patterns (DV-862) ([#148](https://github.com/DeepVista-AI/deepvista-cli/issues/148)) ([df74381](https://github.com/DeepVista-AI/deepvista-cli/commit/df743810ae6dec7c4a520c43d82f1eeae421762b))
+* simplify the CLI surface (84 → 69 commands, −1,470 lines) ([#189](https://github.com/DeepVista-AI/deepvista-cli/issues/189)) ([5056442](https://github.com/DeepVista-AI/deepvista-cli/commit/50564429a84ff044967cab8db831e282b5fac67b))
+* **skill:** add phase need-input for :::dvNeedIntervention mermaid state ([#166](https://github.com/DeepVista-AI/deepvista-cli/issues/166)) ([ade6edf](https://github.com/DeepVista-AI/deepvista-cli/commit/ade6edf8a462199ce8b59119e7eb0d662ad94fc6))
+* task improvements — timeout, phase notes, workflow resume, and web-agent polling ([#176](https://github.com/DeepVista-AI/deepvista-cli/issues/176)) ([d10ae1f](https://github.com/DeepVista-AI/deepvista-cli/commit/d10ae1fc5a8a291438b3eedd870fa59b797bcf3a))
+
+
+### Bug Fixes
+
+* **DV-1357:** move agent heartbeat into the Claude Code plugin ([#174](https://github.com/DeepVista-AI/deepvista-cli/issues/174)) ([41c4339](https://github.com/DeepVista-AI/deepvista-cli/commit/41c43390afaab06c90c103c5526e44f3f3f35ad8))
+* reconcile _ensure_agents_for_projects return type (pyright) ([#173](https://github.com/DeepVista-AI/deepvista-cli/issues/173)) ([c134e42](https://github.com/DeepVista-AI/deepvista-cli/commit/c134e42abc39325cf2814126be7d249ba667f464))
+* **tasks:** use single-quoted f-string to avoid escaped double quotes in task note hint ([#181](https://github.com/DeepVista-AI/deepvista-cli/issues/181)) ([297de78](https://github.com/DeepVista-AI/deepvista-cli/commit/297de78ee188cd9dcd9b4031b5b29b76733b160d))
+* **types:** mark output_error as NoReturn to fix Pyright errors in schedule.py ([#153](https://github.com/DeepVista-AI/deepvista-cli/issues/153)) ([7ac8b12](https://github.com/DeepVista-AI/deepvista-cli/commit/7ac8b12f1b10a94cd6dbe8533b122a2cf8489228))
+
+
+### Documentation
+
+* add CONTRIBUTING.md covering PR workflow and the release-please prose trap ([#145](https://github.com/DeepVista-AI/deepvista-cli/issues/145)) ([a9012d9](https://github.com/DeepVista-AI/deepvista-cli/commit/a9012d9cf45de695c754a0c89deb3f80e63e8b48))
+* add direct import path for downloaded skill markdown files ([#160](https://github.com/DeepVista-AI/deepvista-cli/issues/160)) ([31b35b9](https://github.com/DeepVista-AI/deepvista-cli/commit/31b35b9608e75759547d1bb803cc04b3bed2fea1))
+* **DV-1434:** fix schedule command docstring to reference schedule_job cards ([#182](https://github.com/DeepVista-AI/deepvista-cli/issues/182)) ([d01f98d](https://github.com/DeepVista-AI/deepvista-cli/commit/d01f98d03a21256ee96ee4cae8b78f81c4b44a85))
+
 ## [0.1.17](https://github.com/DeepVista-AI/deepvista-cli/compare/v1.2.1...v0.1.17) (2026-07-01)
 
 
