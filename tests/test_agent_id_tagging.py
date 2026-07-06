@@ -95,7 +95,7 @@ def test_session_tags_emits_unified_agent_tag_when_agent_id_present() -> None:
     assert "agent:claude-code:abc-uuid" in tags
     # Crucially: no legacy ``agent:<tool>`` bare tag, no standalone ``agent_id:`` tag.
     assert "agent:claude-code" not in tags
-    assert not any(t.startswith(sn.AGENT_ID_TAG_PREFIX) for t in tags)
+    assert not any(t.startswith("agent_id:") for t in tags)
 
 
 def test_session_tags_falls_back_to_bare_agent_tag_when_agent_id_unknown() -> None:
@@ -103,7 +103,7 @@ def test_session_tags_falls_back_to_bare_agent_tag_when_agent_id_unknown() -> No
     # Without an agent_id we degrade to ``agent:<tool>`` so callers can still
     # narrow by tool.
     assert f"{sn.AGENT_TAG_PREFIX}claude-code" in tags
-    assert not any(t.startswith(sn.AGENT_ID_TAG_PREFIX) for t in tags)
+    assert not any(t.startswith("agent_id:") for t in tags)
 
 
 def test_build_agent_tag_helper() -> None:
@@ -204,7 +204,7 @@ def test_quick_note_emits_unified_agent_tag_when_registered(monkeypatch: pytest.
     assert "agent:claude-code:abc-uuid" in tags
     # No bare ``agent:<tool>`` and no standalone ``agent_id:`` tag.
     assert "agent:claude-code" not in tags
-    assert not any(t.startswith(sn.AGENT_ID_TAG_PREFIX) for t in tags)
+    assert not any(t.startswith("agent_id:") for t in tags)
 
 
 def test_quick_note_falls_back_to_bare_agent_tag_when_unregistered(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -212,7 +212,7 @@ def test_quick_note_falls_back_to_bare_agent_tag_when_unregistered(monkeypatch: 
     _, body = recorder.posts[0]
     tags = body.get("tags") or []
     assert f"{sn.AGENT_TAG_PREFIX}claude-code" in tags
-    assert not any(t.startswith(sn.AGENT_ID_TAG_PREFIX) for t in tags)
+    assert not any(t.startswith("agent_id:") for t in tags)
 
 
 # ---------------------------------------------------------------------------

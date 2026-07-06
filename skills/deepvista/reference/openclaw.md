@@ -71,10 +71,10 @@ capture silently into a broken auth state.
 
 ## Optional — heartbeat / dedup
 
-If the user runs `deepvista agents register --type openclaw --name "…"` once, the
-CLI will heartbeat after each agent turn and the server will flag near-duplicate
-captures during periodic maintenance. Set up is one-time; not required for capture
-to work.
+If the user runs `deepvista agents sync --type openclaw` once (it auto-registers
+on first run), the CLI will heartbeat after each agent turn and the server will
+flag near-duplicate captures during periodic maintenance. Set up is one-time;
+not required for capture to work.
 
 ## See also
 

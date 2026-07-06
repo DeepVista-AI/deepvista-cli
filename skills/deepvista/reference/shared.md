@@ -53,21 +53,14 @@ deepvista config list                 # list configured profiles
 
 Each profile holds separate credentials. Profile state lives in `~/.config/deepvista/`.
 
-## Agent registration & heartbeat
+## Agent heartbeat
 
-Register once per machine so the DeepVista dashboard shows this agent's state:
-
-```bash
-deepvista agents register --type claude-code --name "My Claude"
-```
-
-This installs a `Stop` hook in `~/.claude/settings.json` that sends a heartbeat after each turn.
+`agents sync` is the single agent command — it auto-registers this machine's
+agent identity on first run, then heartbeats state to the DeepVista dashboard.
+The Claude Code plugin wires it into a `Stop` hook automatically.
 
 ```bash
-deepvista agents get --type claude-code      # check registration
-deepvista agents list                         # all registered agents
-deepvista agents sync --type claude-code --status online   # manual heartbeat
-deepvista agents delete --type claude-code    # unregister + remove hook
+deepvista agents sync --type claude-code --status online   # heartbeat (auto-registers)
 ```
 
 ## Updates
@@ -76,20 +69,19 @@ deepvista agents delete --type claude-code    # unregister + remove hook
 
 | stdout | Meaning |
 |---|---|
-| *(empty)* | up to date / snoozed / disabled / offline |
+| *(empty)* | up to date / disabled / offline |
 | `UPGRADE_AVAILABLE <old> <new>` | run `deepvista upgrade install --yes` to install |
 | `JUST_UPGRADED <old> <new>` | just finished updating |
 
 ```bash
 deepvista upgrade check                  # fast cached check (exit 1 if update available)
 deepvista upgrade install --yes          # non-interactive install (use in agent flows)
-deepvista upgrade snooze                 # defer upgrade
-deepvista upgrade disable                # opt out permanently
-deepvista upgrade status                 # show version + snooze state
 ```
 
+Set `DEEPVISTA_UPDATE_CHECK=0` to disable update checks entirely.
+
 > **Agent note:** `deepvista upgrade` and `deepvista upgrade install` are interactive — they
-> prompt "Install now? [y/n/snooze]". In agent flows always use
+> prompt "Install now?". In agent flows always use
 > `deepvista upgrade install --yes` after user confirmation so the agent never blocks.
 
 ## Output format

@@ -365,6 +365,183 @@ def card_delete(ctx: click.Context, card_id: str, card_type: str | None, dry_run
 
 
 # ---------------------------------------------------------------------------
+# index — trigger entity extraction / enrichment
+# ---------------------------------------------------------------------------
+
+
+@card_group.command("index")
+@click.option(
+    "--type",
+    "card_type",
+    type=click.Choice(CARD_TYPES, case_sensitive=False),
+    default="note",
+    show_default=True,
+    help="Card type to index.",
+)
+@click.option(
+    "--limit",
+    type=click.IntRange(1, 500),
+    default=50,
+    help="Max cards to re-index (default 50, max 500).",
+)
+@click.option("--card-id", "card_ids", multiple=True, help="Index specific card(s) by ID. Repeatable.")
+@click.option(
+    "--all",
+    "include_enriched",
+    is_flag=True,
+    default=False,
+    help=(
+        "Re-enrich every card up to --limit, not just those with a null embedding. "
+        "Ignored when --card-id is set (explicit IDs always re-enrich)."
+    ),
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@click.pass_context
+def card_index(
+    ctx: click.Context,
+    card_type: str,
+    limit: int,
+    card_ids: tuple[str, ...],
+    include_enriched: bool,
+    dry_run: bool,
+) -> None:
+    """Trigger entity extraction on cards that need processing.
+
+    Calls the server-side `/index_notes` route. By default, finds cards that
+    have never been enriched (null embedding) and enqueues the DeepVista
+    agent to extract entities, create graph relationships, and refresh
+    embeddings. Pass `--card-id` (repeatable) to target specific cards, or
+    `--all` to re-enrich everything up to `--limit`.
+
+    > [!CAUTION] This is a write command — it kicks off background agent runs
+    > that may create/update related cards. Confirm before executing.
+    """
+    # Explicit IDs always bypass the unenriched filter — the user asked for those cards specifically.
+    only_unenriched = not include_enriched and not card_ids
+    body: dict = {
+        "card_type": card_type,
+        "limit": limit,
+        "only_unenriched": only_unenriched,
+    }
+    if card_ids:
+        body["card_ids"] = list(card_ids)
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "POST /index_notes", "payload": body},
+            ctx.obj.output_format,
+            entity_type="card",
+            base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
+        )
+        return
+
+    data = _client(ctx).post("/index_notes", body)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title="Indexed Cards",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Version history (DV-449 M2)
+# ---------------------------------------------------------------------------
+
+
+@card_group.command("history")
+@click.argument("card_id")
+@click.option("--limit", type=click.IntRange(1, 500), default=50, help="Max versions to list (default 50).")
+@click.pass_context
+def card_history(ctx: click.Context, card_id: str, limit: int) -> None:
+    """List prior versions of a card (newest first).
+
+    Read-only.
+    """
+    data = _client(ctx).post("/get_context_card_history", {"card_id": card_id, "limit": limit})
+    versions = data.get("versions") or []
+    format_output(
+        {"card_id": card_id, "versions": versions, "count": len(versions)},
+        ctx.obj.output_format,
+        columns=["version", "reason", "changed_by", "created_at"],
+        title=f"History: {card_id}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
+
+
+@card_group.command("diff")
+@click.argument("card_id")
+@click.argument("version_a", type=int)
+@click.argument("version_b", type=int)
+@click.pass_context
+def card_diff(ctx: click.Context, card_id: str, version_a: int, version_b: int) -> None:
+    """Unified diff between two versions of a card.
+
+    Read-only.
+    """
+    import difflib
+
+    a = _client(ctx).post("/get_context_card_version", {"card_id": card_id, "version": version_a})
+    b = _client(ctx).post("/get_context_card_version", {"card_id": card_id, "version": version_b})
+    a_text = (a.get("description") or "").splitlines(keepends=True)
+    b_text = (b.get("description") or "").splitlines(keepends=True)
+    diff = "".join(difflib.unified_diff(a_text, b_text, fromfile=f"v{version_a}", tofile=f"v{version_b}", lineterm=""))
+    if ctx.obj.output_format == "json":
+        format_output(
+            {"card_id": card_id, "from": version_a, "to": version_b, "diff": diff},
+            ctx.obj.output_format,
+            entity_type="card",
+            base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
+        )
+    else:
+        click.echo(diff or "(no differences)")
+
+
+@card_group.command("restore")
+@click.argument("card_id")
+@click.argument("version", type=int)
+@click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation.")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@click.pass_context
+def card_restore(ctx: click.Context, card_id: str, version: int, yes: bool, dry_run: bool) -> None:
+    """Roll a card back to a previous version.
+
+    The current state is saved as a new version first, so restore is reversible.
+
+    > [!CAUTION] This is a write command — confirm before executing.
+    """
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "restore card", "card_id": card_id, "version": version},
+            ctx.obj.output_format,
+            entity_type="card",
+            base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
+        )
+        return
+
+    if not yes and not click.confirm(f"Restore card {card_id} to version {version}?", default=False):
+        output_error(3, "Aborted", "User declined restore.")
+        return
+
+    data = _client(ctx).post("/restore_context_card_version", {"card_id": card_id, "version": version})
+    format_output(
+        {"card_id": card_id, "restored_to": version, "card": data},
+        ctx.obj.output_format,
+        title=f"Restored: {card_id} → v{version}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helper commands (+search, +similar, +pin, +archive)
 # ---------------------------------------------------------------------------
 

@@ -2,7 +2,7 @@
 name: deepvista-skill-workflow-host
 type: workflow
 execution: stateful
-description: "Host-agent runtime contract for executing a DeepVista workflow Skill via the `deepvista` CLI. Sibling to `deepvista-skill-workflow` (DeepVista server-agent contract). Trigger when `deepvista skill run --mode host <id>` returns a run packet."
+description: "Host-agent runtime contract for executing a DeepVista workflow Skill via the `deepvista` CLI. Sibling to `deepvista-skill-workflow` (DeepVista server-agent contract). Trigger when `deepvista skill run <id>` returns a run packet."
 ---
 
 # Workflow Host Runtime
@@ -14,23 +14,17 @@ to persist phase progress and artifacts back to DeepVista.
 
 This contract mirrors the DeepVista server agent's run-time contract
 (`deepvista-skill-workflow/SKILL.md`) but every primitive is something you
-already have. **Do not** call `/imagine` to delegate the whole run — that
-defeats the purpose of host-mode. You may delegate a single phase via
-`deepvista skill phase run-on-deepvista` when the phase's `tool_plan` is
-entirely DeepVista-server-only tools.
+already have. **Do not** call `/imagine` to delegate the run — you drive
+every phase yourself.
 
 ## Run packet you just received
 
-`deepvista skill run --mode host <skill_id>` printed a JSON header followed
+`deepvista skill run <skill_id>` printed a JSON header followed
 by the skill's full SKILL.md body. The header contains:
 
 - `skill_id`: the parent workflow card id you'll be mutating.
 - `active_phase`: the phase you should resume from (the first
   `<accordion>` with `open="true"`, or the first phase if none).
-- `phase_routes`: only present when `--mode auto` — a per-phase
-  routing decision (`"host"` or `"deepvista"`) derived from each
-  phase's `tool_plan`. Follow it for `--mode auto` runs; otherwise
-  every phase is `"host"`.
 - `user_input`: optional context the user passed via `--input`.
 
 The body that follows the header is the same SKILL.md the DeepVista server
@@ -88,27 +82,7 @@ given, it also runs the equivalent of step 1 on that phase. Otherwise the
 next phase is left pending and you should call `phase open` explicitly
 before starting it.
 
-### 4. Per-phase fallback to DeepVista (optional)
-
-If a phase is entirely knowledge-base-internal (its `tool_plan` is only
-`chat_cypher_search` / `read_context_card` / `exa_search` /
-`upsert_context_card` / `edit_context_card` / `find_similar_cards` /
-`enrich_card_entities` / `load_skill` / `run_skill`), you can delegate it
-to the DeepVista server agent for one turn:
-
-```
-deepvista skill phase run-on-deepvista <skill_id> "Phase N: <title>"
-```
-
-This POSTs to `/imagine` with `"Run only Phase N"` instructions; the
-server agent reads the same card, mutates the same accordion, persists
-artifacts, and returns. You stay in control of every other phase.
-
-In `--mode auto`, follow the `phase_routes` table in the run packet:
-phases marked `"deepvista"` use this command; phases marked `"host"`
-follow steps 1–3.
-
-### 5. Graceful exit when you can't continue
+### 4. Graceful exit when you can't continue
 
 Two distinct cases:
 
@@ -142,11 +116,11 @@ approval from the user before it can proceed:
    (e.g. "Reconnect Gmail MCP and re-run `deepvista skill run` to
    continue Phase 3"). Do not pretend the phase succeeded.
 
-When the blocker clears, the user re-runs `deepvista skill run --mode
-host <skill_id>`. The CLI re-emits the packet pointing at the same active
+When the blocker clears, the user re-runs `deepvista skill run
+<skill_id>`. The CLI re-emits the packet pointing at the same active
 phase and you resume from step 2.
 
-### 6. Finalize
+### 5. Finalize
 
 When the last phase is done:
 
@@ -167,8 +141,7 @@ be run again), and emits `<json>{"done": true}</json>`.
 | Reset phase to pending | `deepvista skill phase reset <skill_id> "Phase N: …"` |
 | Needs user input (:::dvNeedIntervention) | `deepvista skill phase need-input <skill_id> "Phase N: …" --reason "…"` |
 | Pause — technical blocker (:::dvNeedIntervention, lock held) | `deepvista skill phase pause <skill_id> --reason "…"` |
-| Resume from pause / need-input | re-run `deepvista skill run --mode host <skill_id>` |
-| One-phase fallback to DeepVista | `deepvista skill phase run-on-deepvista <skill_id> "Phase N: …"` |
+| Resume from pause / need-input | re-run `deepvista skill run <skill_id>` |
 | Finalize the run | `deepvista skill complete <skill_id> --review "…"` |
 | Save an artifact (note) | `deepvista notes create --title "…" --content "…"` |
 | Search the knowledge base | `deepvista card +search "…"` |
@@ -182,9 +155,8 @@ be run again), and emits `<json>{"done": true}</json>`.
 - Don't write the SKILL.md body to disk. Don't paste it back in chat.
   All mutation happens through the CLI shims so the server-side schema
   stays canonical.
-- Don't call `/imagine` directly. The only allowed route to the server
-  agent is `deepvista skill phase run-on-deepvista` (per-phase) or
-  `deepvista skill run --mode deepvista` (whole run).
+- Don't call `/imagine` directly — all mutation happens through the CLI
+  shims.
 - Respect the run lock. If `skill phase pause` was the last write, treat
   the skill as still in progress on the next session.
 

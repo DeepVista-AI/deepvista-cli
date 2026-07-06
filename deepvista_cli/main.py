@@ -28,7 +28,6 @@ from deepvista_cli.commands.auth import auth_group
 from deepvista_cli.commands.card import card_group
 from deepvista_cli.commands.chat import chat_group
 from deepvista_cli.commands.config import config_group
-from deepvista_cli.commands.lint import lint_command
 from deepvista_cli.commands.notes import notes_group
 from deepvista_cli.commands.project import project_group
 from deepvista_cli.commands.schedule import schedule_group
@@ -118,7 +117,7 @@ cli.add_command(card_group, name="vistabase")
 cli.add_command(skill_group)
 cli.add_command(chat_group)
 
-# Agent orchestration
+# Agent identity heartbeat (used by the Claude Code plugin hooks)
 cli.add_command(agents_group)
 # Opt-in recurring daily-planning job
 cli.add_command(schedule_group)
@@ -131,7 +130,6 @@ cli.add_command(tasks_group)
 cli.add_command(auth_group)
 cli.add_command(config_group)
 cli.add_command(upgrade_command)
-cli.add_command(lint_command)
 
 # Legacy aliases for backward compatibility
 cli.add_command(notes_group)  # notes = cards with type=note (explicit knowledge layer)

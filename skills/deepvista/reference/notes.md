@@ -11,16 +11,16 @@ flag reference.
 
 ## Commands
 
-`list` · `get` · `create` · `update` · `delete` · `index` · `+quick`
-`history` · `diff` · `restore`
+`list` · `get` · `create` · `update` · `delete` · `+quick`
 
-> [!NOTE] `session-init` / `session-tick` / `session-finalize` are thin
-> aliases that forward to `deepvista session …` (DV-742). Prefer the
-> top-level `deepvista session` group in new scripts.
+> [!NOTE] Version history (`history` / `diff` / `restore`) and entity
+> re-indexing (`index`) are generic card features — use
+> `deepvista card history|diff|restore|index` (see
+> [vistabase-card.md](vistabase-card.md)). They work on notes by ID.
 
 ## Agent conventions
 
-> [!CAUTION] `create`, `update`, `delete`, `index`, `restore`, `session-*` are writes.
+> [!CAUTION] `create`, `update`, `delete` are writes.
 > Confirm with the user first (except `+quick` in auto-capture mode — see [openclaw.md](openclaw.md)).
 
 - **Always use `--content-file <absolute-path>`** for anything more than ~200 chars or
@@ -34,17 +34,6 @@ flag reference.
 ```bash
 deepvista notes +quick "Alice confirmed the API deadline is April 15"
 ```
-
-**`index`** — queues entity extraction + embedding refresh on unprocessed notes.
-Run after bulk imports or after a long offline period. Pair with
-`deepvista lint --check missing-refs`.
-
-**`session-*` (alias)** — see [session.md](session.md). New hook installs
-should call `deepvista session init|tick|finalize` directly; the `notes
-session-*` subcommands are thin aliases that delegate there.
-
-**`history` / `diff` / `restore`** — version history. `restore` captures the current
-state as a new version first, so it's reversible.
 
 ### Hook installation (Claude Code plugin)
 
@@ -74,11 +63,11 @@ deepvista notes update <note_id> --title "Standup — April 20"
 curl -sL https://example.com/page.md | \
   deepvista notes create --title "Reference page" --content-file -
 
-# Index after bulk import
-deepvista notes index --limit 100
+# Re-index after bulk import (generic card command; notes are the default type)
+deepvista card index --limit 100
 ```
 
 ## See also
 
-- [vistabase-card.md](vistabase-card.md) — underlying `card --type note` commands
+- [vistabase-card.md](vistabase-card.md) — underlying `card --type note` commands, version history, indexing
 - [openclaw.md](openclaw.md) — auto-capture without confirmation

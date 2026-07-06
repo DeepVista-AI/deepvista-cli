@@ -4,8 +4,8 @@
 
 ## Concepts
 
-- **Machine** — a device running the DeepVista CLI (this one). Registered with
-  `deepvista agents register`; a user can have several (a laptop, a cloud VM).
+- **Machine** — a device running the DeepVista CLI (this one). Registered
+  automatically by `deepvista agents sync`; a user can have several (a laptop, a cloud VM).
   Machines are a *user-level* concept and live in the `managed_agents` table.
 - **Task** — a one-off prompt the web chat (or another agent) enqueues for a
   Machine. Stored as a project-scoped `task` context card. The Machine claims it

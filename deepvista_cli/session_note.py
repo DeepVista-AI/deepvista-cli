@@ -33,10 +33,6 @@ from typing import Any
 
 SESSION_TAG_PREFIX = "cc-session:"
 AGENT_TAG_PREFIX = "agent:"
-# Legacy prefix kept for the in-flight rolling notes already on disk that
-# carry ``agent_id:<uuid>`` as a standalone tag. New writes go through the
-# unified ``agent:<tool>:<uuid>`` form via :func:`build_agent_tag`.
-AGENT_ID_TAG_PREFIX = "agent_id:"
 PROJECT_TAG_PREFIX = "project:"
 DEFAULT_AGENT = "claude-code"
 FRONTMATTER_FENCE = "---"
@@ -472,9 +468,7 @@ def build_agent_tag(agent: str, agent_id: str | None = None) -> str:
 def session_tags(session_id: str, agent: str, cwd: str, agent_id: str | None = None) -> list[str]:
     project = Path(cwd).name
     # DV-791 (PR review): unified ``agent:<tool>[:<agent_id>]`` tag. The old
-    # split ``agent:<tool>`` + ``agent_id:<uuid>`` form is gone for new
-    # writes (existing on-disk session notes that carry the legacy form
-    # keep working via the ``AGENT_ID_TAG_PREFIX`` parsers).
+    # split ``agent:<tool>`` + ``agent_id:<uuid>`` form is gone for new writes.
     return [
         f"{SESSION_TAG_PREFIX}{session_id}",
         build_agent_tag(agent, agent_id),

@@ -35,7 +35,6 @@ skill", "synthesize findings and continue".
 
 6. **Continue** if needed:
    ```bash
-   deepvista skill status <run_chat_id>
    deepvista chat +send "Next question…" --chat-id <run_chat_id>
    ```
 
@@ -60,5 +59,5 @@ deepvista skill run vb_def456 \
 ## See also
 
 - [vistabase-card.md](vistabase-card.md) — `card +search` and `card get`
-- [skill.md](skill.md) — `skill list`, `skill run`, `skill status`
+- [skill.md](skill.md) — `skill list`, `skill run`
 - [chat.md](chat.md) — continuing the run

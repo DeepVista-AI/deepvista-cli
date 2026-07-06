@@ -14,22 +14,20 @@ every source note via `related_context_card_ids`. Streams NDJSON identical to
 > [!CAUTION] Write — the agent creates skill cards in the user's project.
 > Confirm before executing, or pass `--yes` for scripted/batch use.
 
-## Non-obvious: source selectors
+## Finding source notes
 
-Beyond passing note IDs directly, `create-from-note` supports several selectors that
-let you describe *which* notes to synthesize without knowing their IDs upfront:
+Pass note UUIDs positionally or via repeated `--note-id` (union-merged,
+de-duplicated, capped by `--limit N` — default 5, max 25). When you don't know
+the IDs upfront, resolve them first with the card search commands and pass the
+results here:
 
-| Selector | What it resolves |
-|---|---|
-| `--from-search QUERY` | Hybrid vector + keyword search over notes |
-| `--from-similar SEED_NOTE_ID` | Notes similar to a seed note (graph neighbours) |
-| `--from-tag TAG` | All notes whose `tags` list contains TAG |
-| `--from-grep REGEX` | Notes whose content matches a regex |
-| `--from-file PATH` | Read one ID per line from a file; pass `-` for stdin |
+```bash
+deepvista card +search "product-market fit signals" --type note --limit 5
+deepvista card +grep "DRI|operating rhythm" --type note
+deepvista card +similar <seed_note_id>
+```
 
-All selectors compose — union-merged, de-duplicated, capped by `--limit N` (default 5, max 25).
-
-Use `--dry-run` to preview resolved notes + the synthesis prompt before spending tokens.
+Use `--dry-run` to preview the synthesis prompt before spending tokens.
 
 ## Examples
 
@@ -38,28 +36,15 @@ Use `--dry-run` to preview resolved notes + the synthesis prompt before spending
 deepvista skill create-from-note 0d5d1fb2-7414-4593-abc4-fb74984f4b2f
 
 # Multiple notes
-deepvista skill create-from-note 0d5d1fb2-... 8a1f2c40-... --kind workflow --yes
-
-# Semantic selector — no prior IDs needed
-deepvista skill create-from-note \
-  --from-search "product-market fit signals" --limit 5 --kind workflow --yes
-
-# Tag corpus rollup
-deepvista skill create-from-note --from-tag lenny --limit 10 --yes
-
-# Graph expansion from a seed
-deepvista skill create-from-note --from-similar 0d5d1fb2-... --limit 4 --yes
-
-# Regex selector
-deepvista skill create-from-note --from-grep "DRI|operating rhythm" --yes
+deepvista skill create-from-note 0d5d1fb2-... 8a1f2c40-... --yes
 
 # Pipe from a prior search
 deepvista notes list --limit 100 \
   | jq -r '.notes[] | select(.title | test("positioning"; "i")) | .id' \
-  | deepvista skill create-from-note --from-file - --kind workflow --yes
+  | xargs deepvista skill create-from-note --yes
 
 # Preview first
-deepvista skill create-from-note --from-tag lenny --limit 5 --dry-run
+deepvista skill create-from-note 0d5d1fb2-... --dry-run
 ```
 
 ## After creation
@@ -70,6 +55,6 @@ body before running.
 
 ## See also
 
-- [notes.md](notes.md) — capturing source notes and re-indexing
+- [notes.md](notes.md) — capturing source notes
 - [skill.md](skill.md) — listing and running the generated skills
 - [skill-research-to-skill.md](skill-research-to-skill.md) — broader search → synthesize → run pattern

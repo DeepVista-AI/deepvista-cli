@@ -1,14 +1,14 @@
 """deepvista upgrade — check for and install CLI and skill updates.
 
-Design mirrors gstack's two-part auto-update flow:
+Two parts:
 
 1. A fast, cached `upgrade check` subcommand — called from skill on-load
    preambles by AI agents. Prints a single marker line on stdout and exits 1
    if an update is available so the agent can react.
 
-2. An interactive `upgrade install` flow that fetches the changelog between
-   the current and latest version, shows it to the user, and performs the
-   install via the appropriate package manager.
+2. An `upgrade install` flow that fetches the changelog between the current
+   and latest version, shows it to the user, and performs the install via
+   the appropriate package manager.
 
 State lives in ``~/.config/deepvista/`` (via ``deepvista_cli.config.CONFIG_DIR``,
 honors ``DEEPVISTA_CONFIG_DIR``):
@@ -16,10 +16,10 @@ honors ``DEEPVISTA_CONFIG_DIR``):
 - ``update-check-cache.json`` — last-check timestamp + fetched latest version.
   Asymmetric TTL: 60 min if up-to-date (so new releases surface quickly),
   720 min if an update is already pending (so users don't get nagged).
-- ``update-snoozed.json`` — user asked "not now" — version + escalating
-  backoff (24h → 48h → 7d). A newer remote version resets the snooze.
 - ``just-upgraded`` — marker written by `install` so the next `check` can
   report `JUST_UPGRADED`.
+
+Set ``DEEPVISTA_UPDATE_CHECK=0`` to disable checks entirely.
 """
 
 from __future__ import annotations
@@ -46,13 +46,10 @@ PYPI_URL = "https://pypi.org/pypi/deepvista-cli/json"
 
 STATE_DIR = CONFIG_DIR
 CACHE_FILE = STATE_DIR / "update-check-cache.json"
-SNOOZE_FILE = STATE_DIR / "update-snoozed.json"
 JUST_UPGRADED_FILE = STATE_DIR / "just-upgraded"
-DISABLED_FILE = STATE_DIR / "update-check-disabled"
 
 FRESH_TTL_MIN = 60
 STALE_TTL_MIN = 720
-SNOOZE_BACKOFF_HOURS = [24, 48, 168]  # 1d, 2d, 7d
 
 
 def _safe_urlopen(url: str, timeout: int = 10) -> HTTPResponse:
@@ -84,11 +81,7 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 def _update_check_enabled() -> bool:
-    if os.environ.get("DEEPVISTA_UPDATE_CHECK", "").lower() in {"0", "false", "no", "off"}:
-        return False
-    if DISABLED_FILE.exists():
-        return False
-    return True
+    return os.environ.get("DEEPVISTA_UPDATE_CHECK", "").lower() not in {"0", "false", "no", "off"}
 
 
 def _parse_iso(s: str) -> datetime | None:
@@ -123,37 +116,6 @@ def _save_cache(current: str, latest: str) -> None:
         CACHE_FILE,
         {"checked_at": _now().isoformat(), "current": current, "latest": latest},
     )
-
-
-def _snooze_active(latest_remote: str) -> bool:
-    snooze = _read_json(SNOOZE_FILE)
-    if not snooze:
-        return False
-    # Reset snooze when a new remote version arrives.
-    if snooze.get("version") != latest_remote:
-        try:
-            SNOOZE_FILE.unlink()
-        except OSError:
-            pass
-        return False
-    until = _parse_iso(snooze.get("until", ""))
-    if until and until > _now():
-        return True
-    return False
-
-
-def _record_snooze(latest_remote: str, hours: int | None = None) -> tuple[int, datetime]:
-    snooze = _read_json(SNOOZE_FILE) or {}
-    level = snooze.get("level", 0) if snooze.get("version") == latest_remote else 0
-    if hours is None:
-        hours = SNOOZE_BACKOFF_HOURS[min(level, len(SNOOZE_BACKOFF_HOURS) - 1)]
-        level += 1
-    until = _now() + timedelta(hours=hours)
-    _write_json(
-        SNOOZE_FILE,
-        {"version": latest_remote, "until": until.isoformat(), "level": level},
-    )
-    return hours, until
 
 
 def _fetch_changelog_between(old: str, new: str) -> str | None:
@@ -197,9 +159,9 @@ def upgrade_command(ctx: click.Context, check_flag: bool) -> None:
     Examples:
       deepvista upgrade                 # interactive upgrade with changelog
       deepvista upgrade check           # fast cached check (for skill preambles)
-      deepvista upgrade install         # upgrade without prompting
-      deepvista upgrade snooze --days 2 # skip the nag for 2 days
-      deepvista upgrade disable         # turn off update checks
+      deepvista upgrade install --yes   # upgrade without prompting
+
+    Set DEEPVISTA_UPDATE_CHECK=0 to disable update checks.
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -217,7 +179,7 @@ def check_subcommand(quiet: bool, no_cache: bool) -> None:
 
     \b
     Exit codes:
-      0 — up to date, snoozed, disabled, or network failure (silent)
+      0 — up to date, disabled, or network failure (silent)
       1 — update available
 
     \b
@@ -258,9 +220,6 @@ def check_subcommand(quiet: bool, no_cache: bool) -> None:
     if latest == __version__:
         sys.exit(0)
 
-    if _snooze_active(latest):
-        sys.exit(0)
-
     if not quiet:
         click.echo(f"UPGRADE_AVAILABLE {__version__} {latest}")
     sys.exit(1)
@@ -298,10 +257,8 @@ def install_subcommand(yes: bool, skip_skills: bool, dry_run: bool) -> None:
 
     if dry_run:
         cmd = _pick_install_command()
-        import json as _json
-
         click.echo(
-            _json.dumps(
+            json.dumps(
                 {
                     "dry_run": True,
                     "would": "upgrade CLI",
@@ -315,100 +272,11 @@ def install_subcommand(yes: bool, skip_skills: bool, dry_run: bool) -> None:
         )
         return
 
-    if not yes:
-        choice = click.prompt(
-            "Install now?",
-            type=click.Choice(["y", "n", "snooze"], case_sensitive=False),
-            default="y",
-            show_choices=True,
-        ).lower()
-        if choice == "n":
-            click.echo("Skipped. Re-run `deepvista upgrade` when you're ready.")
-            return
-        if choice == "snooze":
-            hours, until = _record_snooze(latest)
-            click.echo(f"Snoozed for {hours}h (until {until.isoformat(timespec='minutes')}).")
-            return
+    if not yes and not click.confirm("Install now?", default=True):
+        click.echo("Skipped. Re-run `deepvista upgrade` when you're ready.")
+        return
 
     _run_install(latest, skip_skills=skip_skills)
-
-
-@upgrade_command.command("snooze")
-@click.option("--days", type=int, default=None, help="Snooze duration in days (default: escalating 1→2→7).")
-@click.option("--dry-run", is_flag=True, help="Preview what would happen without making any changes.")
-def snooze_subcommand(days: int | None, dry_run: bool) -> None:
-    """Snooze the update nag for the current latest version."""
-    cache = _load_cache() or {}
-    latest = cache.get("latest") if cache.get("current") == __version__ else None
-    if latest is None or latest == __version__:
-        latest = _fetch_latest_pypi_version(timeout=5)
-    if latest is None or latest == __version__:
-        click.echo("No update pending.")
-        return
-    hours = days * 24 if days else None
-    if dry_run:
-        snooze = _read_json(SNOOZE_FILE) or {}
-        level = snooze.get("level", 0) if snooze.get("version") == latest else 0
-        backoff = SNOOZE_BACKOFF_HOURS[min(level, len(SNOOZE_BACKOFF_HOURS) - 1)]
-        effective_hours = hours if hours is not None else backoff
-        click.echo(
-            json.dumps(
-                {"dry_run": True, "would": "snooze update", "version": latest, "for_hours": effective_hours},
-                indent=2,
-            )
-        )
-        return
-    actual_hours, until = _record_snooze(latest, hours=hours)
-    click.echo(f"Snoozed {latest} for {actual_hours}h (until {until.isoformat(timespec='minutes')}).")
-
-
-@upgrade_command.command("disable")
-@click.option("--dry-run", is_flag=True, help="Preview what would happen without making any changes.")
-def disable_subcommand(dry_run: bool) -> None:
-    """Disable update checks entirely. Re-enable with `deepvista upgrade enable`."""
-    if dry_run:
-        click.echo(
-            json.dumps(
-                {"dry_run": True, "would": "disable update checks", "flag_file": str(DISABLED_FILE)},
-                indent=2,
-            )
-        )
-        return
-    _ensure_state_dir()
-    DISABLED_FILE.touch()
-    click.echo("Update checks disabled. Run `deepvista upgrade enable` to turn them back on.")
-
-
-@upgrade_command.command("enable")
-@click.option("--dry-run", is_flag=True, help="Preview what would happen without making any changes.")
-def enable_subcommand(dry_run: bool) -> None:
-    """Re-enable update checks."""
-    if dry_run:
-        click.echo(
-            json.dumps(
-                {"dry_run": True, "would": "enable update checks", "flag_file": str(DISABLED_FILE)},
-                indent=2,
-            )
-        )
-        return
-    try:
-        DISABLED_FILE.unlink()
-    except FileNotFoundError:
-        pass
-    click.echo("Update checks enabled.")
-
-
-@upgrade_command.command("status")
-def status_subcommand() -> None:
-    """Print current state: version, check-enabled, cached latest, snooze."""
-    cache = _load_cache() or {}
-    snooze = _read_json(SNOOZE_FILE) or {}
-    click.echo(f"current:       {__version__}")
-    click.echo(f"cached latest: {cache.get('latest', '—')}")
-    click.echo(f"last check:    {cache.get('checked_at', '—')}")
-    click.echo(f"check enabled: {_update_check_enabled()}")
-    if snooze:
-        click.echo(f"snoozed:       {snooze.get('version')} until {snooze.get('until')}")
 
 
 # ---------------------------------------------------------------------------
