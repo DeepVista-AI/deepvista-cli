@@ -855,26 +855,21 @@ def test_run_prunes_gone_project_registration_on_startup(
 
 
 # ---------------------------------------------------------------------------
-# DV-1429: stale-agent self-heal — a gone agent is pruned, not spammed
+# DV-1429: claim failures must not empty the poll list
 # ---------------------------------------------------------------------------
 
 
-def test_run_reregisters_stale_agent_on_agent_not_found(
+def test_run_keeps_agent_on_claim_agent_not_found(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A stale local agent is re-registered on claim failure and polling continues."""
+    """Claim AGENT_NOT_FOUND must not prune the poller's agent list (--run-once)."""
     stub = _StubCtxClient()
     _stub_working_project(stub)
     stub.queue(
         "/agents/agent-uuid-1/tasks/claim",
         {"success": False, "error": "Machine not found", "error_code": "AGENT_NOT_FOUND"},
     )
-    stub.queue(
-        "/agents",
-        {"success": True, "agent": {"id": "agent-uuid-2", "project_id": DEFAULT_PROJECT_ID}},
-    )
-    stub.queue("/agents/agent-uuid-2/tasks/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
     agent_file = isolated_home / ".config" / "deepvista" / "agents" / "deepvista-cli__proj-default.json"
@@ -883,12 +878,55 @@ def test_run_reregisters_stale_agent_on_agent_not_found(
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
 
     assert result.exit_code == 0, result.output
-    saved = json.loads(agent_file.read_text())
-    assert saved["agent_id"] == "agent-uuid-2"
-    assert "removed stale agent agent-uuid-1" in result.output
-    assert "re-registered agent agent-uuid-2" in result.output
-    assert "could not claim task cards" not in result.output
-    assert "/agents/agent-uuid-2/tasks/claim" in {c[1] for c in stub.calls}
+    assert json.loads(agent_file.read_text())["agent_id"] == "agent-uuid-1"
+    assert "removed stale agent" not in result.output
+    assert "could not claim task cards" in result.output
+
+
+def test_run_keeps_agent_after_transient_claim_failure(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed claim on one poll must not empty ``agent_id`` for later polls."""
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    stub.queue(
+        "/agents/agent-uuid-1/tasks/claim",
+        {"success": False, "error": "Not Found", "_status_code": 404},
+    )
+    stub.queue("/agents/agent-uuid-1/tasks/claim", {"success": True, "tasks": []})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--poll-interval", "10", "--total-time", "15"])
+
+    assert result.exit_code == 0, result.output
+    payloads = _parse_json_objects(result.output)
+    assert payloads
+    assert all(p.get("agent_id") == "agent-uuid-1" for p in payloads if "agent_id" in p)
+    assert "removed stale agent" not in result.output
+
+
+def test_run_syncs_online_each_poll(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each poll pass re-validates the local agent and syncs online before claiming."""
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    for _ in range(2):
+        stub.queue("/agents/agent-uuid-1/tasks/claim", {"success": True, "tasks": []})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+    _install_fake_clock(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--poll-interval", "10", "--total-time", "15"])
+    assert result.exit_code == 0, result.output
+
+    sync_calls = [c[1] for c in stub.calls if c[1].endswith("/sync")]
+    assert len(sync_calls) >= 2
+    claim_calls = [c[1] for c in stub.calls if c[1].endswith("/tasks/claim")]
+    assert len(claim_calls) == 2
 
 
 # ---------------------------------------------------------------------------

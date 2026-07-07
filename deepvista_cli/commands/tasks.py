@@ -75,15 +75,6 @@ RUN_LOCK_PATH = CONFIG_DIR / "task_queue.run.lock"
 # ---------------------------------------------------------------------------
 
 
-class _StaleAgentError(Exception):
-    """Raised when a local agent registration is invalid on the server."""
-
-    def __init__(self, agent_id: str, *, recoverable: bool = True) -> None:
-        super().__init__(agent_id)
-        self.agent_id = agent_id
-        self.recoverable = recoverable
-
-
 def _client(ctx: click.Context) -> DeepVistaClient:
     return ctx.obj._client
 
@@ -559,58 +550,47 @@ def _resume_workflow(ctx: click.Context, skill_id: str) -> None:
         click.echo(f"  [warn] skill resume failed: {exc}", err=True)
 
 
-# Signals that an agent/machine no longer exists server-side. The backend returns
-# error_code AGENT_NOT_FOUND for legacy agent lookups and task-card claims, and
-# project_not_found when the whole project is gone.
-# Any of these means the local registration is stale — prune it once and stop
-# polling for it, instead of re-emitting the claim-failure block on every poll
-# (DV-1429: a stale `deepvista-cli` agent spammed the loop forever).
-_AGENT_GONE_CODES = {"agent_not_found", "project_not_found"}
-_AGENT_GONE_MESSAGES = {"agent not found", "machine not found"}
-
-
-def _agent_is_gone(data: dict, status_code: int) -> bool:
-    """True when a claim response says this agent/machine is gone server-side."""
-    if status_code == 404:
-        return True
-    code = str(data.get("error_code") or "").lower()
-    message = str(data.get("error") or "").lower()
-    return code in _AGENT_GONE_CODES or message in _AGENT_GONE_MESSAGES
-
-
-def _prune_stale_agent(agent_id: str, reason: str) -> None:
-    """Delete the local registration file for a stale agent_id and log it once."""
-    for aid, _, path in _iter_agent_files():
-        if aid == agent_id:
-            try:
-                path.unlink()
-            except OSError:
-                pass
-            break
-    click.echo(f"  removed stale agent {agent_id} ({reason})", err=True)
+def _refresh_agents_for_poll(
+    ctx: click.Context,
+    agents: list[tuple[str, str | None]],
+    project_names: dict[str, str],
+    *,
+    agent_type: str | None = None,
+) -> list[tuple[str, str | None]]:
+    """Re-validate registration and sync online before each claim pass."""
+    refreshed: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+    for _agent_id, project_id in agents:
+        if not project_id:
+            if _agent_id not in seen:
+                seen.add(_agent_id)
+                refreshed.append((_agent_id, project_id))
+            continue
+        new_id = resolve_or_register_machine(
+            ctx,
+            project_id,
+            agent_type=agent_type,
+            project_name=project_names.get(project_id),
+            quiet=True,
+        )
+        if new_id and new_id not in seen:
+            seen.add(new_id)
+            refreshed.append((new_id, project_id))
+    return refreshed or agents
 
 
 def _claim_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
     """Claim pending task cards for this Machine without executing them.
 
-    Raises ``_StaleAgentError`` when the server reports the agent/machine is gone
-    (AGENT_NOT_FOUND / project_not_found / 404) and the local registration file has
-    been deleted, so the caller drops this agent_id from the live poll list and
-    stops re-emitting the claim-failure block every poll (DV-1429).
+    Failures are non-fatal: log a warning and retry on the next poll. Never
+    delete the local registration from a failed claim — backends often return
+    404 while the machine is merely offline, and pruning mid-poll empties the
+    agent list so later passes never claim again.
     """
     headers = {"X-Project-Id": project_id} if project_id else None
     data = _client(ctx).post_nofatal(f"/agents/{agent_id}/tasks/claim", None, extra_headers=headers)
     status_code = data.get("_status_code", 200) if isinstance(data, dict) else 200
     if isinstance(data, dict) and (data.get("error") or status_code >= 400 or not data.get("success", True)):
-        if _agent_is_gone(data, status_code):
-            code = str(data.get("error_code") or "").lower()
-            reason = (
-                f"project {project_id} no longer accessible"
-                if code == "project_not_found"
-                else str(data.get("error") or "not found on server")
-            )
-            _prune_stale_agent(agent_id, reason)
-            raise _StaleAgentError(agent_id, recoverable=code != "project_not_found")
         detail = data.get("error") or data.get("detail") or "unknown"
         click.echo(
             f"  [warn] could not claim task cards for agent {agent_id}: {detail}",
@@ -1014,59 +994,20 @@ class _TaskExecutor:
         self._executor.shutdown(wait=True, cancel_futures=False)
 
 
-def _with_agent_recovery[T](
-    ctx: click.Context,
-    agent_id: str,
-    project_id: str | None,
-    operation: str,
-    fn: Callable[[str], T],
-) -> tuple[T | None, str, bool]:
-    """Run ``fn(agent_id)``; on a recoverable stale error, re-register and retry once."""
-    try:
-        return fn(agent_id), agent_id, False
-    except _StaleAgentError as exc:
-        if not exc.recoverable or not project_id:
-            return None, agent_id, True
-        new_id = resolve_or_register_machine(ctx, project_id, quiet=True)
-        if not new_id:
-            return None, agent_id, True
-        click.echo(f"  re-registered agent {new_id} for project {project_id} ({operation})", err=True)
-        try:
-            return fn(new_id), new_id, False
-        except _StaleAgentError:
-            return None, new_id, True
-
-
 def _claim_and_submit_all(
     ctx: click.Context,
     agents: list[tuple[str, str | None]],
     executor: _TaskExecutor,
-) -> tuple[int, set[str], dict[str, str]]:
+) -> int:
     """Claim pending task cards for all agents and submit runs to the executor."""
     submitted = 0
-    pruned: set[str] = set()
-    replacements: dict[str, str] = {}
     for agent_id, project_id in agents:
-        task_cards, active_id, failed = _with_agent_recovery(
-            ctx,
-            agent_id,
-            project_id,
-            "task cards",
-            lambda aid: _claim_task_cards(ctx, aid, project_id),
-        )
-        if failed:
-            pruned.add(agent_id)
-            if active_id != agent_id:
-                pruned.add(active_id)
-            continue
-        if active_id != agent_id:
-            replacements[agent_id] = active_id
-        for task in task_cards or []:
-            run_agent_id = active_id
-            run_project_id = project_id
-            executor.submit(lambda t=task, a=run_agent_id, p=run_project_id: _run_task_card(ctx, a, p, t))
+        for task in _claim_task_cards(ctx, agent_id, project_id):
+            executor.submit(
+                lambda t=task, a=agent_id, p=project_id: _run_task_card(ctx, a, p, t),
+            )
             submitted += 1
-    return submitted, pruned, replacements
+    return submitted
 
 
 @tasks_group.command("run")
@@ -1202,11 +1143,13 @@ def tasks_run(
     try:
         while True:
             polls += 1
-            submitted, pruned, replacements = _claim_and_submit_all(ctx, agents, executor)
-            if pruned:
-                agents = [(aid, pid) for aid, pid in agents if aid not in pruned]
-            if replacements:
-                agents = [(replacements.get(aid, aid), pid) for aid, pid in agents]
+            agents = _refresh_agents_for_poll(
+                ctx,
+                agents,
+                project_names,
+                agent_type=agent_type,
+            )
+            submitted = _claim_and_submit_all(ctx, agents, executor)
 
             results = executor.drain_completed()
             total_results.extend(results)
