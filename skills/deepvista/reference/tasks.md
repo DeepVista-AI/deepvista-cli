@@ -7,24 +7,21 @@
 - **Machine** — a device running the DeepVista CLI (this one). Registered
   automatically by `deepvista agents sync`; a user can have several (a laptop, a cloud VM).
   Machines are a *user-level* concept and live in the `managed_agents` table.
-- **Task** — a one-off prompt the web chat (or another agent) enqueues for a
+- **Task** — a one-off prompt the web chat (or scheduled jobs) enqueues for a
   Machine. Stored as a project-scoped `task` context card. The Machine claims it
   and runs it **headless** with `claude -p "/deepvista <prompt>"`; stdout becomes
   the task's output (saved as a linked output card) and the exit code decides
   completed vs. failed. The run log accretes on the task card under `## Run`.
 
-This is different from a *workflow run* (a structured multi-phase Skill) — a task
-is just a prompt. `tasks run` handles both: task cards **and** the legacy
-pull-based queue (queued `deepvista …` CLI commands + host-driven workflow runs).
-
 ## Commands
 
 | Command | Use when |
 |---|---|
-| `deepvista tasks run` | Start the poll loop on this Machine. Claims pending tasks for the **current project** (working project or backend default), runs each, reports results. |
-| `deepvista tasks list` | Show the tasks dispatched to this Machine (optionally `--status pending\|running\|completed\|failed`). Read-only. |
+| `deepvista tasks run` | Start the poll loop on this Machine. Claims pending task cards for the **current project** (working project or backend default), runs each, reports results. |
+| `deepvista tasks list` | Show task cards for this Machine (optionally `--status pending\|running\|completed\|failed`). Read-only. |
+| `deepvista tasks note <id> "<note>"` | Append a progress note to a running task card (used by headless runs). |
+| `deepvista tasks clean` | Delete terminated task cards (default: completed + failed). Preview with `--dry-run`. |
 | `deepvista tasks setup` | Install (or `--remove`) a crontab entry that polls on a recurring interval (`--interval N`, macOS/Linux). |
-| `deepvista tasks complete` | Report the terminal outcome of a claimed workflow task — `--status completed\|failed [--note "…"]` (used by host agents). |
 
 > The command was named `task_queue` in earlier releases. The `task_queue`
 > alias has been removed — use `tasks`. Cron entries installed by an older
@@ -49,10 +46,8 @@ deepvista tasks run --max-parallel 3   # cap concurrent headless runs (default 5
 - **Single instance**: a PID lock (`~/.config/deepvista/task_queue.run.lock`)
   means only one `tasks run` is active per Machine — a foreground poller and a
   cron tick never double-claim.
-- **Parallel execution**: up to 5 headless runs (`claude -p` task cards and
-  queued CLI commands) execute concurrently by default. Override with
-  `--max-parallel N`. The poll loop keeps claiming new work while earlier
-  runs finish — a long task no longer blocks the whole queue.
+- **Parallel execution**: up to 5 headless `claude -p` runs execute concurrently
+  by default. Override with `--max-parallel N`.
 - **Headless execution**: each task runs `claude -p "/deepvista <prompt>"`.
   - Override the binary with `DEEPVISTA_CLAUDE_BIN` (also the test seam).
   - Permission posture defaults to `bypassPermissions` (unattended); override
@@ -64,9 +59,12 @@ deepvista tasks run --max-parallel 3   # cap concurrent headless runs (default 5
 
 On DeepVista web chat, ask the agent to delegate — e.g.
 *"add a task to the local agent queue to reply hello world"*. The chat agent
-calls the `enqueue_task` tool, which creates a pending `task` card targeting one
-of your Machines (auto-selected when you have exactly one). The next
-`deepvista tasks run` poll on that Machine claims and runs it.
+creates a pending `task` card targeting one of your Machines (auto-selected
+when you have exactly one). The next `deepvista tasks run` poll on that Machine
+claims and runs it.
+
+Scheduled jobs that target a Machine also create task cards when the prompt
+includes a workflow skill chip.
 
 ## Cron
 

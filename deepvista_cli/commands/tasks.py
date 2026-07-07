@@ -1,40 +1,25 @@
-"""deepvista tasks — pull-based execution of work dispatched to this Machine (DV-936/DV-1247).
+"""deepvista tasks — pull-based execution of work dispatched to this Machine (DV-1247).
 
-The web app dispatches work onto a managed agent's queue — task cards (plain
-prompts run headless via `claude -p`) and queued CLI commands; this command
-group lets the agent's machine poll and run them:
+The web app dispatches work as **task cards** — plain prompts run headless via
+``claude -p "/deepvista <prompt>"``. This command group lets the Machine poll
+and run them:
 
   deepvista tasks run      — poll for pending tasks and execute them
-  deepvista tasks list     — show this machine's queue
-  deepvista tasks complete — report a workflow task's outcome (host agent)
+  deepvista tasks list     — show this machine's task cards
+  deepvista tasks clean    — delete terminated task cards
   deepvista tasks setup    — install a crontab entry that polls periodically
 
-Polling (DV-1079): `run` polls in the foreground by default (--poll-interval,
+Polling (DV-1079): ``run`` polls in the foreground by default (--poll-interval,
 bounded by --total-time when given); --run-once does a single claim/execute
-pass, which is what the cron entry installed by `setup` uses. A PID lock file
-allows only one `tasks run` per machine at a time, so a foreground
-poller and cron ticks never double-claim. Headless runs (task cards and queued
-CLI commands) execute concurrently up to --max-parallel (default 5) so a long
-`claude -p` task does not block the rest of the queue.
-
-Workflow tasks (DV-955): webhook-queued `deepvista skill run` entries can't
-be subprocess-executed — a workflow needs the surrounding host agent (Claude
-Code etc.) to drive its phases. `tasks run --host` claims them and
-emits their run packets to stdout for the host agent; headless runs (cron)
-claim command-only so workflow tasks stay pending until a host run. The
-host agent reports the outcome via `tasks complete` after
-`skill complete`.
-
-Safety: only commands whose first token is `deepvista` are executed
-(shlex-parsed, shell=False). The backend enforces the same allowlist at
-enqueue time; the check here guards against tampered queue rows.
+pass, which is what the cron entry installed by ``setup`` uses. A PID lock file
+allows only one ``tasks run`` per machine at a time. Headless runs execute
+concurrently up to --max-parallel (default 5).
 """
 
 from __future__ import annotations
 
 import json as _json
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -56,20 +41,14 @@ from deepvista_cli.commands.agents import (
     resolve_or_register_machine,
 )
 from deepvista_cli.commands.project import _projects
-from deepvista_cli.commands.skill import emit_host_run_packet
 from deepvista_cli.config import CONFIG_DIR, credentials_path
 from deepvista_cli.output.formatter import format_output, output_error
 
-TASK_COLUMNS = ["id", "status", "command", "created_at", "finished_at", "exit_code"]
-
-# Only the DeepVista CLI itself may be invoked from the queue.
-ALLOWED_COMMAND_BINARY = "deepvista"
-
-# Per-task execution budget; a hung task must not wedge the cron tick forever.
-TASK_TIMEOUT_SECONDS = 600
-
-# Reported output is truncated to a tail (mirrors the backend cap).
+# Reported output is truncated to a tail (mirrors the backend cap on task cards).
 OUTPUT_TAIL_MAX_CHARS = 2000
+
+# Subprocess budget for workflow resume after a task card completes.
+TASK_TIMEOUT_SECONDS = 600
 
 # Marker comment identifying crontab entries owned by `tasks setup`.
 # The literal value is unchanged so `setup` still finds and replaces cron
@@ -81,8 +60,7 @@ CRON_LOG_PATH = CONFIG_DIR / "task_queue.log"
 # Seconds between polls when `run` is left in its default polling mode.
 DEFAULT_POLL_INTERVAL_SECONDS = 10
 
-# Max concurrent headless task runs (task cards + queued CLI commands) per
-# `tasks run` poller. Long `claude -p` runs no longer block the whole queue.
+# Max concurrent headless task runs per `tasks run` poller.
 DEFAULT_MAX_PARALLEL_TASKS = 5
 
 # Idle polls between heartbeat lines in default (non-verbose) mode (~5 min at 10s).
@@ -198,126 +176,12 @@ def _require_machine_agent_id(
 
 def _deepvista_binary() -> str:
     """Absolute path to the `deepvista` entry point (cron has a minimal PATH)."""
-    binary = shutil.which(ALLOWED_COMMAND_BINARY)
+    binary = shutil.which("deepvista")
     if binary:
         return binary
-    if sys.argv and Path(sys.argv[0]).name == ALLOWED_COMMAND_BINARY:
+    if sys.argv and Path(sys.argv[0]).name == "deepvista":
         return str(Path(sys.argv[0]).resolve())
-    return ALLOWED_COMMAND_BINARY
-
-
-def _validate_command(command: str) -> str | None:
-    """Return an error message when `command` is not an allowed CLI invocation."""
-    try:
-        tokens = shlex.split(command)
-    except ValueError as exc:
-        return f"Command is not shell-parseable: {exc}"
-    if not tokens:
-        return "Command is empty"
-    if tokens[0] != ALLOWED_COMMAND_BINARY:
-        return f"Only '{ALLOWED_COMMAND_BINARY}' commands can run from the task queue"
-    return None
-
-
-def _is_workflow_task(task: dict) -> bool:
-    """True when the task is a webhook-queued workflow run (DV-955).
-
-    Primary signal is the advisory ``source: "webhook"`` key the backend
-    stamps at enqueue time; the command-shape fallback covers queues
-    written before that key existed.
-    """
-    if task.get("source") == "webhook":
-        return True
-    try:
-        tokens = shlex.split(str(task.get("command", "")))
-    except ValueError:
-        return False
-    return tokens[:3] == [ALLOWED_COMMAND_BINARY, "skill", "run"] and "--webhook" in tokens
-
-
-def _parse_workflow_command(command: str) -> dict | None:
-    """Extract skill_id / --input / --best-effort from a queued skill-run command.
-
-    The webhook composes these commands with a fixed shape
-    (``deepvista skill run --mode host <id> --input <json> --webhook
-    [--best-effort]``); parse defensively anyway since queue rows are data.
-    Returns None when the command isn't a recognizable skill run.
-    """
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        return None
-    if tokens[:3] != [ALLOWED_COMMAND_BINARY, "skill", "run"]:
-        return None
-
-    value_opts = {"--mode", "--input"}
-    values: dict[str, str] = {}
-    skill_id: str | None = None
-    i = 3
-    while i < len(tokens):
-        token = tokens[i]
-        if token in value_opts:
-            if i + 1 < len(tokens):
-                values[token] = tokens[i + 1]
-            i += 2
-        elif token.startswith("--"):
-            i += 1
-        elif skill_id is None:
-            skill_id = token
-            i += 1
-        else:
-            i += 1
-
-    if not skill_id:
-        return None
-    return {
-        "skill_id": skill_id,
-        "user_input": values.get("--input"),
-        "best_effort": "--best-effort" in tokens,
-    }
-
-
-def _emit_workflow_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
-    """Print a claimed workflow task's run packet for the host agent (DV-955).
-
-    The task is left ``running`` on purpose — the host agent drives the
-    workflow and reports the outcome via ``tasks complete``. Only an
-    unparseable/unloadable task is failed here, since no agent could ever
-    pick it up.
-    """
-    task_id = str(task.get("id", ""))
-    command = str(task.get("command", ""))
-
-    parsed = _parse_workflow_command(command)
-    if parsed is None:
-        _client(ctx).post(
-            f"/agents/{agent_id}/task-queue/{task_id}/result",
-            {"status": "failed", "exit_code": None, "output_tail": "Unparseable workflow task command"},
-        )
-        return {"task_id": task_id, "command": command, "status": "failed", "exit_code": None}
-
-    click.echo()
-    click.echo(f"=== DEEPVISTA WORKFLOW TASK {task_id} (skill {parsed['skill_id']}) ===")
-    click.echo()
-    try:
-        emit_host_run_packet(
-            ctx,
-            parsed["skill_id"],
-            parsed["user_input"],
-            "host",
-            webhook=True,
-            best_effort=parsed["best_effort"],
-            task_id=task_id,
-        )
-    except SystemExit:
-        # Skill gone / empty / phaseless — no host agent can ever run this
-        # task, so fail it instead of leaving it stuck in `running`.
-        _client(ctx).post(
-            f"/agents/{agent_id}/task-queue/{task_id}/result",
-            {"status": "failed", "exit_code": None, "output_tail": "Skill not found or not runnable"},
-        )
-        return {"task_id": task_id, "command": command, "status": "failed", "exit_code": None}
-    return {"task_id": task_id, "command": command, "status": "running", "exit_code": None}
+    return "deepvista"
 
 
 def _pid_alive(pid: int) -> bool:
@@ -363,39 +227,6 @@ def _release_run_lock() -> None:
         RUN_LOCK_PATH.unlink()
     except OSError:
         pass
-
-
-def _execute_task(ctx: click.Context, agent_id: str, task: dict) -> dict:
-    """Run one claimed task and report its terminal result to the backend."""
-    task_id = str(task.get("id", ""))
-    command = str(task.get("command", ""))
-
-    validation_error = _validate_command(command)
-    if validation_error:
-        status, exit_code, output_tail = "failed", None, validation_error
-    else:
-        argv = shlex.split(command)
-        argv[0] = _deepvista_binary()
-        try:
-            proc = subprocess.run(  # noqa: S603 — argv is allowlist-validated, shell=False
-                argv,
-                capture_output=True,
-                text=True,
-                timeout=TASK_TIMEOUT_SECONDS,
-            )
-            exit_code = proc.returncode
-            status = "completed" if exit_code == 0 else "failed"
-            output_tail = ((proc.stdout or "") + (proc.stderr or ""))[-OUTPUT_TAIL_MAX_CHARS:]
-        except subprocess.TimeoutExpired:
-            status, exit_code, output_tail = "failed", None, f"Timed out after {TASK_TIMEOUT_SECONDS}s"
-        except OSError as exc:
-            status, exit_code, output_tail = "failed", None, str(exc)
-
-    _client(ctx).post(
-        f"/agents/{agent_id}/task-queue/{task_id}/result",
-        {"status": status, "exit_code": exit_code, "output_tail": output_tail},
-    )
-    return {"task_id": task_id, "command": command, "status": status, "exit_code": exit_code}
 
 
 # ---------------------------------------------------------------------------
@@ -729,8 +560,8 @@ def _resume_workflow(ctx: click.Context, skill_id: str) -> None:
 
 
 # Signals that an agent/machine no longer exists server-side. The backend returns
-# error_code AGENT_NOT_FOUND for both "Agent not found" (task queue) and "Machine
-# not found" (task cards), and project_not_found when the whole project is gone.
+# error_code AGENT_NOT_FOUND for legacy agent lookups and task-card claims, and
+# project_not_found when the whole project is gone.
 # Any of these means the local registration is stale — prune it once and stop
 # polling for it, instead of re-emitting the claim-failure block on every poll
 # (DV-1429: a stale `deepvista-cli` agent spammed the loop forever).
@@ -789,33 +620,13 @@ def _claim_task_cards(ctx: click.Context, agent_id: str, project_id: str | None)
     return list(data.get("tasks") or [])
 
 
-def _claim_and_run_task_cards(ctx: click.Context, agent_id: str, project_id: str | None) -> list[dict]:
-    """Claim this Machine's pending task cards and run each headless (sequential)."""
-    return [_run_task_card(ctx, agent_id, project_id, task) for task in _claim_task_cards(ctx, agent_id, project_id)]
-
-
-# ---------------------------------------------------------------------------
-# Command group
-# ---------------------------------------------------------------------------
-
-
 @click.group("tasks")
 def tasks_group() -> None:
-    """Run tasks dispatched to this Machine (DV-1247).
+    """Run task cards dispatched to this Machine (DV-1247).
 
-    `tasks run` polls for work and executes it: **task cards** (plain prompts
-    enqueued from the web chat) are run headless via `claude -p`; queued CLI
-    commands and host-driven workflow runs are handled as before.
+    ``tasks run`` polls for pending task cards and executes each headless via
+    ``claude -p "/deepvista <prompt>"``.
     """
-
-
-def _detect_host_agent() -> bool:
-    """True when an AI agent host (Claude Code, OpenClaw, …) drives this CLI."""
-    try:
-        detected, _ = detect_agent_tool()
-    except Exception:
-        return False
-    return bool(detected) and detected != "deepvista-cli"
 
 
 def _iter_agent_files() -> list[tuple[str, str | None, Path]]:
@@ -1124,7 +935,6 @@ def _print_run_header(
     ctx: click.Context,
     agents: list[tuple[str, str | None]],
     project_names: dict[str, str],
-    host_mode: bool,
     run_once: bool,
     poll_interval: int,
     total_time: int | None,
@@ -1158,40 +968,8 @@ def _print_run_header(
             click.echo(f"  {agent_id[:8]}…{type_tag}  →  {proj}")
     click.echo(f"profile  : {profile}  ({api_url})")
     click.echo(f"mode     : {mode}")
-    click.echo(f"host     : {'yes (workflow tasks included)' if host_mode else 'no (command tasks only)'}")
     click.echo(f"parallel : up to {max_parallel} concurrent headless run(s)")
     click.echo("")
-
-
-def _claim_and_run(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[list[dict], list[dict]]:
-    """One claim/execute pass; returns (command task results, workflow tasks)."""
-    command_tasks, workflow_tasks = _claim_queue_tasks(ctx, agent_id, host_mode)
-    results = [_execute_task(ctx, agent_id, task) for task in command_tasks]
-    return results, workflow_tasks
-
-
-def _claim_queue_tasks(ctx: click.Context, agent_id: str, host_mode: bool) -> tuple[list[dict], list[dict]]:
-    """Claim pending task-queue entries without executing them."""
-    data = _client(ctx).post_nofatal(
-        f"/agents/{agent_id}/task-queue/claim",
-        None if host_mode else {"command_only": True},
-    )
-    status_code = data.get("_status_code", 200) if isinstance(data, dict) else 200
-    if isinstance(data, dict) and _agent_is_gone(data, status_code):
-        code = str(data.get("error_code") or "").lower()
-        _prune_stale_agent(agent_id, str(data.get("error") or "not found on server"))
-        raise _StaleAgentError(agent_id, recoverable=code != "project_not_found")
-    if status_code >= 400 or not data.get("success", True):
-        error = data.get("error", "Unknown error") if isinstance(data, dict) else "Unknown error"
-        if isinstance(error, dict):
-            error = error.get("detail") or error.get("message") or "unknown"
-        output_error(1, "Failed to claim tasks", error)
-        raise SystemExit(1)
-
-    tasks = data.get("tasks") or []
-    command_tasks = [t for t in tasks if not _is_workflow_task(t)]
-    workflow_tasks = [t for t in tasks if _is_workflow_task(t)] if host_mode else []
-    return command_tasks, workflow_tasks
 
 
 class _TaskExecutor:
@@ -1262,16 +1040,10 @@ def _with_agent_recovery[T](
 def _claim_and_submit_all(
     ctx: click.Context,
     agents: list[tuple[str, str | None]],
-    host_mode: bool,
     executor: _TaskExecutor,
-) -> tuple[int, list[tuple[str, dict]], set[str], dict[str, str]]:
-    """Claim pending work for all agents and submit runs to the executor.
-
-    Returns ``(submitted_count, [(agent_id, workflow_task)], pruned_agent_ids,
-    replacements)``.
-    """
+) -> tuple[int, set[str], dict[str, str]]:
+    """Claim pending task cards for all agents and submit runs to the executor."""
     submitted = 0
-    all_workflow_tasks: list[tuple[str, dict]] = []
     pruned: set[str] = set()
     replacements: dict[str, str] = {}
     for agent_id, project_id in agents:
@@ -1294,34 +1066,7 @@ def _claim_and_submit_all(
             run_project_id = project_id
             executor.submit(lambda t=task, a=run_agent_id, p=run_project_id: _run_task_card(ctx, a, p, t))
             submitted += 1
-
-        try:
-            queue_out, queue_agent_id, queue_failed = _with_agent_recovery(
-                ctx,
-                active_id,
-                project_id,
-                "task queue",
-                lambda aid: _claim_queue_tasks(ctx, aid, host_mode),
-            )
-        except SystemExit:
-            click.echo(f"  [warn] failed to claim tasks for agent {active_id} — skipping", err=True)
-            continue
-        if queue_failed or queue_out is None:
-            pruned.add(agent_id)
-            if queue_agent_id != agent_id:
-                pruned.add(queue_agent_id)
-            continue
-        command_tasks, wf_tasks = queue_out
-        if queue_agent_id != agent_id:
-            replacements[agent_id] = queue_agent_id
-        active_id = queue_agent_id
-
-        for task in command_tasks:
-            run_agent_id = active_id
-            executor.submit(lambda t=task, a=run_agent_id: _execute_task(ctx, a, t))
-            submitted += 1
-        all_workflow_tasks.extend((active_id, t) for t in wf_tasks)
-    return submitted, all_workflow_tasks, pruned, replacements
+    return submitted, pruned, replacements
 
 
 @tasks_group.command("run")
@@ -1331,17 +1076,6 @@ def _claim_and_submit_all(
     "project_id",
     default=None,
     help="Scope to this project (overrides the working project for this call only).",
-)
-@click.option(
-    "--host",
-    "host_mode",
-    is_flag=True,
-    default=False,
-    help=(
-        "Claim workflow tasks too and emit their run packets for the host "
-        "agent to drive (DV-955). Auto-enabled when an agent host is "
-        "detected; headless runs claim command tasks only."
-    ),
 )
 @click.option(
     "--run-once",
@@ -1383,14 +1117,13 @@ def _claim_and_submit_all(
     default=DEFAULT_MAX_PARALLEL_TASKS,
     show_default=True,
     type=click.IntRange(1, 20),
-    help="Max concurrent headless task runs (task cards and queued CLI commands).",
+    help="Max concurrent headless task-card runs.",
 )
 @click.pass_context
 def tasks_run(
     ctx: click.Context,
     agent_type: str | None,
     project_id: str | None,
-    host_mode: bool,
     run_once: bool,
     poll_interval: int,
     total_time: int | None,
@@ -1398,7 +1131,7 @@ def tasks_run(
     quiet: bool,
     max_parallel: int,
 ) -> None:
-    """Poll the task queue for the current project and execute claimed tasks (DV-1079).
+    """Poll for pending task cards and execute them headless (DV-1247).
 
     Scopes to the working project (``project use``, global ``--project``, or
     ``DEEPVISTA_PROJECT_ID``), falling back to your backend default project.
@@ -1408,17 +1141,10 @@ def tasks_run(
     Default mode polls in the foreground — claim, execute, sleep
     --poll-interval, repeat — until --total-time elapses (or forever when
     unset). --run-once does a single pass and exits; the cron entry installed
-    by `tasks setup` uses it.
+    by ``tasks setup`` uses it.
 
-    Only one `tasks run` may be active per machine — concurrent
-    invocations exit with an error instead of double-claiming the queue.
-
-    Plain command tasks and task cards run concurrently (up to --max-parallel)
-    via subprocess / `claude -p`; their results are reported back as each
-    finishes. Workflow tasks (webhook-queued skill runs) are only claimed in
-    host mode: their run packets are printed for the surrounding agent to
-    drive — polling stops at that point so the host agent can act — and the
-    entries stay ``running`` until the agent calls ``tasks complete``.
+    Only one ``tasks run`` may be active per machine — concurrent
+    invocations exit with an error instead of double-claiming work.
     """
     if not _acquire_run_lock():
         output_error(
@@ -1463,9 +1189,7 @@ def tasks_run(
             )
             raise SystemExit(3)
 
-    host_mode = host_mode or _detect_host_agent()
-
-    _print_run_header(ctx, agents, project_names, host_mode, run_once, poll_interval, total_time, max_parallel)
+    _print_run_header(ctx, agents, project_names, run_once, poll_interval, total_time, max_parallel)
 
     poll_status: _PollStatus | None = None
     if not run_once:
@@ -1478,7 +1202,7 @@ def tasks_run(
     try:
         while True:
             polls += 1
-            submitted, workflow_tasks, pruned, replacements = _claim_and_submit_all(ctx, agents, host_mode, executor)
+            submitted, pruned, replacements = _claim_and_submit_all(ctx, agents, executor)
             if pruned:
                 agents = [(aid, pid) for aid, pid in agents if aid not in pruned]
             if replacements:
@@ -1489,15 +1213,12 @@ def tasks_run(
             if poll_status is not None:
                 poll_status.record_results(results)
 
-            has_work = bool(submitted or results or workflow_tasks)
+            has_work = bool(submitted or results)
             if has_work:
                 failed = sum(1 for r in results if r.get("status") == "failed")
-                task_count = submitted + len(workflow_tasks)
-                detail = f"{task_count} task(s) claimed"
+                detail = f"{submitted} task(s) claimed"
                 if executor.in_flight:
                     detail += f" ({executor.in_flight} running)"
-                if workflow_tasks:
-                    detail += f" ({len(workflow_tasks)} workflow)"
                 if failed:
                     detail += f", {failed} finished failed"
                 if poll_status is not None:
@@ -1532,19 +1253,12 @@ def tasks_run(
                         "tasks_in_flight": executor.in_flight,
                         "failed": sum(1 for r in results if r.get("status") == "failed"),
                         "results": results,
-                        "workflow_tasks": len(workflow_tasks),
                     },
-                    title="Task Queue",
+                    title="Tasks",
                 )
 
             if poll_status is not None and results:
                 poll_status.on_tasks_finished(results)
-
-            # Workflow packets go last so the runtime contract (and its
-            # completion instructions) is the freshest thing in the host
-            # agent's context.
-            for wf_agent_id, task in workflow_tasks:
-                _emit_workflow_task(ctx, wf_agent_id, task)
 
             if run_once:
                 total_results.extend(executor.wait_all())
@@ -1556,14 +1270,9 @@ def tasks_run(
                         "tasks_run": len(total_results),
                         "failed": sum(1 for r in total_results if r.get("status") == "failed"),
                         "results": total_results,
-                        "workflow_tasks": len(workflow_tasks),
                     },
-                    title="Task Queue",
+                    title="Tasks",
                 )
-                return
-            if workflow_tasks:
-                # The host agent has packets to drive; blocking it inside the
-                # poll loop would deadlock the run. Hand control back.
                 return
             if total_time is not None and (time.monotonic() - started) + poll_interval > total_time:
                 if poll_status is not None:
@@ -1578,7 +1287,7 @@ def tasks_run(
                         "tasks_run": len(total_results),
                         "failed": sum(1 for r in total_results if r.get("status") == "failed"),
                     },
-                    title="Task Queue (polling finished)",
+                    title="Tasks (polling finished)",
                 )
                 return
             if verbose and not quiet:
@@ -1632,7 +1341,7 @@ def tasks_list(
 
 
 def _task_timestamp(task: dict) -> datetime | None:
-    """Best-effort last-activity timestamp for a task-queue entry (DV-1429)."""
+    """Best-effort last-activity timestamp for a task card (DV-1429)."""
     for key in ("completed_at", "updated_at", "started_at", "created_at"):
         raw = task.get(key)
         if not raw:
@@ -1674,12 +1383,12 @@ def tasks_clean(
     project_id: str | None,
     dry_run: bool,
 ) -> None:
-    """Delete terminated entries from this Machine's task queue (DV-1429).
+    """Delete terminated task cards for this Machine (DV-1429).
 
-    With explicit TASK_IDS, deletes exactly those. Otherwise deletes queue entries
+    With explicit TASK_IDS, deletes exactly those. Otherwise deletes task cards
     in a terminal state (default: completed + failed), optionally limited to those
     last updated more than --older-than days ago. Inspect first with
-    `deepvista tasks list`; preview with --dry-run.
+    ``deepvista tasks list``; preview with --dry-run.
 
     > [!CAUTION] Destructive — deleted tasks cannot be recovered. Confirm with the user.
     """
@@ -1691,9 +1400,9 @@ def tasks_clean(
         target_ids = list(dict.fromkeys(task_ids))  # dedupe, preserve order
     else:
         wanted = {s.lower() for s in statuses} or {"completed", "failed"}
-        data = client.get(f"/agents/{agent_id}/task-queue", extra_headers=headers)
+        data = client.get(f"/agents/{agent_id}/tasks", extra_headers=headers)
         if isinstance(data, dict) and data.get("error"):
-            output_error(1, "Failed to list task queue", data["error"])
+            output_error(1, "Failed to list tasks", data["error"])
             raise SystemExit(1)
         queue = (data.get("tasks") if isinstance(data, dict) else None) or []
         cutoff = datetime.now(UTC) - timedelta(days=older_than_days) if older_than_days is not None else None
@@ -1725,7 +1434,7 @@ def tasks_clean(
     failed: list[dict] = []
     for tid in target_ids:
         try:
-            resp = client.delete(f"/agents/{agent_id}/task-queue/{tid}")
+            resp = client.delete(f"/agents/{agent_id}/tasks/{tid}")
         except SystemExit:
             failed.append({"id": tid, "error": "delete request failed"})
             continue
@@ -1777,44 +1486,6 @@ def tasks_note(
         output_error(1, "Failed to append task note", data.get("error", "Unknown error"))
         raise SystemExit(1)
     click.echo(f"  ✎ note appended to task {task_id[:8]}…", err=True)
-
-
-@tasks_group.command("complete")
-@click.argument("task_id")
-@click.option(
-    "--status",
-    type=click.Choice(["completed", "failed"]),
-    required=True,
-    help="Terminal outcome of the workflow task.",
-)
-@click.option("--note", default=None, help="Short outcome note stored as the task's output tail.")
-@click.option("--type", "agent_type", default=None, help="Resolve agent by type from local storage.")
-@click.option("--project", "project_id", default=None, help="Restrict to the agent registered for this project ID.")
-@click.pass_context
-def tasks_complete(
-    ctx: click.Context,
-    task_id: str,
-    status: str,
-    note: str | None,
-    agent_type: str | None,
-    project_id: str | None,
-) -> None:
-    """Report the terminal outcome of a claimed workflow task (DV-955).
-
-    Called by the host agent after driving a webhook-queued workflow run to
-    its end (`deepvista skill complete`) — or to its failure. Plain command
-    tasks report automatically; this is only needed for workflow tasks,
-    which stay ``running`` until someone reports them.
-    """
-    agent_id, _ = _require_machine_agent_id(agent_type, project_id)
-    data = _client(ctx).post(
-        f"/agents/{agent_id}/task-queue/{task_id}/result",
-        {"status": status, "exit_code": 0 if status == "completed" else 1, "output_tail": note},
-    )
-    if not data.get("success"):
-        output_error(1, "Failed to report task result", data.get("error", "Unknown error"))
-        raise SystemExit(1)
-    _output(ctx, {"agent_id": agent_id, "task": data.get("task")}, title="Task Queue")
 
 
 # ---------------------------------------------------------------------------
@@ -1880,9 +1551,8 @@ def tasks_setup(ctx: click.Context, interval: int, remove: bool) -> None:
     (macOS/Linux); on Windows, schedule `deepvista tasks run
     --run-once` with Task Scheduler instead.
 
-    Cron runs are headless: they execute plain command tasks only and
-    leave workflow tasks (webhook-queued skill runs) pending. Drive those
-    from an agent session with `deepvista tasks run --host`.
+    Each cron tick runs the same headless task-card execution as a foreground
+    `tasks run` poll (one pass per tick via ``--run-once``).
 
     > [!CAUTION] This is a write command — confirm with the user before executing.
     """
@@ -1909,7 +1579,7 @@ def tasks_setup(ctx: click.Context, interval: int, remove: bool) -> None:
         return
 
     if remove and len(kept) == len(existing):
-        _output(ctx, {"removed": False, "message": "No task-queue cron entry installed."}, title="Task Queue Setup")
+        _output(ctx, {"removed": False, "message": "No tasks cron entry installed."}, title="Tasks Setup")
         return
 
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)

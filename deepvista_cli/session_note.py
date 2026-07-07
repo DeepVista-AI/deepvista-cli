@@ -435,7 +435,7 @@ def seed_frontmatter(
     if agent_version:
         fm["agent_version"] = agent_version
     # DV-1277: when this session is a task run dispatched from the web chat,
-    # `deepvista task_queue run` exports the originating chat + task so the
+    # `deepvista tasks run` exports the originating chat + task so the
     # session card cross-references them — the run record shares the task_id, so
     # a run and its session both resolve back to the chat that triggered them.
     source_chat_id = os.environ.get("DEEPVISTA_SOURCE_CHAT_ID", "").strip()
