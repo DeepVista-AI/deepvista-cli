@@ -123,9 +123,9 @@ def skill_get(ctx: click.Context, skill_id: str, project_override: str | None) -
     is_flag=True,
     default=False,
     help=(
-        "Mark this as a webhook-queued run (DV-955). Appends the task-queue "
-        "completion contract so the host agent reports the queue task after "
-        "`skill complete`. Set automatically on commands the webhook enqueues."
+        "Mark this as a webhook-queued run (DV-955). Appends the task-card "
+        "progress contract so the host agent reports updates via "
+        "`deepvista tasks note` while the run is in flight."
     ),
 )
 @click.option(
@@ -185,12 +185,10 @@ def emit_host_run_packet(
 ) -> None:
     """Fetch the skill, acquire the run lock, and print the host run packet.
 
-    Shared by ``skill run`` and ``tasks run --host`` (DV-955), which emits
-    packets for webhook-queued workflow tasks instead of subprocess-executing
-    them — a queued workflow needs the surrounding host agent to drive it.
-    ``task_id`` (only known on the task-queue path) threads the queue entry
-    into the completion contract. ``mode`` is retained for the tasks.py call
-    signature; host is the only mode.
+    Shared by ``skill run`` when driving a workflow from a host agent session.
+    ``task_id`` threads a related task card into the progress contract when the
+    run was dispatched as a task card (DV-1247). ``mode`` is retained for
+    compatibility; host is the only mode.
     """
     card = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
     if not card or not card.get("description"):
@@ -276,23 +274,20 @@ for answers:
 
 
 def _webhook_task_stanza(task_id: str | None) -> str:
-    """Completion contract for webhook-queued runs (DV-955).
-
-    The queue entry stays ``running`` until the host agent reports it —
-    nothing else will, so skipping this leaves a permanently stuck task.
-    """
+    """Progress contract for webhook-queued runs tied to a task card (DV-955)."""
     task_ref = task_id or "<task_id from `deepvista tasks list`>"
     return f"""\
-## Webhook task completion
+## Webhook task progress
 
-This run came off the agent task queue. The queue entry stays `running`
-until YOU report it — after `deepvista skill complete` (or on failure):
+This run is tied to task card `{task_ref}`. While you work, report progress so
+the delegating agent can see updates in real time:
 
 ```
-deepvista tasks complete {task_ref} --status completed
-# or, when the run could not finish:
-deepvista tasks complete {task_ref} --status failed --note "<one short sentence>"
-```"""
+deepvista tasks note {task_ref} "<brief update after each significant step>"
+```
+
+When this run is headless via `deepvista tasks run`, the task card's final
+status is reported automatically when the enclosing `claude -p` run exits."""
 
 
 # ---------------------------------------------------------------------------

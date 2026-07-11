@@ -3,9 +3,9 @@
 Regression guard (DV-955): the backend normalizes phase accordions to the
 chevron-only ``<accordion-plain>`` shortcode (DV-1084). The phase regex must
 accept that spelling — otherwise ``phases()`` returns empty and
-``task_queue run --host`` fails to emit a run packet ("Skill has no
+``deepvista skill run`` fails to emit a run packet ("Skill has no
 <accordion> phases") for any normalized workflow skill, silently breaking
-webhook-queued local runs.
+webhook-dispatched task-card runs.
 """
 
 from __future__ import annotations

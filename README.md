@@ -365,13 +365,14 @@ deepvista session finalize <session_id>
 
 ### tasks — Work dispatched to this machine
 
-Polls for work assigned to this machine's agents and runs it: task cards (plain prompts run headless via `claude -p`), queued CLI commands, and host-driven workflow runs.
+Polls for work assigned to this machine's agents and runs task cards headless via `claude -p`.
 
 ```bash
 deepvista tasks list
-deepvista tasks run [--run-once] [--host] [--poll-interval N] [--total-time N]
+deepvista tasks run [--run-once] [--poll-interval N] [--total-time N] [--max-parallel N]
+deepvista tasks note <task_id> "<progress note>"
+deepvista tasks clean [--dry-run] [<task_id>...]
 deepvista tasks setup [--interval N] [--remove]   # install/remove a polling crontab entry
-deepvista tasks complete <task_id> --status completed|failed [--note "…"]
 ```
 
 ### schedule — Recurring daily-planning job
