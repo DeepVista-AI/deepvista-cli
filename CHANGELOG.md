@@ -37,6 +37,13 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [3.0.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v2.0.0...v3.0.0) (2026-07-11)
+
+
+### Miscellaneous Chores
+
+* release 3.0.0 ([#195](https://github.com/DeepVista-AI/deepvista-cli/issues/195)) ([d1c99e0](https://github.com/DeepVista-AI/deepvista-cli/commit/d1c99e0196a779f9eb4b3416db0be089287394b3))
+
 ## [2.0.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v1.2.0...v2.0.0) (2026-07-06)
 
 
