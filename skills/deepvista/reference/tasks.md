@@ -4,9 +4,17 @@
 
 ## Concepts
 
-- **Machine** — a device running the DeepVista CLI (this one). Registered
-  automatically by `deepvista agents sync`; a user can have several (a laptop, a cloud VM).
-  Machines are a *user-level* concept and live in the `managed_agents` table.
+- **Machine** — this device, identified by a stable `machine_fingerprint`
+  (hostname + MAC + OS). Registered automatically by `deepvista tasks run` /
+  `agents sync`. A user can have several (a laptop, a cloud VM). Machines are
+  *user-level*: uniqueness is `(user_id, machine_fingerprint)`. Local cache:
+  `~/.config/deepvista/machines/<fingerprint>.json`.
+- **Project** — claim/list scope only. `tasks run --project <id>` tells the
+  Machine which project's task cards to claim; it does **not** create a second
+  Machine row.
+- **agent_type** — soft metadata (`last_seen_tool`: claude-code, deepvista-cli, …).
+  Not part of identity. Claude Code sync and `tasks run` on the same laptop
+  share one Machine.
 - **Task** — a one-off prompt the web chat (or scheduled jobs) enqueues for a
   Machine. Stored as a project-scoped `task` context card. The Machine claims it
   and runs it **headless** with `claude -p "/deepvista <prompt>"`; stdout becomes
@@ -34,11 +42,11 @@ deepvista tasks run                 # poll forever (Ctrl-C to stop)
 deepvista tasks run --run-once      # one pass then exit (what `setup`'s cron uses)
 deepvista tasks run --poll-interval 30
 deepvista tasks run --total-time 600   # poll for up to 10 minutes
-deepvista tasks run --project <id>     # override the working project for this run
+deepvista tasks run --project <id>     # claim scope for this run (same Machine)
 deepvista tasks run --max-parallel 3   # cap concurrent headless runs (default 5)
 ```
 
-- **Current project by default**: scopes to the working project (`project use`,
+- **Current project by default**: scopes claims to the working project (`project use`,
   global `--project`, or `DEEPVISTA_PROJECT_ID`), falling back to your backend
   default (`GET /projects/me`). Override per-invocation with `--project`.
   Each claim stamps the Machine's `last_heartbeat_at`, so it shows **online**

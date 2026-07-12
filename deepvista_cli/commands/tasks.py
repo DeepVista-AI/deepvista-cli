@@ -37,7 +37,9 @@ from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
 from deepvista_cli.commands.agents import (
     AGENTS_DIR,
-    _load_agent_id,
+    MACHINES_DIR,
+    _load_machine_id,
+    _machine_path,
     resolve_or_register_machine,
 )
 from deepvista_cli.commands.project import _projects
@@ -87,67 +89,28 @@ def _resolve_machine_agent_id(
     agent_type: str | None,
     project_id: str | None = None,
 ) -> tuple[str, str | None] | None:
-    """Find the registered agent this machine's queue belongs to.
+    """Find this Machine's registered agent_id.
 
-    Resolution order: explicit --type/--project, then the detected host
-    tool, then the most recently registered agent of any type on this machine.
+    Machine identity is fingerprint-keyed (``agent_type`` is soft metadata).
+    ``project_id`` is claim scope only — returned so banners can show it.
 
-    Returns ``(agent_id, project_id)`` so callers can surface the project in
-    banners without a second file read, or ``None`` when nothing is found.
+    Returns ``(agent_id, project_id)`` or ``None`` when nothing is cached.
     """
-
-    def _read(path: Path) -> tuple[str, str | None] | None:
+    _ = agent_type  # soft metadata; not used for identity lookup
+    agent_id = _load_machine_id()
+    if not agent_id:
+        return None
+    # Prefer project_id from the caller (claim scope); else from the cache file.
+    cached_project: str | None = project_id
+    path = _machine_path()
+    if path.exists():
         try:
             data = _json.loads(path.read_text())
-            aid = data.get("agent_id")
-            return (aid, data.get("project_id")) if aid else None
+            if not cached_project:
+                cached_project = data.get("project_id")
         except (OSError, _json.JSONDecodeError):
-            return None
-
-    if agent_type:
-        agent_id = _load_agent_id(agent_type, project_id)
-        if not agent_id:
-            return None
-        # Re-read the file to get project_id alongside the agent_id.
-        for path in AGENTS_DIR.glob(f"{agent_type}__*.json"):
-            result = _read(path)
-            if result and result[0] == agent_id:
-                return result
-        return (agent_id, project_id)
-
-    try:
-        detected, _ = detect_agent_tool()
-    except Exception:
-        detected = None
-    if detected:
-        agent_id = _load_agent_id(detected, project_id)
-        if agent_id:
-            for path in AGENTS_DIR.glob(f"{detected}__*.json"):
-                result = _read(path)
-                if result and result[0] == agent_id:
-                    return result
-            return (agent_id, project_id)
-
-    # Cron runs outside any agent host — fall back to the newest registration.
-    candidates: list[tuple[float, Path]] = []
-    if AGENTS_DIR.exists():
-        for path in AGENTS_DIR.glob("*.json"):
-            try:
-                candidates.append((path.stat().st_mtime, path))
-            except OSError:
-                continue
-    candidates.sort(reverse=True)
-    for _, path in candidates:
-        try:
-            data = _json.loads(path.read_text())
-        except (OSError, _json.JSONDecodeError):
-            continue
-        if project_id and data.get("project_id") and data["project_id"] != project_id:
-            continue
-        aid = data.get("agent_id")
-        if aid:
-            return (aid, data.get("project_id"))
-    return None
+            pass
+    return (agent_id, cached_project)
 
 
 def _require_machine_agent_id(
@@ -610,20 +573,21 @@ def tasks_group() -> None:
 
 
 def _iter_agent_files() -> list[tuple[str, str | None, Path]]:
-    """Return (agent_id, project_id, path) for every locally registered agent, newest-first.
+    """Return (agent_id, project_id, path) for local Machine registrations, newest-first.
 
-    Deduplicates by agent_id so a registration file collision never causes
-    double-claiming.
+    Prefers ``MACHINES_DIR`` (fingerprint-keyed). Falls back to legacy
+    ``AGENTS_DIR``. Deduplicates by agent_id.
     """
-    if not AGENTS_DIR.exists():
-        return []
     seen: set[str] = set()
     candidates: list[tuple[float, Path]] = []
-    for path in AGENTS_DIR.glob("*.json"):
-        try:
-            candidates.append((path.stat().st_mtime, path))
-        except OSError:
+    for directory in (MACHINES_DIR, AGENTS_DIR):
+        if not directory.exists():
             continue
+        for path in directory.glob("*.json"):
+            try:
+                candidates.append((path.stat().st_mtime, path))
+            except OSError:
+                continue
     result: list[tuple[str, str | None, Path]] = []
     for _, path in sorted(candidates, reverse=True):
         try:
@@ -639,42 +603,9 @@ def _iter_agent_files() -> list[tuple[str, str | None, Path]]:
 
 
 def _find_registered_agent_for_project(project_id: str) -> str | None:
-    """Return a locally registered agent_id for ``project_id``, any type."""
-    for agent_id, proj_id, _ in _iter_agent_files():
-        if proj_id == project_id:
-            return agent_id
-    return None
-
-
-def _prune_agent_registrations_for_gone_projects(accessible_project_ids: set[str]) -> None:
-    """Delete local agent files whose ``project_id`` is absent from GET /projects."""
-    for agent_id, proj_id, path in _iter_agent_files():
-        if not proj_id or proj_id in accessible_project_ids:
-            continue
-        try:
-            path.unlink()
-            click.echo(
-                f"  removed stale agent {agent_id} (project {proj_id} no longer accessible)",
-                err=True,
-            )
-        except OSError:
-            pass
-
-
-def _append_scoped_local_agents(
-    seen_agent_ids: set[str],
-    result: list[tuple[str, str | None]],
-    *,
-    scope_project_ids: set[str] | None = None,
-) -> None:
-    """Append locally registered agents not yet in *result* (legacy globals in all-project mode)."""
-    for agent_id, proj_id, _path in _iter_agent_files():
-        if agent_id in seen_agent_ids:
-            continue
-        if scope_project_ids is not None and (not proj_id or proj_id not in scope_project_ids):
-            continue
-        seen_agent_ids.add(agent_id)
-        result.append((agent_id, proj_id))
+    """Return this Machine's agent_id when registered (project is claim scope only)."""
+    _ = project_id
+    return _load_machine_id()
 
 
 def _resolve_working_project(ctx: click.Context, project_override: str | None = None) -> str | None:
@@ -704,22 +635,13 @@ def _ensure_agents_for_projects(
     *,
     project_ids: set[str] | None = None,
 ) -> tuple[list[tuple[str, str | None]], dict[str, str]]:
-    """Ensure local agent registrations exist for the given project(s).
+    """Ensure this Machine is registered, then pair it with claim-scope project(s).
 
-    When ``project_ids`` is ``None``, every accessible project is covered
-    (legacy all-projects mode).  Otherwise only the listed projects are
-    registered and returned.
+    Machine identity is fingerprint-keyed (one row per device). ``project_ids``
+    only decides which project(s) to claim tasks for — registering again for a
+    second project reuses the same Machine id.
 
-    For each project, ``resolve_or_register_machine`` validates the local cache
-    against the server and registers (or adopts) a managed agent when needed.
-
-    Stale local registrations whose project_id no longer appears in the API
-    response are deleted before lookups so they are not reused; agents with
-    no project_id (legacy global registrations) are kept only in all-projects
-    mode.
-
-    Returns ``((agent_id, project_id), project_names)`` where ``project_names``
-    maps project_id → human-readable name.
+    Returns ``((agent_id, project_id), project_names)``.
     """
     try:
         detected, _ = detect_agent_tool()
@@ -728,16 +650,8 @@ def _ensure_agents_for_projects(
     agent_type = detected or "deepvista-cli"
 
     projects = _projects(ctx)
-    accessible_project_ids: set[str] = set()
-    for project in projects:
-        if project_id := project.get("id"):
-            accessible_project_ids.add(str(project_id))
-    _prune_agent_registrations_for_gone_projects(accessible_project_ids)
-
-    # Build project_id → name map from the API response.
     project_names: dict[str, str] = {}
-    seen_agent_ids: set[str] = set()
-    result: list[tuple[str, str | None]] = []
+    scoped: list[tuple[str, str]] = []  # (project_id, project_name)
 
     for project in projects:
         project_id = project.get("id")
@@ -745,38 +659,46 @@ def _ensure_agents_for_projects(
             continue
         if project_ids is not None and project_id not in project_ids:
             continue
-
         project_name = project.get("name") or project.get("title") or ""
         project_names[project_id] = project_name
+        scoped.append((project_id, project_name))
 
-        agent_id = resolve_or_register_machine(
-            ctx,
-            project_id,
-            agent_type=agent_type,
-            project_name=project_name or None,
-        )
-        if not agent_id:
-            continue
-        if agent_id not in seen_agent_ids:
-            seen_agent_ids.add(agent_id)
-            result.append((agent_id, project_id))
+    if not scoped and project_ids:
+        # Project list may be empty/unreachable — still try the requested ids.
+        for pid in project_ids:
+            project_names[pid] = ""
+            scoped.append((pid, ""))
 
-    _append_scoped_local_agents(seen_agent_ids, result, scope_project_ids=project_ids)
+    if not scoped:
+        return [], project_names
 
+    # Register once against the first project (FK / header); reuse for the rest.
+    first_pid, first_name = scoped[0]
+    agent_id = resolve_or_register_machine(
+        ctx,
+        first_pid,
+        agent_type=agent_type,
+        project_name=first_name or None,
+    )
+    if not agent_id:
+        return [], project_names
+
+    result: list[tuple[str, str | None]] = [(agent_id, pid) for pid, _ in scoped]
     return result, project_names
 
 
 def _agent_type_label(agent_id: str) -> str:
-    """Return the agent_type stored in the local registration file for this agent."""
-    if not AGENTS_DIR.exists():
-        return ""
-    for path in AGENTS_DIR.glob("*.json"):
-        try:
-            data = _json.loads(path.read_text())
-            if data.get("agent_id") == agent_id:
-                return data.get("agent_type", "")
-        except (OSError, _json.JSONDecodeError):
+    """Return last_seen_tool / agent_type from the local Machine cache."""
+    for directory in (MACHINES_DIR, AGENTS_DIR):
+        if not directory.exists():
             continue
+        for path in directory.glob("*.json"):
+            try:
+                data = _json.loads(path.read_text())
+                if data.get("agent_id") == agent_id:
+                    return data.get("last_seen_tool") or data.get("agent_type", "")
+            except (OSError, _json.JSONDecodeError):
+                continue
     return ""
 
 

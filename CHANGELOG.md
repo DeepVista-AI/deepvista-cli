@@ -8,6 +8,15 @@ users what's new between the version they have installed and the latest release.
 
 ## Unreleased
 
+### Changed
+- **Machine identity is fingerprint-keyed** (not `agent_type` + `agent_role` +
+  project). Local cache moves to `~/.config/deepvista/machines/<fingerprint>.json`
+  (legacy `agents/*.json` is migrated on read). `tasks run` on a new computer
+  registers a new Machine; the same laptop switching projects reuses one row.
+  `agent_role` is no longer sent on register; `agent_type` is soft
+  `last_seen_tool` metadata. Adopting `AGENT_ALREADY_REGISTERED` requires a
+  matching fingerprint.
+
 ### Added
 - **Managed agents become Claude Code subagents** (DV-836). New `deepvista
   agents export` turns each distinct managed-agent role (DV-832 `agent_role`)
