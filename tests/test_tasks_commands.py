@@ -119,28 +119,30 @@ def _register_local_agent(
     agent_id: str = "agent-uuid-1",
     project_id: str = DEFAULT_PROJECT_ID,
 ) -> None:
-    """Write a local agent registration file and point the command module at it."""
+    """Write a fingerprint+project Machine cache and point modules at it."""
     import deepvista_cli.commands.agents as agents_module
     import deepvista_cli.commands.tasks as tq_module
 
+    fp = "test-machine-fp"
     monkeypatch.setattr(agents_module, "detect_agent_tool", lambda: ("deepvista-cli", "test"))
     monkeypatch.setattr(tq_module, "detect_agent_tool", lambda: ("deepvista-cli", "test"))
+    monkeypatch.setattr(agents_module, "_machine_fingerprint", lambda: fp)
 
-    agents_dir = tmp_path / ".config" / "deepvista" / "agents"
-    agents_dir.mkdir(parents=True, exist_ok=True)
-    suffix = f"__{project_id}" if project_id else ""
-    (agents_dir / f"deepvista-cli{suffix}.json").write_text(
+    machines_dir = tmp_path / ".config" / "deepvista" / "machines"
+    machines_dir.mkdir(parents=True, exist_ok=True)
+    (machines_dir / f"{fp}__{project_id}.json").write_text(
         json.dumps(
             {
                 "agent_id": agent_id,
+                "machine_fingerprint": fp,
+                "last_seen_tool": "deepvista-cli",
                 "agent_type": "deepvista-cli",
                 "project_id": project_id,
             }
         )
     )
-    monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
-    monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
-    # Keep the run lock inside the pytest tmp dir, away from ~/.config.
+    monkeypatch.setattr(agents_module, "MACHINES_DIR", machines_dir)
+    monkeypatch.setattr(tq_module, "MACHINES_DIR", machines_dir)
     monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", tmp_path / ".config" / "deepvista" / "task_queue.run.lock")
 
 
@@ -366,10 +368,13 @@ def test_run_errors_when_no_agent_registered(
     import deepvista_cli.commands.agents as agents_module
     import deepvista_cli.commands.tasks as tq_module
 
-    empty = isolated_home / ".config" / "deepvista" / "agents"
-    monkeypatch.setattr(agents_module, "AGENTS_DIR", empty)
-    monkeypatch.setattr(tq_module, "AGENTS_DIR", empty)
+    empty = isolated_home / ".config" / "deepvista" / "machines"
+    monkeypatch.setattr(agents_module, "MACHINES_DIR", empty)
+    monkeypatch.setattr(tq_module, "MACHINES_DIR", empty)
+    monkeypatch.setattr(agents_module, "AGENTS_DIR", empty / "legacy-agents")
+    monkeypatch.setattr(tq_module, "AGENTS_DIR", empty / "legacy-agents")
     monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", isolated_home / ".config" / "deepvista" / "task_queue.run.lock")
+    monkeypatch.setattr(agents_module, "_machine_fingerprint", lambda: "empty-fp")
 
     result = CliRunner().invoke(cli, ["tasks", "run"])
     assert result.exit_code == 3
@@ -626,6 +631,7 @@ def test_list_shows_queue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
+    _stub_working_project(stub)
     # DV-1247: `tasks list` now lists task cards (GET /agents/{id}/tasks).
     stub.queue(
         "/agents/agent-uuid-1/tasks",
@@ -738,28 +744,41 @@ def test_cron_entry_runs_once_per_tick():
 
 
 # ---------------------------------------------------------------------------
-# multi-agent / all-projects polling
+# Machine identity + project claim scope
 # ---------------------------------------------------------------------------
 
 
-def _register_two_agents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Write two agent registration files (different projects) and redirect state dirs."""
+def _register_machine(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    agent_id: str = "agent-machine-1",
+    project_id: str = "proj-1",
+) -> None:
+    """Write one fingerprint+project Machine registration."""
     import deepvista_cli.commands.agents as agents_module
     import deepvista_cli.commands.tasks as tq_module
 
+    fp = "test-machine-fp"
     monkeypatch.setattr(agents_module, "detect_agent_tool", lambda: ("claude-code", "test"))
     monkeypatch.setattr(tq_module, "detect_agent_tool", lambda: ("claude-code", "test"))
+    monkeypatch.setattr(agents_module, "_machine_fingerprint", lambda: fp)
 
-    agents_dir = tmp_path / ".config" / "deepvista" / "agents"
-    agents_dir.mkdir(parents=True, exist_ok=True)
-    (agents_dir / "claude-code__proj-1.json").write_text(
-        json.dumps({"agent_id": "agent-proj-1", "agent_type": "claude-code", "project_id": "proj-1"})
+    machines_dir = tmp_path / ".config" / "deepvista" / "machines"
+    machines_dir.mkdir(parents=True, exist_ok=True)
+    (machines_dir / f"{fp}__{project_id}.json").write_text(
+        json.dumps(
+            {
+                "agent_id": agent_id,
+                "machine_fingerprint": fp,
+                "last_seen_tool": "claude-code",
+                "agent_type": "claude-code",
+                "project_id": project_id,
+            }
+        )
     )
-    (agents_dir / "claude-code__proj-2.json").write_text(
-        json.dumps({"agent_id": "agent-proj-2", "agent_type": "claude-code", "project_id": "proj-2"})
-    )
-    monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
-    monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(agents_module, "MACHINES_DIR", machines_dir)
+    monkeypatch.setattr(tq_module, "MACHINES_DIR", machines_dir)
     monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", tmp_path / ".config" / "deepvista" / "task_queue.run.lock")
 
 
@@ -767,91 +786,109 @@ def test_run_once_polls_only_current_project_agent(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``tasks run`` scopes to the working project — only that agent's queue is claimed."""
+    """``tasks run`` scopes claims to the working project on this Machine."""
     stub = _StubCtxClient()
     stub.queue("/projects/me", {"id": "proj-1", "name": "Project 1"})
     stub.queue("/projects", [{"id": "proj-1", "name": "Project 1"}, {"id": "proj-2", "name": "Project 2"}])
-    stub.queue("/agents/agent-proj-1/tasks/claim", {"success": True, "tasks": []})
+    stub.queue("/agents/agent-machine-1/tasks/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
-    _register_two_agents(monkeypatch, isolated_home)
+    _register_machine(monkeypatch, isolated_home)
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--project", "proj-1"])
     assert result.exit_code == 0, result.output
 
     claimed_paths = {c[1] for c in stub.calls}
-    assert "/agents/agent-proj-1/tasks/claim" in claimed_paths
-    assert "/agents/agent-proj-2/tasks/claim" not in claimed_paths
+    assert "/agents/agent-machine-1/tasks/claim" in claimed_paths
 
 
-def test_run_type_filter_restricts_to_single_agent(
+def test_run_type_filter_uses_same_machine(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """--type restricts polling to that agent only (backward-compat single-agent mode)."""
+    """--type is soft metadata; Machine identity is still fingerprint-keyed."""
     stub = _StubCtxClient()
-    stub.queue("/agents/agent-proj-1/tasks/claim", {"success": True, "tasks": []})
+    stub.queue("/agents/agent-machine-1/tasks/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
-    _register_two_agents(monkeypatch, isolated_home)
+    _register_machine(monkeypatch, isolated_home)
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--type", "claude-code", "--project", "proj-1"])
     assert result.exit_code == 0, result.output
 
     claimed_paths = [c[1] for c in stub.calls if c[1].endswith("/tasks/claim")]
-    assert claimed_paths == ["/agents/agent-proj-1/tasks/claim"]
+    assert claimed_paths == ["/agents/agent-machine-1/tasks/claim"]
 
 
-def test_run_scoped_to_project_skips_other_agents_on_claim_failure(
+def test_run_project_flag_registers_separate_project_binding(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A claim failure on another project's agent is never attempted when scoped."""
+    """``--project`` scopes identity — same device can bind to another project."""
     stub = _StubCtxClient()
     stub.queue("/projects/me", {"id": "proj-2", "name": "Project 2"})
     stub.queue("/projects", [{"id": "proj-1", "name": "Project 1"}, {"id": "proj-2", "name": "Project 2"}])
+    # No local cache for proj-2 → register path.
+    stub.queue(
+        "/agents",
+        {
+            "success": True,
+            "agent": {
+                "id": "agent-proj-2",
+                "project_id": "proj-2",
+                "machine_fingerprint": "test-machine-fp",
+                "config": {"machine_fingerprint": "test-machine-fp"},
+            },
+        },
+    )
     stub.queue("/agents/agent-proj-2/tasks/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
-    _register_two_agents(monkeypatch, isolated_home)
+    # Seed only proj-1 so proj-2 must register.
+    _register_machine(monkeypatch, isolated_home, agent_id="agent-proj-1", project_id="proj-1")
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--project", "proj-2"])
     assert result.exit_code == 0, result.output
     claimed_paths = {c[1] for c in stub.calls}
     assert "/agents/agent-proj-2/tasks/claim" in claimed_paths
-    assert "/agents/agent-proj-1/tasks/claim" not in claimed_paths
 
 
-def test_run_prunes_gone_project_registration_on_startup(
+def test_run_keeps_machine_registration_for_project(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Local agent files for projects absent from GET /projects are removed before polling."""
-    agents_dir = isolated_home / ".config" / "deepvista" / "agents"
-    agents_dir.mkdir(parents=True, exist_ok=True)
-    stale_file = agents_dir / "deepvista-cli__proj-gone.json"
-    stale_file.write_text(
-        json.dumps({"agent_id": "agent-gone", "agent_type": "deepvista-cli", "project_id": "proj-gone"})
-    )
-    (agents_dir / "deepvista-cli__proj-1.json").write_text(
-        json.dumps({"agent_id": "agent-proj-1", "agent_type": "deepvista-cli", "project_id": "proj-1"})
-    )
+    """Project-scoped Machine cache is retained across polls."""
     import deepvista_cli.commands.agents as agents_module
     import deepvista_cli.commands.tasks as tq_module
 
+    fp = "test-machine-fp"
+    machines_dir = isolated_home / ".config" / "deepvista" / "machines"
+    machines_dir.mkdir(parents=True, exist_ok=True)
+    machine_file = machines_dir / f"{fp}__proj-1.json"
+    machine_file.write_text(
+        json.dumps(
+            {
+                "agent_id": "agent-machine-1",
+                "machine_fingerprint": fp,
+                "last_seen_tool": "deepvista-cli",
+                "project_id": "proj-1",
+            }
+        )
+    )
     monkeypatch.setattr(agents_module, "detect_agent_tool", lambda: ("deepvista-cli", "test"))
     monkeypatch.setattr(tq_module, "detect_agent_tool", lambda: ("deepvista-cli", "test"))
-    monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
-    monkeypatch.setattr(tq_module, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(agents_module, "_machine_fingerprint", lambda: fp)
+    monkeypatch.setattr(agents_module, "MACHINES_DIR", machines_dir)
+    monkeypatch.setattr(tq_module, "MACHINES_DIR", machines_dir)
     monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", isolated_home / ".config" / "deepvista" / "task_queue.run.lock")
 
     stub = _StubCtxClient()
     stub.queue("/projects/me", {"id": "proj-1", "name": "Project 1"})
     stub.queue("/projects", [{"id": "proj-1", "name": "Project 1"}])
-    stub.queue("/agents/agent-proj-1/tasks/claim", {"success": True, "tasks": []})
+    stub.queue("/agents/agent-machine-1/tasks/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once", "--project", "proj-1"])
     assert result.exit_code == 0, result.output
-    assert not stale_file.exists()
-    assert "removed stale agent agent-gone" in result.output
+    assert machine_file.exists()
+    assert "removed stale agent" not in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -872,7 +909,7 @@ def test_run_keeps_agent_on_claim_agent_not_found(
     )
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
-    agent_file = isolated_home / ".config" / "deepvista" / "agents" / "deepvista-cli__proj-default.json"
+    agent_file = isolated_home / ".config" / "deepvista" / "machines" / f"test-machine-fp__{DEFAULT_PROJECT_ID}.json"
     assert agent_file.exists()
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
@@ -947,6 +984,7 @@ def test_clean_deletes_terminal_tasks_by_default(
 ) -> None:
     """`tasks clean` (no args) deletes completed + failed entries, leaving active ones."""
     stub = _StubCtxClient()
+    _stub_working_project(stub)
     stub.queue("/agents/agent-uuid-1/tasks", {"tasks": _QUEUE_SAMPLE})
     stub.queue("/agents/agent-uuid-1/tasks/tc-done", {"success": True})
     stub.queue("/agents/agent-uuid-1/tasks/tc-fail", {"success": True})
@@ -969,6 +1007,7 @@ def test_clean_dry_run_deletes_nothing(
 ) -> None:
     """`tasks clean --dry-run` previews the delete set without issuing DELETEs."""
     stub = _StubCtxClient()
+    _stub_working_project(stub)
     stub.queue("/agents/agent-uuid-1/tasks", {"tasks": _QUEUE_SAMPLE})
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
@@ -986,6 +1025,7 @@ def test_clean_explicit_ids_skips_listing(
 ) -> None:
     """`tasks clean <id>...` deletes exactly those ids and never lists the queue."""
     stub = _StubCtxClient()
+    _stub_working_project(stub)
     stub.queue("/agents/agent-uuid-1/tasks/tc-1", {"success": True})
     stub.queue("/agents/agent-uuid-1/tasks/tc-2", {"success": True})
     _install_stub_client(monkeypatch, stub)

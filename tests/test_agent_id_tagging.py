@@ -120,14 +120,23 @@ def test_build_agent_tag_helper() -> None:
 def test_load_agent_id_for_active_agent_returns_cached_uuid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from deepvista_cli.commands import agents
 
-    # Redirect the on-disk cache to a tmpdir and prime it with an entry.
-    agents_dir = tmp_path / "agents"
-    agents_dir.mkdir()
-    monkeypatch.setattr(agents, "AGENTS_DIR", agents_dir)
-    (agents_dir / "claude-code.json").write_text(json.dumps({"agent_id": "cached-uuid", "agent_type": "claude-code"}))
-
-    # Force detect_agent_tool to look like Claude Code.
-    monkeypatch.setattr(agents, "detect_agent_tool", lambda: ("claude-code", "1.0"))
+    fp = "fp-abc"
+    project_id = "proj-1"
+    machines_dir = tmp_path / "machines"
+    machines_dir.mkdir()
+    monkeypatch.setattr(agents, "MACHINES_DIR", machines_dir)
+    monkeypatch.setattr(agents, "AGENTS_DIR", tmp_path / "agents")
+    monkeypatch.setattr(agents, "_machine_fingerprint", lambda: fp)
+    (machines_dir / f"{fp}__{project_id}.json").write_text(
+        json.dumps(
+            {
+                "agent_id": "cached-uuid",
+                "machine_fingerprint": fp,
+                "project_id": project_id,
+                "last_seen_tool": "claude-code",
+            }
+        )
+    )
 
     assert agents.load_agent_id_for_active_agent() == "cached-uuid"
 
@@ -137,12 +146,86 @@ def test_load_agent_id_for_active_agent_returns_none_when_unregistered(
 ) -> None:
     from deepvista_cli.commands import agents
 
-    agents_dir = tmp_path / "agents"
-    agents_dir.mkdir()
-    monkeypatch.setattr(agents, "AGENTS_DIR", agents_dir)
-    monkeypatch.setattr(agents, "detect_agent_tool", lambda: ("claude-code", None))
+    machines_dir = tmp_path / "machines"
+    machines_dir.mkdir()
+    monkeypatch.setattr(agents, "MACHINES_DIR", machines_dir)
+    monkeypatch.setattr(agents, "AGENTS_DIR", tmp_path / "agents")
+    monkeypatch.setattr(agents, "_machine_fingerprint", lambda: "fp-empty")
 
     assert agents.load_agent_id_for_active_agent() is None
+
+
+def test_register_refuses_to_adopt_mismatched_fingerprint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AGENT_ALREADY_REGISTERED for a different machine must not be adopted."""
+    import click
+    from click.testing import CliRunner
+
+    from deepvista_cli.commands import agents
+
+    machines_dir = tmp_path / "machines"
+    machines_dir.mkdir()
+    monkeypatch.setattr(agents, "MACHINES_DIR", machines_dir)
+    monkeypatch.setattr(agents, "AGENTS_DIR", tmp_path / "agents")
+    monkeypatch.setattr(agents, "_machine_fingerprint", lambda: "local-fp")
+
+    class _Client:
+        def post(self, path, body=None, extra_headers=None):
+            assert path == "/agents"
+            return {
+                "success": False,
+                "error_code": "AGENT_ALREADY_REGISTERED",
+                "error": "already registered",
+                "agent": {
+                    "id": "other-machine",
+                    "project_id": "proj-1",
+                    "machine_fingerprint": "other-fp",
+                    "config": {"machine_fingerprint": "other-fp"},
+                },
+            }
+
+        def get(self, path, params=None, extra_headers=None):
+            return {"agent": None}
+
+    class _Obj:
+        _client = _Client()
+        output_format = "json"
+        auth_url = "http://localhost"
+        project_id = "proj-1"
+
+    @click.command()
+    @click.pass_context
+    def cmd(ctx: click.Context) -> None:
+        ctx.obj = _Obj()
+        result = agents.resolve_or_register_machine(ctx, "proj-1", quiet=True)
+        click.echo("none" if result is None else result)
+
+    runner = CliRunner()
+    out = runner.invoke(cmd, [])
+    assert out.exit_code == 0
+    assert out.output.strip() == "none"
+
+
+def test_migrate_legacy_agents_dir_into_machines_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from deepvista_cli.commands import agents
+
+    fp = "fp-migrate"
+    project_id = "proj"
+    agents_dir = tmp_path / "agents"
+    machines_dir = tmp_path / "machines"
+    agents_dir.mkdir()
+    machines_dir.mkdir()
+    (agents_dir / f"deepvista-cli__{project_id}.json").write_text(
+        json.dumps({"agent_id": "legacy-uuid", "agent_type": "deepvista-cli", "project_id": project_id})
+    )
+    monkeypatch.setattr(agents, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(agents, "MACHINES_DIR", machines_dir)
+    monkeypatch.setattr(agents, "_machine_fingerprint", lambda: fp)
+
+    assert agents._load_machine_id(project_id) == "legacy-uuid"
+    cached = json.loads((machines_dir / f"{fp}__{project_id}.json").read_text())
+    assert cached["agent_id"] == "legacy-uuid"
+    assert cached["machine_fingerprint"] == fp
+    assert cached["project_id"] == project_id
 
 
 # ---------------------------------------------------------------------------
