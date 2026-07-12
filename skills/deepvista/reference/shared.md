@@ -55,13 +55,13 @@ Each profile holds separate credentials. Profile state lives in `~/.config/deepv
 
 ## Agent heartbeat
 
-`agents sync` is the single command — it auto-registers **this Machine**
-(fingerprint identity) on first run, then heartbeats state to Settings →
-Machines. `agent_type` is soft metadata (last-seen tool). The Claude Code
-plugin wires it into a `Stop` hook automatically.
+`agents sync` auto-registers **this Machine for the working project**
+(`(project_id, fingerprint)`), then heartbeats to Settings → Machines.
+Project members can see the Machine; only you sync it. `agent_type` is soft
+metadata (last-seen tool).
 
 ```bash
-deepvista agents sync --status online   # heartbeat (auto-registers this Machine)
+deepvista --project <id> agents sync --status online
 ```
 
 ## Updates

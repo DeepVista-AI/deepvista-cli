@@ -39,7 +39,6 @@ from deepvista_cli.commands.agents import (
     AGENTS_DIR,
     MACHINES_DIR,
     _load_machine_id,
-    _machine_path,
     resolve_or_register_machine,
 )
 from deepvista_cli.commands.project import _projects
@@ -89,28 +88,17 @@ def _resolve_machine_agent_id(
     agent_type: str | None,
     project_id: str | None = None,
 ) -> tuple[str, str | None] | None:
-    """Find this Machine's registered agent_id.
+    """Find this Machine's registered agent_id for ``project_id``.
 
-    Machine identity is fingerprint-keyed (``agent_type`` is soft metadata).
-    ``project_id`` is claim scope only — returned so banners can show it.
-
-    Returns ``(agent_id, project_id)`` or ``None`` when nothing is cached.
+    Identity is ``(project_id, fingerprint)``. ``agent_type`` is soft metadata.
     """
-    _ = agent_type  # soft metadata; not used for identity lookup
-    agent_id = _load_machine_id()
+    _ = agent_type
+    if not project_id:
+        return None
+    agent_id = _load_machine_id(project_id)
     if not agent_id:
         return None
-    # Prefer project_id from the caller (claim scope); else from the cache file.
-    cached_project: str | None = project_id
-    path = _machine_path()
-    if path.exists():
-        try:
-            data = _json.loads(path.read_text())
-            if not cached_project:
-                cached_project = data.get("project_id")
-        except (OSError, _json.JSONDecodeError):
-            pass
-    return (agent_id, cached_project)
+    return (agent_id, project_id)
 
 
 def _require_machine_agent_id(
@@ -603,9 +591,8 @@ def _iter_agent_files() -> list[tuple[str, str | None, Path]]:
 
 
 def _find_registered_agent_for_project(project_id: str) -> str | None:
-    """Return this Machine's agent_id when registered (project is claim scope only)."""
-    _ = project_id
-    return _load_machine_id()
+    """Return this Machine's agent_id registered for ``project_id``."""
+    return _load_machine_id(project_id)
 
 
 def _resolve_working_project(ctx: click.Context, project_override: str | None = None) -> str | None:
@@ -635,11 +622,10 @@ def _ensure_agents_for_projects(
     *,
     project_ids: set[str] | None = None,
 ) -> tuple[list[tuple[str, str | None]], dict[str, str]]:
-    """Ensure this Machine is registered, then pair it with claim-scope project(s).
+    """Ensure this Machine is registered for each claim-scope project.
 
-    Machine identity is fingerprint-keyed (one row per device). ``project_ids``
-    only decides which project(s) to claim tasks for — registering again for a
-    second project reuses the same Machine id.
+    Identity is ``(project_id, fingerprint)`` — registering for a second
+    project creates (or reuses) that project's Machine row.
 
     Returns ``((agent_id, project_id), project_names)``.
     """
@@ -651,7 +637,7 @@ def _ensure_agents_for_projects(
 
     projects = _projects(ctx)
     project_names: dict[str, str] = {}
-    scoped: list[tuple[str, str]] = []  # (project_id, project_name)
+    scoped: list[tuple[str, str]] = []
 
     for project in projects:
         project_id = project.get("id")
@@ -664,26 +650,26 @@ def _ensure_agents_for_projects(
         scoped.append((project_id, project_name))
 
     if not scoped and project_ids:
-        # Project list may be empty/unreachable — still try the requested ids.
         for pid in project_ids:
             project_names[pid] = ""
             scoped.append((pid, ""))
 
-    if not scoped:
-        return [], project_names
+    result: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+    for project_id, project_name in scoped:
+        agent_id = resolve_or_register_machine(
+            ctx,
+            project_id,
+            agent_type=agent_type,
+            project_name=project_name or None,
+        )
+        if not agent_id:
+            continue
+        key = f"{agent_id}:{project_id}"
+        if key not in seen:
+            seen.add(key)
+            result.append((agent_id, project_id))
 
-    # Register once against the first project (FK / header); reuse for the rest.
-    first_pid, first_name = scoped[0]
-    agent_id = resolve_or_register_machine(
-        ctx,
-        first_pid,
-        agent_type=agent_type,
-        project_name=first_name or None,
-    )
-    if not agent_id:
-        return [], project_names
-
-    result: list[tuple[str, str | None]] = [(agent_id, pid) for pid, _ in scoped]
     return result, project_names
 
 
@@ -1189,7 +1175,8 @@ def tasks_list(
     Lists **task cards** (web-chat prompts) claimable by this Machine in its
     project. Read-only.
     """
-    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, project_id)
+    working = _resolve_working_project(ctx, project_id)
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, working)
     headers = {"X-Project-Id": resolved_project_id} if resolved_project_id else None
     params = {"status": status_filter} if status_filter else None
     data = _client(ctx).get(f"/agents/{agent_id}/tasks", params=params, extra_headers=headers)
@@ -1257,7 +1244,8 @@ def tasks_clean(
 
     > [!CAUTION] Destructive — deleted tasks cannot be recovered. Confirm with the user.
     """
-    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, project_id)
+    working = _resolve_working_project(ctx, project_id)
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, working)
     headers = {"X-Project-Id": resolved_project_id} if resolved_project_id else None
     client = _client(ctx)
 
@@ -1340,7 +1328,8 @@ def tasks_note(
         deepvista tasks note <task-id> "Step 1 done: found 3 failing tests"
         deepvista tasks note <task-id> "Needs human: please approve the PR at github.com/…"
     """
-    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, project_id)
+    working = _resolve_working_project(ctx, project_id)
+    agent_id, resolved_project_id = _require_machine_agent_id(agent_type, working)
     headers = {"X-Project-Id": resolved_project_id} if resolved_project_id else None
     data = _client(ctx).post(
         f"/agents/{agent_id}/tasks/{task_id}/note",
