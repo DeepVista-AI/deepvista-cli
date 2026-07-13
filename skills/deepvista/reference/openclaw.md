@@ -77,15 +77,16 @@ not required for capture to work.
 
 ## Duplicate captures (DV-1367)
 
-Auto-capture doesn't block on a live duplicate check before saving — the server
-runs an independent periodic scan (every 6 hours, unconditional, not tied to
-heartbeat registration) that flags near-duplicate person/organization cards
-with a comment for the user to review and merge. Don't rely on this to justify
-looser capture discipline: when capturing a person or organization, prefer
+The server blocks exact/near-duplicate person and organization cards at write
+time (title match or high embedding similarity creates an update instead of a
+new card), but that's a safety net, not a substitute for good capture
+discipline — it can still miss a duplicate that's phrased differently enough.
+When capturing a person or organization, prefer
 `deepvista card +search "<name>" --type person` (or `--type organization`)
 first and reuse an existing card instead of creating a new one for the same
-entity — the periodic scan is a safety net for what slips through, not a
-substitute for it.
+entity. Any duplicates that do slip through can be resolved later via
+Vistabase's manual "Merge duplicate" card action — there is no automatic
+background cleanup (yet).
 
 ## See also
 
