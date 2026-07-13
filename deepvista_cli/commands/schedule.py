@@ -9,6 +9,14 @@ token spend under their control.
 Under the hood each "activation" is a ``schedule_job`` context card on the
 server (DV-1166) whose ``prompt`` asks the agent to run the daily-planning
 skill. The heartbeat dispatcher drains due jobs and runs the agent.
+
+Identity + creation are delegated to the server's ``POST /scheduled-jobs/
+activate`` endpoint (DV-1045), keyed on the stable ``kind="daily_planning"``
+attribute rather than a title string — the same endpoint the web Settings /
+Home "Scheduled Job" toggle drives. Matching on ``kind`` (instead of a
+hardcoded title, as this command used to) is what keeps this command and the
+web UI pointed at the same row instead of each silently creating its own
+duplicate (DV-1537).
 """
 
 from __future__ import annotations
@@ -18,13 +26,13 @@ import click
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.output.formatter import format_output, output_error
 
-# The server-side workflow skill that generates the planning note.
-DAILY_PLANNING_SKILL = "deepvista-daily-planning"
-# Stable title used to find this job again (activate is idempotent on it).
-JOB_TITLE = "Daily Planning"
-# Cron is evaluated in UTC server-side (no per-user timezone yet — see DV-879).
-DEFAULT_DAILY_CRON = "0 8 * * *"
-DEFAULT_WEEKLY_CRON = "0 8 * * 1"
+# Stable identifier the server keys the (user_id, kind) upsert on — mirrors
+# ``DAILY_PLANNING_JOB_KIND`` in ai/vista_common/services/scheduled_job_service.py.
+JOB_KIND = "daily_planning"
+# Only used to build a --cron/--weekly override; the server supplies its own
+# canonical cron (currently daily 09:00 in the user's timezone) when neither
+# flag is passed, so there's no local default to duplicate/drift from.
+DEFAULT_WEEKLY_CRON = "0 9 * * 1"
 
 # Columns shown in `--format table`.
 _JOB_COLUMNS = ["id", "title", "cron_schedule", "enabled", "next_run_at", "last_run_at"]
@@ -37,12 +45,14 @@ def _client(ctx: click.Context) -> DeepVistaClient:
 def _find_daily_planning_job(ctx: click.Context) -> dict | None:
     """Return the existing daily-planning job for this user, or None.
 
-    Matches on the stable ``JOB_TITLE`` so repeated activations re-use the same
-    row instead of stacking duplicates.
+    Matches on the stable ``kind`` attribute (DV-1045) — the same field the
+    server's ``(user_id, kind)`` upsert is keyed on — so this reliably finds
+    the same row the server's activate endpoint would touch, regardless of
+    what title the row happens to carry.
     """
     data = _client(ctx).get("/scheduled-jobs")
     for job in data.get("jobs", []):
-        if job.get("title") == JOB_TITLE:
+        if job.get("kind") == JOB_KIND:
             return job
     return None
 
@@ -53,58 +63,60 @@ def schedule_group() -> None:
 
 
 @schedule_group.command("activate")
-@click.option("--cron", "cron_schedule", default=None, help="5-field cron in UTC (default: daily 08:00 UTC).")
-@click.option("--weekly", is_flag=True, default=False, help="Run weekly (Mon 08:00 UTC) instead of daily.")
+@click.option(
+    "--cron",
+    "cron_schedule",
+    default=None,
+    help="5-field cron override (default: the server's canonical daily cadence).",
+)
+@click.option(
+    "--weekly",
+    is_flag=True,
+    default=False,
+    help="Run weekly (Mon 09:00) instead of the server default (daily).",
+)
 @click.pass_context
 def schedule_activate(ctx: click.Context, cron_schedule: str | None, weekly: bool) -> None:
     """Activate the recurring daily-planning job.
 
     Idempotent: if a daily-planning job already exists it is re-enabled rather
-    than duplicated. To change the cron of an existing job, deactivate + delete
-    it first, then activate again with a new --cron.
+    than duplicated (the server upserts on ``kind``, keyed the same way the web
+    Settings / Home "Scheduled Job" toggle activates it — see DV-1537). Without
+    --cron/--weekly the server's own canonical prompt + cadence are used; pass
+    either flag to override the cadence on top of that.
     """
-    cadence = "weekly" if weekly else "daily"
-    if cron_schedule is None:
-        cron_schedule = DEFAULT_WEEKLY_CRON if weekly else DEFAULT_DAILY_CRON
-
+    cron_override = cron_schedule or (DEFAULT_WEEKLY_CRON if weekly else None)
     existing = _find_daily_planning_job(ctx)
-    if existing is not None:
-        if existing.get("enabled"):
-            format_output(
-                {"status": "already_active", "job": existing},
-                ctx.obj.output_format,
-                title="Daily planning already active",
-            )
-            return
-        resp = _client(ctx).patch(f"/scheduled-jobs/{existing['id']}", {"enabled": True})
+
+    if existing is not None and existing.get("enabled") and cron_override is None:
         format_output(
-            {"status": "reactivated", "job": resp.get("job", resp)},
+            {"status": "already_active", "job": existing},
             ctx.obj.output_format,
-            title="Daily planning reactivated",
+            title="Daily planning already active",
         )
         return
 
-    prompt = (
-        f"Run the {DAILY_PLANNING_SKILL} skill to generate today's daily "
-        f"planning note (cadence: {cadence}). List the workflow Skills that "
-        f"should run today as context-card chips in the note's Planning section."
-    )
-    resp = _client(ctx).post(
-        "/scheduled-jobs",
-        {
-            "prompt": prompt,
-            "cron_schedule": cron_schedule,
-            "title": JOB_TITLE,
-            "enabled": True,
-        },
-    )
+    resp = _client(ctx).post("/scheduled-jobs/activate", {"kind": JOB_KIND})
     if not resp.get("success"):
         output_error(1, "Failed to activate daily planning", resp.get("error", ""))
-    format_output(
-        {"status": "activated", "cadence": cadence, "job": resp.get("job", resp)},
-        ctx.obj.output_format,
-        title="Daily planning activated",
-    )
+        return
+    job = resp.get("job") or {}
+
+    if cron_override is not None and job.get("cron_schedule") != cron_override:
+        patch_resp = _client(ctx).patch(f"/scheduled-jobs/{job['id']}", {"cron_schedule": cron_override})
+        if not patch_resp.get("success"):
+            output_error(1, "Activated but failed to set the requested cron", patch_resp.get("error", ""))
+            return
+        job = patch_resp.get("job", job)
+
+    if existing is None:
+        status, title = "activated", "Daily planning activated"
+    elif not existing.get("enabled"):
+        status, title = "reactivated", "Daily planning reactivated"
+    else:
+        status, title = "updated", "Daily planning schedule updated"
+
+    format_output({"status": status, "job": job}, ctx.obj.output_format, title=title)
 
 
 @schedule_group.command("deactivate")
@@ -149,9 +161,9 @@ def schedule_list(ctx: click.Context) -> None:
 def schedule_delete(ctx: click.Context, job_id: str | None) -> None:
     """Delete a scheduled job permanently.
 
-    With no JOB_ID, deletes the daily-planning job. Use this (then ``activate``)
-    to change a job's cron, which PATCH can't edit. Pass ``--dry-run`` on the
-    root command to preview without deleting.
+    With no JOB_ID, deletes the daily-planning job. To change its cadence
+    instead, use ``activate --cron``/``--weekly``, which patches it in place.
+    Pass ``--dry-run`` on the root command to preview without deleting.
     """
     if job_id is None:
         existing = _find_daily_planning_job(ctx)
