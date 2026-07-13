@@ -27,6 +27,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from deepvista_cli.utils import load_json_state, save_json_state
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -64,19 +66,11 @@ def state_path(session_id: str) -> Path:
 
 
 def load_state(session_id: str) -> dict[str, Any]:
-    path = state_path(session_id)
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
+    return load_json_state(state_path(session_id))
 
 
 def save_state(session_id: str, state: dict[str, Any]) -> None:
-    path = state_path(session_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2))
+    save_json_state(state_path(session_id), state)
 
 
 # ---------------------------------------------------------------------------
