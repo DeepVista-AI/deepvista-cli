@@ -23,7 +23,6 @@ with Click. Tests target the functions here directly.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import shutil
 import time
@@ -33,6 +32,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from deepvista_cli.config import CONFIG_DIR
+from deepvista_cli.utils import load_json_state, save_json_state
 
 # ---------------------------------------------------------------------------
 # Defaults & constants
@@ -216,18 +216,12 @@ def stub_content_hash(markdown: str) -> str:
 
 def load_state(path: Path = CATALOG_STATE_FILE) -> dict[str, Any]:
     """Load the last-sync state. Returns {} when missing or corrupt."""
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+    return load_json_state(path)
 
 
 def save_state(state: dict[str, Any], path: Path = CATALOG_STATE_FILE) -> None:
     """Persist the sync state. Creates parent dirs on demand."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    save_json_state(path, state)
 
 
 # ---------------------------------------------------------------------------
