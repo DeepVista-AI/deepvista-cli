@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import sys
 import threading
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from typing import Any, NoReturn
 
 import click
@@ -25,6 +27,15 @@ from deepvista_cli.auth.tokens import get_valid_token
 from deepvista_cli.config import EXIT_API_ERROR, EXIT_AUTH_ERROR, EXIT_NETWORK_ERROR, CLIConfig, credentials_path
 
 logger = logging.getLogger(__name__)
+
+# Retry transient network errors (server offline / request timed out) with
+# exponential backoff before treating them as fatal (DV-1529). A single blip
+# used to kill an hours-long `tasks run` poll loop outright.
+NETWORK_RETRY_ATTEMPTS = 5
+NETWORK_RETRY_BASE_DELAY = 1.0
+NETWORK_RETRY_MAX_DELAY = 30.0
+NETWORK_RETRY_BACKOFF_FACTOR = 2.0
+NETWORK_RETRY_JITTER = 0.2
 
 
 class DeepVistaClient:
@@ -94,6 +105,31 @@ class DeepVistaClient:
         if self.config.verbose:
             click.echo(f"<<< {resp.status_code}", err=True)
 
+    def _call_with_retry(self, send: Callable[[], httpx.Response]) -> httpx.Response:
+        """Call `send()`, retrying transient network errors with exponential backoff.
+
+        Re-raises the last `httpx.ConnectError`/`httpx.TimeoutException` once
+        `NETWORK_RETRY_ATTEMPTS` is exhausted, so callers keep handling it the
+        same way they always have (see `_handle_network_error`).
+        """
+        for attempt in range(NETWORK_RETRY_ATTEMPTS):
+            try:
+                return send()
+            except (httpx.ConnectError, httpx.TimeoutException):
+                if attempt == NETWORK_RETRY_ATTEMPTS - 1:
+                    raise
+                delay = min(
+                    NETWORK_RETRY_BASE_DELAY * (NETWORK_RETRY_BACKOFF_FACTOR**attempt),
+                    NETWORK_RETRY_MAX_DELAY,
+                )
+                delay *= 1 + random.uniform(-NETWORK_RETRY_JITTER, NETWORK_RETRY_JITTER)
+                click.echo(
+                    f"... network error, retrying in {delay:.1f}s (attempt {attempt + 2}/{NETWORK_RETRY_ATTEMPTS})",
+                    err=True,
+                )
+                time.sleep(delay)
+        raise AssertionError("unreachable")  # loop always returns or raises
+
     def _handle_network_error(self, exc: httpx.ConnectError | httpx.TimeoutException) -> NoReturn:
         """Handle network-level errors with structured output."""
         if isinstance(exc, httpx.ConnectError):
@@ -142,19 +178,22 @@ class DeepVistaClient:
             )
             sys.exit(0)
 
+        def send() -> httpx.Response:
+            client = self._get_client()
+            if method == "GET":
+                return client.get(path, headers=headers, params=params)
+            elif method == "POST":
+                return client.post(path, headers=headers, json=body or {})
+            elif method == "PATCH":
+                return client.patch(path, headers=headers, json=body or {})
+            elif method == "DELETE":
+                return client.delete(path, headers=headers, params=params)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+
         with self._lock:
             try:
-                client = self._get_client()
-                if method == "GET":
-                    resp = client.get(path, headers=headers, params=params)
-                elif method == "POST":
-                    resp = client.post(path, headers=headers, json=body or {})
-                elif method == "PATCH":
-                    resp = client.patch(path, headers=headers, json=body or {})
-                elif method == "DELETE":
-                    resp = client.delete(path, headers=headers, params=params)
-                else:
-                    raise ValueError(f"Unsupported method: {method}")
+                resp = self._call_with_retry(send)
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
                 self._handle_network_error(exc)
 
@@ -189,8 +228,7 @@ class DeepVistaClient:
             sys.exit(0)
         with self._lock:
             try:
-                client = self._get_client()
-                resp = client.post(path, headers=headers, json=body or {})
+                resp = self._call_with_retry(lambda: self._get_client().post(path, headers=headers, json=body or {}))
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
                 self._handle_network_error(exc)
             self._log_response(resp)
@@ -224,29 +262,47 @@ class DeepVistaClient:
 
         client = self._get_client()
 
-        try:
-            with client.stream("POST", path, json=body or {}, headers=headers, timeout=300) as resp:
-                self._log_response(resp)
-                if resp.status_code >= 400:
-                    resp.read()
-                    self._handle_error(resp)
+        # Only the initial connect is retried — once the stream is open, a
+        # ConnectError/TimeoutException mid-read means events may already
+        # have been yielded, so blindly retrying would risk replaying them.
+        opened: list[Any] = []
 
-                buffer = ""
-                for chunk in resp.iter_text():
-                    buffer += chunk
-                    while "\n" in buffer:
-                        line, buffer = buffer.split("\n", 1)
-                        line = line.strip()
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-                            if data_str == "[DONE]":
-                                return
-                            try:
-                                yield json.loads(data_str)
-                            except json.JSONDecodeError:
-                                logger.debug("Skipping non-JSON SSE line: %s", data_str)
+        def open_stream() -> httpx.Response:
+            stream_cm = client.stream("POST", path, json=body or {}, headers=headers, timeout=300)
+            resp = stream_cm.__enter__()
+            opened.append(stream_cm)
+            return resp
+
+        try:
+            resp = self._call_with_retry(open_stream)
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             self._handle_network_error(exc)
+
+        stream_cm = opened[-1]
+        try:
+            self._log_response(resp)
+            if resp.status_code >= 400:
+                resp.read()
+                self._handle_error(resp)
+
+            buffer = ""
+            for chunk in resp.iter_text():
+                buffer += chunk
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    line = line.strip()
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            return
+                        try:
+                            yield json.loads(data_str)
+                        except json.JSONDecodeError:
+                            logger.debug("Skipping non-JSON SSE line: %s", data_str)
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            self._handle_network_error(exc)
+        finally:
+            stream_cm.__exit__(None, None, None)
 
     def close(self) -> None:
         if self._client:
