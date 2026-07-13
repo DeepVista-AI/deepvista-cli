@@ -413,6 +413,65 @@ def test_run_polls_until_total_time(
     assert payload == {"agent_id": "agent-uuid-1", "polls": 3, "tasks_run": 0, "failed": 0}
 
 
+def test_run_survives_transient_network_failure_mid_poll(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A poll that fails with a persisted network error is skipped, not fatal (DV-1529)."""
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    stub.queue("/agents/agent-uuid-1/tasks/claim", {"success": True, "tasks": []})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+    clock = _install_fake_clock(monkeypatch)
+
+    import deepvista_cli.commands.tasks as tq_module
+    from deepvista_cli.config import EXIT_NETWORK_ERROR
+
+    real_claim_and_submit_all = tq_module._claim_and_submit_all
+    calls = {"n": 0}
+
+    def flaky_claim_and_submit_all(ctx, agents, executor):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise SystemExit(EXIT_NETWORK_ERROR)
+        return real_claim_and_submit_all(ctx, agents, executor)
+
+    monkeypatch.setattr(tq_module, "_claim_and_submit_all", flaky_claim_and_submit_all)
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--poll-interval", "10", "--total-time", "15"])
+
+    assert result.exit_code == 0, result.output
+    assert calls["n"] == 2
+    assert "network error persisted after retries, skipping this poll" in result.output
+    payload = _parse_first_json(result.output)
+    assert payload == {"agent_id": "agent-uuid-1", "polls": 2, "tasks_run": 0, "failed": 0}
+    assert clock.sleeps == [10]
+
+
+def test_run_once_still_fails_fast_on_persistent_network_error(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--run-once` (the cron entrypoint) keeps the old fail-fast contract."""
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.tasks as tq_module
+    from deepvista_cli.config import EXIT_NETWORK_ERROR
+
+    def always_fails(ctx, agents, executor):  # type: ignore[no-untyped-def]
+        raise SystemExit(EXIT_NETWORK_ERROR)
+
+    monkeypatch.setattr(tq_module, "_claim_and_submit_all", always_fails)
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
+
+    assert result.exit_code == EXIT_NETWORK_ERROR
+
+
 def test_run_verbose_logs_every_idle_poll(
     isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,

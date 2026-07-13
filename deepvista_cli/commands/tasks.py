@@ -42,7 +42,7 @@ from deepvista_cli.commands.agents import (
     resolve_or_register_machine,
 )
 from deepvista_cli.commands.project import _projects
-from deepvista_cli.config import CONFIG_DIR, credentials_path
+from deepvista_cli.config import CONFIG_DIR, EXIT_NETWORK_ERROR, credentials_path
 from deepvista_cli.output.formatter import format_output, output_error
 
 # Reported output is truncated to a tail (mirrors the backend cap on task cards).
@@ -1051,13 +1051,26 @@ def tasks_run(
     try:
         while True:
             polls += 1
-            agents = _refresh_agents_for_poll(
-                ctx,
-                agents,
-                project_names,
-                agent_type=agent_type,
-            )
-            submitted = _claim_and_submit_all(ctx, agents, executor)
+            try:
+                agents = _refresh_agents_for_poll(
+                    ctx,
+                    agents,
+                    project_names,
+                    agent_type=agent_type,
+                )
+                submitted = _claim_and_submit_all(ctx, agents, executor)
+            except SystemExit as exc:
+                # A network error survives the HTTP client's own retries only
+                # when the outage outlasts them. Don't let one bad poll kill an
+                # hours-long `tasks run` job (DV-1529) — log it and try again
+                # next interval. `run_once` keeps the old fail-fast behavior.
+                if run_once or exc.code != EXIT_NETWORK_ERROR:
+                    raise
+                click.echo(
+                    f"  [warn] poll #{polls}: network error persisted after retries, skipping this poll",
+                    err=True,
+                )
+                submitted = 0
 
             results = executor.drain_completed()
             total_results.extend(results)
