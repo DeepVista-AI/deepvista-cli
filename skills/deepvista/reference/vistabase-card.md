@@ -15,6 +15,7 @@ Use [notes.md](notes.md) for note-only ergonomics.
 
 `list` · `get` · `create` · `update` · `edit` · `delete`
 `index` · `history` · `diff` · `restore`
+`comment list|add|edit|delete`
 `+search` · `+similar` · `+grep` · `+pin` · `+archive`
 
 ## Agent conventions
@@ -45,6 +46,11 @@ the current body — it is replaced with `--new-string`. Fails if not found. Use
 **`history` / `diff` / `restore`** — version history for any card. `restore`
 captures the current state as a new version first, so it's reversible.
 
+**`comment`** — a flat, markdown comment thread on a card (DV-1308). Use comments for
+enrichment / running commentary instead of editing the card body. The CLI posts as the
+authenticated user (`commenter_type=human`); you can only `edit`/`delete` your own comments.
+`add`/`edit` take `--content` or `--content-file`; `list <card_id>` and `edit`/`delete <comment_id>`.
+
 ## Examples
 
 ```bash
@@ -62,6 +68,12 @@ deepvista card edit <id> --old-string "old API URL" --new-string "new API URL"
 
 # Pin
 deepvista card +pin <id>
+
+# Comment on a card (enrichment / running commentary — not a body edit)
+deepvista card comment add <card_id> --content "Confirmed the Q3 numbers with finance."
+deepvista card comment list <card_id>
+deepvista card comment edit <comment_id> --content-file /tmp/updated.md
+deepvista card comment delete <comment_id>
 ```
 
 ## See also

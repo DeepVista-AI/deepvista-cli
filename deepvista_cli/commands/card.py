@@ -15,6 +15,10 @@ Endpoints:
   POST /edit_context_card      -> targeted string replacement (file-ops Edit)
   POST /grep_context_cards     -> regex content search (file-ops Grep)
   DELETE /context_cards/{id}   -> delete
+  POST /list_card_comments     -> list a card's comments (DV-1308)
+  POST /create_card_comment    -> add a comment to a card
+  POST /update_card_comment    -> edit a comment (author only)
+  DELETE /card_comments/{id}   -> delete a comment (author only)
 """
 
 from __future__ import annotations
@@ -40,6 +44,8 @@ CARD_TYPES = [
 ]
 
 CARD_COLUMNS = ["id", "type", "title", "display_status", "updated_at"]
+
+COMMENT_COLUMNS = ["id", "commenter_type", "commenter_name", "comment", "created_at"]
 
 
 def _client(ctx: click.Context) -> DeepVistaClient:
@@ -695,4 +701,166 @@ def card_grep(
         entity_type="card",
         base_url=ctx.obj.auth_url,
         project_id=ctx.obj.project_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Comments (DV-1308 / DV-1496) — flat, markdown comment thread on a card
+# ---------------------------------------------------------------------------
+
+
+@card_group.group("comment")
+def comment_group() -> None:
+    """Add / read / edit / delete comments on a context card.
+
+    Comments are a flat, markdown thread attached to a card — use them for
+    enrichment and running commentary instead of editing the card body. The CLI
+    posts as the authenticated user (`commenter_type=human`); you can only edit
+    or delete your own comments.
+    """
+
+
+@comment_group.command("list")
+@click.argument("card_id")
+@click.option("--limit", default=50, help="Max comments to return (default 50).")
+@project_option
+@click.pass_context
+def comment_list(ctx: click.Context, card_id: str, limit: int, project_override: str | None) -> None:
+    """List a card's comments (oldest first).
+
+    Read-only.
+    """
+    apply_project_override(ctx, project_override)
+    comments = _client(ctx).post("/list_card_comments", {"card_id": card_id})
+    comments = comments if isinstance(comments, list) else []
+    format_output(
+        {"card_id": card_id, "comments": comments[:limit], "count": len(comments[:limit])},
+        ctx.obj.output_format,
+        columns=COMMENT_COLUMNS,
+        title=f"Comments: {card_id}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
+
+
+@comment_group.command("add")
+@click.argument("card_id")
+@click.option("--content", "comment", default=None, help="Comment body (markdown).")
+@click.option(
+    "--content-file",
+    default=None,
+    help="Read the comment from a file path. Use '-' for stdin. Overrides --content.",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@project_option
+@click.pass_context
+def comment_add(
+    ctx: click.Context,
+    card_id: str,
+    comment: str | None,
+    content_file: str | None,
+    dry_run: bool,
+    project_override: str | None,
+) -> None:
+    """Add a comment to a context card.
+
+    > [!CAUTION] This is a write command — confirm with the user before executing.
+    """
+    apply_project_override(ctx, project_override)
+    comment = resolve_content(comment, content_file)
+    if not comment or not comment.strip():
+        output_error(3, "Comment must not be empty", "Pass --content or --content-file.")
+
+    body: dict = {"card_id": card_id, "comment": comment}
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "create card comment", "payload": body},
+            ctx.obj.output_format,
+            entity_type="card",
+            base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
+        )
+        return
+
+    data = _client(ctx).post("/create_card_comment", body)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title=f"Commented on: {card_id}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
+
+
+@comment_group.command("edit")
+@click.argument("comment_id")
+@click.option("--content", "comment", default=None, help="New comment body (markdown).")
+@click.option(
+    "--content-file",
+    default=None,
+    help="Read the comment from a file path. Use '-' for stdin. Overrides --content.",
+)
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@click.pass_context
+def comment_edit(
+    ctx: click.Context,
+    comment_id: str,
+    comment: str | None,
+    content_file: str | None,
+    dry_run: bool,
+) -> None:
+    """Edit one of your own comments.
+
+    > [!CAUTION] This is a write command — confirm with the user before executing.
+    """
+    comment = resolve_content(comment, content_file)
+    if not comment or not comment.strip():
+        output_error(3, "Comment must not be empty", "Pass --content or --content-file.")
+
+    body: dict = {"comment_id": comment_id, "comment": comment}
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "update card comment", "payload": body},
+            ctx.obj.output_format,
+            entity_type="card",
+            base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
+        )
+        return
+
+    data = _client(ctx).post("/update_card_comment", body)
+    format_output(
+        data,
+        ctx.obj.output_format,
+        title=f"Edited comment: {comment_id}",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
+
+
+@comment_group.command("delete")
+@click.argument("comment_id")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@click.pass_context
+def comment_delete(ctx: click.Context, comment_id: str, dry_run: bool) -> None:
+    """Delete one of your own comments.
+
+    > [!CAUTION] This is a destructive write command — confirm with the user before executing.
+    """
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "delete card comment", "comment_id": comment_id},
+            ctx.obj.output_format,
+            entity_type="card",
+            base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
+        )
+        return
+
+    data = _client(ctx).delete(f"/card_comments/{comment_id}")
+    format_output(
+        data, ctx.obj.output_format, entity_type="card", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
     )
