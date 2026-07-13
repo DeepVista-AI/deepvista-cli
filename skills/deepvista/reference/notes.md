@@ -21,7 +21,10 @@ flag reference.
 ## Agent conventions
 
 > [!CAUTION] `create`, `update`, `delete` are writes.
-> Confirm with the user first (except `+quick` in auto-capture mode — see [openclaw.md](openclaw.md)).
+> Confirm with the user first — always, with no auto-capture exception. Notes are
+> human-driven: only create one when the user explicitly asks to save/write/record
+> a note. Everything an agent notices on its own belongs on `deepvista card`
+> instead (see [openclaw.md](openclaw.md), DV-1484).
 
 - **Always use `--content-file <absolute-path>`** for anything more than ~200 chars or
   containing newlines. Never paste large content inline. Pass `-` to read from stdin.
@@ -70,4 +73,4 @@ deepvista card index --limit 100
 ## See also
 
 - [vistabase-card.md](vistabase-card.md) — underlying `card --type note` commands, version history, indexing
-- [openclaw.md](openclaw.md) — auto-capture without confirmation
+- [openclaw.md](openclaw.md) — agent auto-capture (writes context cards, never notes)
