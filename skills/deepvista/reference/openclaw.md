@@ -69,12 +69,23 @@ deepvista auth status
 If unauthenticated, prompt the user to run `deepvista auth login` — don't try to
 capture silently into a broken auth state.
 
-## Optional — heartbeat / dedup
+## Optional — heartbeat
 
 If the user runs `deepvista agents sync --type openclaw` once (it auto-registers
-on first run), the CLI will heartbeat after each agent turn and the server will
-flag near-duplicate captures during periodic maintenance. Set up is one-time;
+on first run), the CLI will heartbeat after each agent turn. Set up is one-time;
 not required for capture to work.
+
+## Duplicate captures (DV-1367)
+
+Auto-capture doesn't block on a live duplicate check before saving — the server
+runs an independent periodic scan (every 6 hours, unconditional, not tied to
+heartbeat registration) that flags near-duplicate person/organization cards
+with a comment for the user to review and merge. Don't rely on this to justify
+looser capture discipline: when capturing a person or organization, prefer
+`deepvista card +search "<name>" --type person` (or `--type organization`)
+first and reuse an existing card instead of creating a new one for the same
+entity — the periodic scan is a safety net for what slips through, not a
+substitute for it.
 
 ## See also
 
