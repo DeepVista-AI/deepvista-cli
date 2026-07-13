@@ -46,6 +46,18 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [3.2.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v3.1.0...v3.2.0) (2026-07-13)
+
+
+### Features
+
+* **DV-1496:** expose card comment commands in CLI ([#204](https://github.com/DeepVista-AI/deepvista-cli/issues/204)) ([3551969](https://github.com/DeepVista-AI/deepvista-cli/commit/35519695664c89076fe6785fa1d19c5c6a3846dd))
+
+
+### Bug Fixes
+
+* **DV-1484:** reconcile OpenClaw auto-capture with explicit-note rule ([#199](https://github.com/DeepVista-AI/deepvista-cli/issues/199)) ([663d2df](https://github.com/DeepVista-AI/deepvista-cli/commit/663d2df18d775ad2e90cf1db23c17621c0db4469))
+
 ## [3.1.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v3.0.0...v3.1.0) (2026-07-12)
 
 
