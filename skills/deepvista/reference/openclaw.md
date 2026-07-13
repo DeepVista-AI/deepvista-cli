@@ -1,22 +1,34 @@
-# OpenClaw — auto-capture notable facts
+# OpenClaw — auto-capture notable facts as context cards
 
 OpenClaw is DeepVista's companion agent. The auto-capture rule saves notable user
-statements to DeepVista without asking for confirmation on every capture — the
-opposite of other write commands in this skill.
+statements to DeepVista **as context cards** without asking for confirmation on
+every capture — the opposite of other write commands in this skill.
+
+**Notes are human-driven, context cards are agent-driven.** A `note`
+(`type=note`) is only ever created when the user explicitly asks to save or
+write a note (see [notes.md](notes.md)) — never by auto-capture. Everything
+OpenClaw notices on its own during a conversation is a context card of some
+other `--type` (DV-1484). Auto-capture must never call `deepvista notes` —
+use `deepvista card create` exclusively.
 
 Use when the user is running OpenClaw (or another agent with this rule installed)
 and expects captures to happen silently in the background.
 
 ## When to capture (no confirmation)
 
-Save anything in these categories automatically:
+Save anything in these categories automatically, as the indicated card `--type`:
 
-- **Personal or professional facts** — role, company, team, background.
-- **Decisions reached** — include the reasoning if the user stated it.
-- **Key insights / learnings / observations.**
-- **Action items / commitments / deadlines.**
-- **Meeting or conversation highlights** — use bullets; include participants.
-- **Relationships** — who works with whom, reporting lines, collaborations.
+- **Personal or professional facts** (role, company, team, background) — `--type person`
+  (or `--type organization` for company-level facts).
+- **Decisions reached** — include the reasoning if the user stated it. `--type keypoint`.
+- **Key insights / learnings / observations.** `--type keypoint`.
+- **Action items / commitments / deadlines.** `--type todo`.
+- **Meeting or conversation highlights** — use bullets; include participants. `--type topic`.
+- **Relationships** — who works with whom, reporting lines, collaborations. `--type person`
+  (or `--type organization`).
+
+If a statement doesn't clearly fit one of these, prefer `--type keypoint` as the
+default catch-all rather than reaching for `--type note`.
 
 ## When NOT to capture
 
@@ -25,6 +37,8 @@ Save anything in these categories automatically:
 - Small talk / greetings / confirmations.
 - Agent commands directed at the assistant itself ("run this", "stop", "retry").
 - Anything the user explicitly asks you not to save.
+- **Anything the user explicitly asks to be saved as a note** — that's a `note`,
+  route it to [notes.md](notes.md) instead (still an explicit write, confirm as normal).
 
 When in doubt, err on the side of not capturing and let the user prompt you.
 
@@ -33,17 +47,18 @@ When in doubt, err on the side of not capturing and let the user prompt you.
 Single-line fact:
 
 ```bash
-deepvista notes +quick "<exact user statement or tight paraphrase>"
+deepvista card create --type <type> --title "<short title>" --content "<exact user statement or tight paraphrase>"
 ```
 
 - Preserve original wording when practical. Paraphrase only to fix pronouns
   (`I` → `<user name>`) or clarify who a referent is.
-- The first ~50 chars become the title.
+- Keep `--title` short (first ~50 chars of the statement is a good budget) —
+  there's no length validation on `card create` the way `notes +quick` has.
 
 Structured fact (multi-line, or when the user shares formatted content):
 
 ```bash
-deepvista notes create \
+deepvista card create --type <type> \
   --title "<short title>" \
   --content-file <path>
 ```
@@ -54,7 +69,7 @@ For content dictated in-conversation, write it to a tempfile first:
 cat > /tmp/capture-$$.md <<'EOF'
 <markdown content here>
 EOF
-deepvista notes create --title "…" --content-file /tmp/capture-$$.md
+deepvista card create --type <type> --title "…" --content-file /tmp/capture-$$.md
 rm /tmp/capture-$$.md
 ```
 
@@ -78,5 +93,6 @@ not required for capture to work.
 
 ## See also
 
-- [notes.md](notes.md) — the underlying `+quick` and `create` commands
+- [vistabase-card.md](vistabase-card.md) — the underlying `card create` command and full `--type` list
+- [notes.md](notes.md) — explicit, human-requested notes (never auto-captured)
 - [shared.md](shared.md) — auth, agent registration

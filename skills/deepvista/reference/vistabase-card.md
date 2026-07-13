@@ -20,9 +20,9 @@ Use [notes.md](notes.md) for note-only ergonomics.
 
 ## Agent conventions
 
-> [!CAUTION] `create`, `update`, `edit`, `delete`, `index`, `restore`, `+pin`, `+archive`,
-> `comment add`, `comment edit`, `comment delete` are writes.
-> Confirm first. Use `--dry-run` to preview.
+> [!CAUTION] `create`, `update`, `edit`, `delete`, `index`, `restore`, `+pin`, `+archive` are writes.
+> Confirm first (except `create` under OpenClaw auto-capture — see [openclaw.md](openclaw.md), DV-1484).
+> Use `--dry-run` to preview.
 
 - **Always use `--content-file <absolute-path>`** for large content — never inline.
 - Show the app URL after any write: `https://app.deepvista.ai/vistabase/<id>`
