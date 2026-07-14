@@ -781,7 +781,7 @@ def skill_create_from_note(
     """Synthesize a workflow skill from one or more notes via the DeepVista agent.
 
     Pass note UUIDs positionally or via repeated `--note-id`. To find source
-    notes first, use `deepvista card +search` / `+grep` / `+similar` and pass
+    notes first, use `deepvista card +search` / `+search-content` / `+similar` and pass
     the resulting IDs here. The agent produces one `workflow` skill (executable
     steps), grounded in the union of all source notes and linked back to
     every source.

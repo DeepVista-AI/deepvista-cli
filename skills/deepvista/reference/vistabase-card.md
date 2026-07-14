@@ -16,7 +16,7 @@ Use [notes.md](notes.md) for note-only ergonomics.
 `list` · `get` · `create` · `update` · `edit` · `delete`
 `index` · `history` · `diff` · `restore`
 `comment list|add|edit|delete`
-`+search` · `+similar` · `+grep` · `+pin` · `+archive`
+`+search` · `+similar` · `+search-content` · `+pin` · `+archive`
 
 ## Agent conventions
 
@@ -26,8 +26,8 @@ Use [notes.md](notes.md) for note-only ergonomics.
 
 - **Always use `--content-file <absolute-path>`** for large content — never inline.
 - Show the app URL after any write: `https://app.deepvista.ai/vistabase/<id>`
-- Read-only commands (`list`, `get`, `history`, `diff`, `+search`, `+similar`, `+grep`) are safe to run
-  without confirmation.
+- Read-only commands (`list`, `get`, `history`, `diff`, `+search`, `+similar`, `+search-content`) are safe
+  to run without confirmation.
 
 ## Non-obvious gotchas
 
@@ -36,9 +36,12 @@ the current body — it is replaced with `--new-string`. Fails if not found. Use
 `card get` to read the current body before calling `edit`. Prefer `update
 --content-file` when replacing large sections.
 
-**`+search` vs `+grep`:** `+search` is hybrid vector+keyword (fuzzy, semantic).
-`+grep` is literal/regex. Use `+search` for concepts, `+grep` for exact strings like
-`TODO`, URLs, or identifiers.
+**`+search` vs `+search-content`:** both are hybrid vector+keyword (fuzzy, semantic) —
+`+search` ranks by title/snippet/keywords, `+search-content` ranks against a card's
+full body via the search_vector + embedding hybrid. Omit the query on
+`+search-content` to browse cards of `--type`, most-recently-updated first (no
+regex/exact-match mode exists anymore — for a boolean OR use `websearch_to_tsquery`
+syntax, e.g. `"TODO OR FIXME"`).
 
 **`index`** — queues entity extraction + embedding refresh on unprocessed cards
 (`--type note` by default). Run after bulk imports or a long offline period.
@@ -57,7 +60,7 @@ authenticated user (`commenter_type=human`); you can only `edit`/`delete` your o
 # Search
 deepvista card +search "quarterly metrics"
 deepvista card +search "ML team" --type person
-deepvista card +grep "TODO|FIXME" --type note -i
+deepvista card +search-content "TODO OR FIXME" --type note
 
 # Create
 deepvista card create --type topic \

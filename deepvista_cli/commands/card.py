@@ -13,7 +13,7 @@ Endpoints:
   POST /create_context_card    -> create
   POST /update_context_card    -> update
   POST /edit_context_card      -> targeted string replacement (file-ops Edit)
-  POST /grep_context_cards     -> regex content search (file-ops Grep)
+  POST /search_context_cards   -> hybrid tsvector + embedding content search
   DELETE /context_cards/{id}   -> delete
   POST /list_card_comments     -> list a card's comments (DV-1308)
   POST /create_card_comment    -> add a comment to a card
@@ -662,42 +662,34 @@ def card_archive(ctx: click.Context, card_id: str, dry_run: bool) -> None:
     )
 
 
-@card_group.command("+grep")
-@click.argument("pattern")
+@card_group.command("+search-content")
+@click.argument("query", required=False, default="")
 @click.option("--type", "card_type", type=click.Choice(CARD_TYPES, case_sensitive=False), default=None)
-@click.option("-i", "--ignore-case", is_flag=True, default=False, help="Case-insensitive matching.")
 @click.option("--limit", default=20, help="Max cards to return (default 20).")
-@click.option("-C", "--context", "context_lines", default=0, type=int, help="Lines of context around each match.")
 @click.pass_context
-def card_grep(
+def card_search_content(
     ctx: click.Context,
-    pattern: str,
+    query: str,
     card_type: str | None,
-    ignore_case: bool,
     limit: int,
-    context_lines: int,
 ) -> None:
-    """Regex search through card content. Returns matching lines with line numbers.
+    """Hybrid full-text + semantic search, ranked by combined score.
 
-    Different from +search (semantic/keyword) — this does literal/regex matching
-    on card content, like grep or ripgrep.
+    Different from +search — this ranks against card content (not just
+    title/keywords) via the search_vector + embedding hybrid. Omit query
+    to browse cards of --type, most-recently-updated first.
 
     Read-only — never modifies your knowledge base.
     """
-    body: dict = {
-        "pattern": pattern,
-        "case_insensitive": ignore_case,
-        "limit": limit,
-        "context_lines": context_lines,
-    }
+    body: dict = {"query": query, "limit": limit}
     if card_type:
         body["card_type"] = card_type
 
-    data = _client(ctx).post("/grep_context_cards", body)
+    data = _client(ctx).post("/search_context_cards", body)
     format_output(
         data,
         ctx.obj.output_format,
-        title=f"Grep: {pattern}",
+        title=f"Search: {query}" if query else "Browse",
         entity_type="card",
         base_url=ctx.obj.auth_url,
         project_id=ctx.obj.project_id,

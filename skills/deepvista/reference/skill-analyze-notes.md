@@ -41,8 +41,8 @@ thinking about", "find patterns", "what are common topics", "review my notes".
 - For deep analyses across many notes, paste each note body into a `chat +send`
   conversation and ask the agent to synthesize — the agent has access to tools you
   don't (e.g. semantic clustering).
-- Prefer `card +search` (hybrid vector + keyword) over `+grep` unless the user wants
-  exact text matches.
+- `card +search` ranks by title/snippet/keywords; `+search-content` ranks against
+  full card content — reach for it when the match is more likely buried in the body.
 - Filter by `--type note` to avoid dredging up person / topic / file cards.
 
 ## Examples
