@@ -46,6 +46,28 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [4.0.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v3.2.0...v4.0.0) (2026-07-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **DV-1078:** replace +grep with +search-content hybrid search ([#207](https://github.com/DeepVista-AI/deepvista-cli/issues/207))
+
+### Features
+
+* **DV-1078:** replace +grep with +search-content hybrid search ([#207](https://github.com/DeepVista-AI/deepvista-cli/issues/207)) ([9813a55](https://github.com/DeepVista-AI/deepvista-cli/commit/9813a555408fe0a0a66cd8328b4df2bf778c7cdc))
+
+
+### Bug Fixes
+
+* **DV-1529:** add exponential backoff retry for transient network errors ([#200](https://github.com/DeepVista-AI/deepvista-cli/issues/200)) ([3e2fd79](https://github.com/DeepVista-AI/deepvista-cli/commit/3e2fd790cf4c3bd2b76e9992dd90dcc52d1bf60a))
+* **DV-1537:** match deepvista-cli schedule commands on job kind, not title ([#201](https://github.com/DeepVista-AI/deepvista-cli/issues/201)) ([22f2fc1](https://github.com/DeepVista-AI/deepvista-cli/commit/22f2fc1305ec7806eb00425cb2c3dcceaf32b476))
+
+
+### Documentation
+
+* **DV-1367:** correct stale dedup claim in openclaw.md ([#202](https://github.com/DeepVista-AI/deepvista-cli/issues/202)) ([79d5dab](https://github.com/DeepVista-AI/deepvista-cli/commit/79d5dab4fbc361a3c1535d8c9d6606b309e9edf0))
+
 ## [3.2.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v3.1.0...v3.2.0) (2026-07-13)
 
 
