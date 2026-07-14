@@ -84,12 +84,24 @@ deepvista auth status
 If unauthenticated, prompt the user to run `deepvista auth login` — don't try to
 capture silently into a broken auth state.
 
-## Optional — heartbeat / dedup
+## Optional — heartbeat
 
 If the user runs `deepvista agents sync --type openclaw` once (it auto-registers
-on first run), the CLI will heartbeat after each agent turn and the server will
-flag near-duplicate captures during periodic maintenance. Set up is one-time;
+on first run), the CLI will heartbeat after each agent turn. Set up is one-time;
 not required for capture to work.
+
+## Duplicate captures (DV-1367)
+
+The server blocks exact/near-duplicate person and organization cards at write
+time (title match or high embedding similarity creates an update instead of a
+new card), but that's a safety net, not a substitute for good capture
+discipline — it can still miss a duplicate that's phrased differently enough.
+When capturing a person or organization, prefer
+`deepvista card +search "<name>" --type person` (or `--type organization`)
+first and reuse an existing card instead of creating a new one for the same
+entity. Any duplicates that do slip through can be resolved later via
+Vistabase's manual "Merge duplicate" card action — there is no automatic
+background cleanup (yet).
 
 ## See also
 
