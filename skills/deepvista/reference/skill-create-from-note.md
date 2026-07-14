@@ -23,7 +23,7 @@ results here:
 
 ```bash
 deepvista card +search "product-market fit signals" --type note --limit 5
-deepvista card +grep "DRI|operating rhythm" --type note
+deepvista card +search-content "DRI OR operating rhythm" --type note
 deepvista card +similar <seed_note_id>
 ```
 
