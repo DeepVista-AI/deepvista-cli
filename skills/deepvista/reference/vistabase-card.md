@@ -1,7 +1,11 @@
 # Cards — the knowledge base
 
 `deepvista card` manages every knowledge base entry. Types: `person`, `organization`,
-`message`, `todo`, `topic`, `keypoint`, `file`, `note`, `skill`, `skill_run`.
+`message`, `email`, `todo`, `topic`, `keypoint`, `file`, `note`, `session`, `skill`,
+`run_log`, `schedule_job`, `task`, `conversation_starter`, `artifact`.
+
+`note` is reserved for human-authored notes; `artifact` is the agent's fallback
+for its own output when no structured type fits (DV-1573).
 
 `deepvista vistabase` is a backward-compatible alias — every `card` subcommand
 works under `vistabase` too (hidden from `--help`).

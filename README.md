@@ -313,7 +313,9 @@ deepvista card +pin <card_id>
 deepvista card +archive <card_id>
 ```
 
-Card types: `person` · `organization` · `message` · `todo` · `topic` · `keypoint` · `file` · `note` · `skill` · `skill_run`
+Card types: `person` · `organization` · `message` · `email` · `todo` · `topic` · `keypoint` · `file` · `note` · `session` · `skill` · `run_log` · `schedule_job` · `task` · `conversation_starter` · `artifact`
+
+> `note` is reserved for human-authored notes; `artifact` is the agent's fallback for its own output when no structured type fits (DV-1573).
 
 > `deepvista vistabase` is a backward-compatible alias for `deepvista card` — every `card` subcommand works under `vistabase` too.
 

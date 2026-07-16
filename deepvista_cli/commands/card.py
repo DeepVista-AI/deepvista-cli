@@ -29,10 +29,16 @@ from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.commands import apply_project_override, project_option, resolve_content
 from deepvista_cli.output.formatter import format_output, output_error
 
+# Mirrors the backend's vista_common.models.context_card.CardType enum
+# (types are enforced at the API layer, not in the DB). `note` is reserved
+# for human-authored notes; `artifact` (DV-1573) is the agent's fallback for
+# its own output when no structured type fits. The deprecated `skill_run`
+# type (superseded by `run_log`, DV-1130) is intentionally absent.
 CARD_TYPES = [
     "person",
     "organization",
     "message",
+    "email",
     "todo",
     "topic",
     "keypoint",
@@ -40,7 +46,11 @@ CARD_TYPES = [
     "note",
     "session",
     "skill",
-    "skill_run",
+    "run_log",
+    "schedule_job",
+    "task",
+    "conversation_starter",
+    "artifact",
 ]
 
 CARD_COLUMNS = ["id", "type", "title", "display_status", "updated_at"]
