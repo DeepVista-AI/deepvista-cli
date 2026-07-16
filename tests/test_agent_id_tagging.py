@@ -229,6 +229,59 @@ def test_migrate_legacy_agents_dir_into_machines_cache(tmp_path: Path, monkeypat
 
 
 # ---------------------------------------------------------------------------
+# agents.py — _machine_fingerprint() persistence (DV-1570)
+# ---------------------------------------------------------------------------
+
+
+def test_machine_fingerprint_persists_across_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fresh fingerprint is generated once and reused on every subsequent call."""
+    from deepvista_cli.commands import agents
+
+    monkeypatch.setattr(agents, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(agents, "MACHINE_ID_PATH", tmp_path / "machine_id")
+
+    first = agents._machine_fingerprint()
+    second = agents._machine_fingerprint()
+
+    assert first == second
+    assert (tmp_path / "machine_id").read_text().strip() == first
+
+
+def test_machine_fingerprint_survives_process_restart_simulation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reloading the module-level function (simulating a fresh CLI process) must
+    still return the persisted id — this is what protects against
+    ``uuid.getnode()``'s per-process randomness on hosts without a real MAC."""
+    from deepvista_cli.commands import agents
+
+    monkeypatch.setattr(agents, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(agents, "MACHINE_ID_PATH", tmp_path / "machine_id")
+
+    generated = agents._machine_fingerprint()
+
+    # No in-memory state to reset — persistence must live entirely on disk.
+    assert agents._machine_fingerprint() == generated
+    assert (tmp_path / "machine_id").exists()
+
+
+def test_machine_fingerprint_ignores_stale_getnode_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Once persisted, the fingerprint no longer depends on hostname/MAC at all."""
+    from deepvista_cli.commands import agents
+
+    monkeypatch.setattr(agents, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(agents, "MACHINE_ID_PATH", tmp_path / "machine_id")
+    persisted = agents._machine_fingerprint()
+
+    import uuid as uuid_module
+
+    monkeypatch.setattr(uuid_module, "getnode", lambda: 999999999999)
+    monkeypatch.setattr("platform.node", lambda: "some-other-ephemeral-hostname")
+
+    assert agents._machine_fingerprint() == persisted
+
+
+# ---------------------------------------------------------------------------
 # +quick tag emission
 # ---------------------------------------------------------------------------
 

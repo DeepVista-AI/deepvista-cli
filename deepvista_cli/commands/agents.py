@@ -1,9 +1,11 @@
 """deepvista agents — Machine identity heartbeat.
 
-A Machine is this device (fingerprint = hostname + MAC + OS) **registered to
-a project**. Server uniqueness is ``(project_id, machine_fingerprint)``.
-Project members can see the Machine; only the registering user syncs/claims.
-``agent_type`` is soft metadata (last-seen tool). ``agent_role`` is unused.
+A Machine is this device (fingerprint = a UUID persisted once to
+``~/.config/deepvista/machine_id``) **registered to a project**. Server
+uniqueness is ``(project_id, machine_fingerprint)``. A Machine is visible to
+every project member — polling/claiming/syncing works for any of them, not
+just whoever registered it (DV-1570). ``agent_type`` is soft metadata
+(last-seen tool). ``agent_role`` is unused.
 
 Local cache: ``~/.config/deepvista/machines/<fingerprint>__<project_id>.json``.
 Legacy ``agents/<type>__<project>.json`` files are migrated on read.
@@ -45,13 +47,37 @@ _AGENT_TYPE_LABELS = {
 }
 
 
+MACHINE_ID_PATH = CONFIG_DIR / "machine_id"
+
+
 def _machine_fingerprint() -> str:
-    import hashlib
-    import platform
+    """Return this Machine's stable identity, generating + persisting it on first use.
+
+    Previously derived from ``hostname + uuid.getnode() + OS``. ``uuid.getnode()``
+    falls back to a random value whenever it can't read a real hardware MAC —
+    common on containers, VMs, and ephemeral cloud sandboxes — and that
+    fallback is re-randomized on every process start rather than cached. A
+    hostname change across ephemeral container restarts compounded this. The
+    result: every restart on such a host looked like a brand-new Machine,
+    each registering a fresh, undeduped row server-side (DV-1570).
+
+    A UUID generated once and persisted to disk survives restarts regardless
+    of MAC/hostname availability.
+    """
+    try:
+        existing = MACHINE_ID_PATH.read_text().strip()
+    except OSError:
+        existing = ""
+    if existing:
+        return existing
+
     import uuid
 
-    raw = f"{platform.node()}:{uuid.getnode()}:{platform.system()}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    new_id = uuid.uuid4().hex
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    MACHINE_ID_PATH.write_text(new_id)
+    os.chmod(MACHINE_ID_PATH, 0o600)
+    return new_id
 
 
 def _machine_path(project_id: str, fingerprint: str | None = None) -> Path:
