@@ -46,6 +46,19 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [4.1.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.0.0...v4.1.0) (2026-07-16)
+
+
+### Features
+
+* **DV-1493:** promote `tasks run` in post-login welcome message ([#208](https://github.com/DeepVista-AI/deepvista-cli/issues/208)) ([282e684](https://github.com/DeepVista-AI/deepvista-cli/commit/282e684631d0e4d8017797d2bff90607bd8fd2a1))
+* **DV-1573:** sync card types with backend; add artifact, drop deprecated skill_run ([#211](https://github.com/DeepVista-AI/deepvista-cli/issues/211)) ([2c89c7a](https://github.com/DeepVista-AI/deepvista-cli/commit/2c89c7a9cb8d4bc7bbee789bf9c4751c1f467b08))
+
+
+### Bug Fixes
+
+* **DV-1570:** persist a stable machine id instead of a volatile fingerprint ([#209](https://github.com/DeepVista-AI/deepvista-cli/issues/209)) ([68dbbc6](https://github.com/DeepVista-AI/deepvista-cli/commit/68dbbc63f36b0dd61b7452a468b2e23c0eff9a29))
+
 ## [4.0.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v3.2.0...v4.0.0) (2026-07-14)
 
 
