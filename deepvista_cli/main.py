@@ -63,7 +63,7 @@ class _RootGroup(click.Group):
     "--project",
     "project_id",
     default=None,
-    help="Scope this invocation to a project id (overrides the profile working project / DEEPVISTA_PROJECT_ID).",
+    help="Scope this invocation to a project id or slug (overrides the working project / DEEPVISTA_PROJECT_ID).",
 )
 @click.pass_context
 def cli(

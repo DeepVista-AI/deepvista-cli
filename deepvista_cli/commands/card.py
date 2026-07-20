@@ -11,6 +11,7 @@ Endpoints:
   POST /get_context_cards      -> list / search
   POST /get_context_card       -> get by id
   POST /create_context_card    -> create
+  POST /attachments/signed-upload-url -> presigned PUT for `card upload` (DV-1650)
   POST /update_context_card    -> update
   POST /edit_context_card      -> targeted string replacement (file-ops Edit)
   POST /search_context_cards   -> hybrid tsvector + embedding content search
@@ -54,6 +55,10 @@ CARD_TYPES = [
 ]
 
 CARD_COLUMNS = ["id", "type", "title", "display_status", "updated_at"]
+
+# Mirrors the backend's cap on /attachments/signed-upload-url so oversize
+# uploads fail fast without a round trip.
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 COMMENT_COLUMNS = ["id", "commenter_type", "commenter_name", "comment", "created_at"]
 
@@ -221,6 +226,72 @@ def card_create(
         data,
         ctx.obj.output_format,
         title="Created Card",
+        entity_type="card",
+        base_url=ctx.obj.auth_url,
+        project_id=ctx.obj.project_id,
+    )
+
+
+@card_group.command("upload")
+@click.argument("file_path", type=click.Path(exists=True, dir_okay=False, readable=True))
+@click.option("--content-type", default=None, help="MIME type (default: guessed from the file name).")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
+@project_option
+@click.pass_context
+def card_upload(
+    ctx: click.Context,
+    file_path: str,
+    content_type: str | None,
+    dry_run: bool,
+    project_override: str | None,
+) -> None:
+    """Upload a file (binary OK) as a `file` context card (DV-1650).
+
+    Requests a presigned upload URL, PUTs the raw bytes to storage, and the
+    backend mints the `file` card — title = file name, with `url`,
+    `file_type`, and `uploaded_at` populated. Use this instead of
+    `card create --content-file` for anything that isn't UTF-8 text.
+
+    > [!CAUTION] This is a write command — confirm with the user before executing.
+    """
+    import mimetypes
+    from pathlib import Path as _Path
+
+    apply_project_override(ctx, project_override)
+    path = _Path(file_path)
+    size = path.stat().st_size
+    if size > MAX_UPLOAD_BYTES:
+        output_error(
+            3,
+            f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB upload limit",
+            f"{path} is {size} bytes.",
+        )
+    resolved_type = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    body = {"file_name": path.name, "file_size": size, "content_type": resolved_type}
+
+    if dry_run:
+        format_output(
+            {"dry_run": True, "would": "upload file and create a file card", "payload": body},
+            ctx.obj.output_format,
+            entity_type="card",
+            base_url=ctx.obj.auth_url,
+            project_id=ctx.obj.project_id,
+        )
+        return
+
+    grant = _client(ctx).post("/attachments/signed-upload-url", body)
+    _client(ctx).put_bytes(grant["signedUrl"], path.read_bytes(), grant.get("headers") or {})
+    result = {
+        "uploaded": path.name,
+        "bytes": size,
+        "file_type": resolved_type,
+        "url": grant.get("gsUrl"),
+        "card": "file card created by the backend (title = file name)",
+    }
+    format_output(
+        result,
+        ctx.obj.output_format,
+        title="Uploaded file card",
         entity_type="card",
         base_url=ctx.obj.auth_url,
         project_id=ctx.obj.project_id,

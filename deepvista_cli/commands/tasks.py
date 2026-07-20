@@ -11,8 +11,9 @@ and run them:
 
 Polling (DV-1079): ``run`` polls in the foreground by default (--poll-interval,
 bounded by --total-time when given); --run-once does a single claim/execute
-pass, which is what the cron entry installed by ``setup`` uses. A PID lock file
-allows only one ``tasks run`` per machine at a time. Headless runs execute
+pass, which is what the cron entry installed by ``setup`` uses. A per-project
+PID lock file allows only one ``tasks run`` per project at a time; daemons for
+different projects coexist on one machine (DV-1563). Headless runs execute
 concurrently up to --max-parallel (default 5).
 """
 
@@ -35,6 +36,7 @@ import click
 from deepvista_cli.auth.tokens import get_valid_token
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.client.origin import detect_agent_tool
+from deepvista_cli.commands import resolve_project_ref
 from deepvista_cli.commands.agents import (
     AGENTS_DIR,
     MACHINES_DIR,
@@ -67,8 +69,8 @@ DEFAULT_MAX_PARALLEL_TASKS = 5
 # Idle polls between heartbeat lines in default (non-verbose) mode (~5 min at 10s).
 IDLE_HEARTBEAT_POLLS = 30
 
-# Single-instance lock for `tasks run` (DV-1079) — holds the owner PID.
-RUN_LOCK_PATH = CONFIG_DIR / "task_queue.run.lock"
+# Directory holding the per-project `tasks run` locks (DV-1079, DV-1563).
+RUN_LOCK_DIR = CONFIG_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -140,33 +142,40 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _read_lock_pid() -> int | None:
+def _run_lock_path(project_id: str) -> Path:
+    """Lock file for a project's `tasks run` daemon — holds the owner PID."""
+    return RUN_LOCK_DIR / f"task_queue.run.{project_id}.lock"
+
+
+def _read_lock_pid(lock_path: Path) -> int | None:
     try:
-        return int(RUN_LOCK_PATH.read_text().strip())
+        return int(lock_path.read_text().strip())
     except (OSError, ValueError):
         return None
 
 
-def _acquire_run_lock() -> bool:
-    """Take the machine-wide single-instance lock for `tasks run` (DV-1079).
+def _acquire_run_lock(lock_path: Path) -> bool:
+    """Take the per-project single-instance lock for `tasks run` (DV-1079, DV-1563).
 
-    Overlapping pollers would double-claim the queue, so only one `run` may
-    be active at a time — a foreground poller and a cron tick included. A
-    lock whose owner PID is dead (crash, reboot) is stale and reclaimed.
+    Overlapping pollers would double-claim a project's queue, so only one
+    `run` may be active per project at a time — a foreground poller and a
+    cron tick included. Daemons for *different* projects hold different locks
+    and coexist on one machine. A lock whose owner PID is dead (crash,
+    reboot) is stale and reclaimed.
     """
-    pid = _read_lock_pid()
+    pid = _read_lock_pid(lock_path)
     if pid is not None and pid != os.getpid() and _pid_alive(pid):
         return False
-    RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RUN_LOCK_PATH.write_text(str(os.getpid()))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text(str(os.getpid()))
     return True
 
 
-def _release_run_lock() -> None:
-    if _read_lock_pid() != os.getpid():
+def _release_run_lock(lock_path: Path) -> None:
+    if _read_lock_pid(lock_path) != os.getpid():
         return
     try:
-        RUN_LOCK_PATH.unlink()
+        lock_path.unlink()
     except OSError:
         pass
 
@@ -596,17 +605,17 @@ def _find_registered_agent_for_project(project_id: str) -> str | None:
 
 
 def _resolve_working_project(ctx: click.Context, project_override: str | None = None) -> str | None:
-    """Return the project ``tasks run`` should scope to.
+    """Return the project ``tasks run`` should scope to, as a canonical UUID.
 
     Resolution order: per-command ``--project`` → global working project
     (``project use`` / global ``--project`` / ``DEEPVISTA_PROJECT_ID``) →
-    backend default via ``GET /projects/me``.
+    backend default via ``GET /projects/me``. Slugs are resolved to the
+    project UUID (DV-1564) so machine cache files and run locks stay keyed
+    consistently.
     """
-    if project_override:
-        return project_override
-    profile_project = getattr(ctx.obj, "project_id", None)
-    if profile_project:
-        return profile_project
+    ref = project_override or getattr(ctx.obj, "project_id", None)
+    if ref:
+        return resolve_project_ref(ctx, ref)
     try:
         data = _client(ctx).get("/projects/me")
     except SystemExit:
@@ -924,7 +933,7 @@ def _claim_and_submit_all(
     "--project",
     "project_id",
     default=None,
-    help="Scope to this project (overrides the working project for this call only).",
+    help="Scope to this project — id or slug (overrides the working project for this call only).",
 )
 @click.option(
     "--run-once",
@@ -992,19 +1001,21 @@ def tasks_run(
     unset). --run-once does a single pass and exits; the cron entry installed
     by ``tasks setup`` uses it.
 
-    Only one ``tasks run`` may be active per machine — concurrent
-    invocations exit with an error instead of double-claiming work.
+    Only one ``tasks run`` may be active per project — concurrent
+    invocations for the same project exit with an error instead of
+    double-claiming work. Daemons for different projects coexist (DV-1563).
     """
-    if not _acquire_run_lock():
-        output_error(
-            2,
-            "Another `tasks run` is already active on this machine",
-            f"Stop it first or wait for it to finish (lock: {RUN_LOCK_PATH}, pid: {_read_lock_pid()}).",
-        )
-        raise SystemExit(2)
-
     project_names: dict[str, str] = {}
     working_project = _resolve_working_project(ctx, project_id)
+
+    run_lock_path = _run_lock_path(working_project) if working_project else None
+    if run_lock_path is not None and not _acquire_run_lock(run_lock_path):
+        output_error(
+            2,
+            f"Another `tasks run` is already active for project {working_project}",
+            f"Stop it first or wait for it to finish (lock: {run_lock_path}, pid: {_read_lock_pid(run_lock_path)}).",
+        )
+        raise SystemExit(2)
     agents: list[tuple[str, str | None]]
     if agent_type:
         # Explicit agent filter — single-agent mode (backward-compatible).
@@ -1026,7 +1037,7 @@ def tasks_run(
             output_error(
                 3,
                 "No working project to poll",
-                "Run `deepvista project use <id>` or pass `--project <id>`.",
+                "Run `deepvista project use <id|slug>` or pass `--project <id|slug>`.",
             )
             raise SystemExit(3)
         agents, project_names = _ensure_agents_for_projects(ctx, project_ids={working_project})
@@ -1164,7 +1175,8 @@ def tasks_run(
         raise SystemExit(130) from None
     finally:
         executor.shutdown()
-        _release_run_lock()
+        if run_lock_path is not None:
+            _release_run_lock(run_lock_path)
 
 
 TASK_CARD_COLUMNS = ["id", "status", "title", "agent_id", "created_at"]

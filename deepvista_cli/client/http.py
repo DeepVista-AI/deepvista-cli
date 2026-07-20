@@ -240,6 +240,26 @@ class DeepVistaClient:
             except Exception:
                 return {"error": resp.text, "status_code": resp.status_code, "_status_code": resp.status_code}
 
+    def put_bytes(self, url: str, data: bytes, headers: dict[str, str]) -> None:
+        """PUT raw bytes to an absolute (pre-signed) URL — GCS uploads (DV-1650).
+
+        Bypasses the API base URL and auth headers: the signature embedded in
+        the URL is the auth, and the storage service requires exactly the
+        headers returned alongside it. Errors exit like any API call.
+        """
+        if self.config.verbose:
+            click.echo(f">>> PUT {url} ({len(data)} bytes)", err=True)
+        if self.config.dry_run:
+            click.echo(json.dumps({"dry_run": True, "method": "PUT", "url": url, "bytes": len(data)}), err=True)
+            sys.exit(0)
+        try:
+            resp = self._call_with_retry(lambda: httpx.put(url, content=data, headers=headers, timeout=120))
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            self._handle_network_error(exc)
+        self._log_response(resp)
+        if resp.status_code >= 400:
+            self._handle_error(resp)
+
     def patch(self, path: str, body: dict | None = None) -> Any:
         """HTTP PATCH, returns parsed JSON."""
         return self._request("PATCH", path, body=body)

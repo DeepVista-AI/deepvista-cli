@@ -24,17 +24,28 @@ def auth_group() -> None:
 
 
 def _print_next_steps(project_id: str | None = None) -> None:
-    """Print the post-login next step on stderr (DV-1493)."""
+    """Print the post-login welcome on stderr (DV-1493, DV-1646).
+
+    Short command + description pairs keep the copy scannable; the
+    machine-readable login JSON on stdout is untouched.
+    """
     if project_id:
-        command = "deepvista tasks run"
-        description = "kick off the task daemon for your current project"
+        steps = [("deepvista tasks run", "start the task daemon for your current project")]
     else:
-        command = "deepvista tasks run --project <project_id>"
-        description = "kick off the task daemon for a project"
+        steps = [
+            ("deepvista project use <id|slug>", "pick the project to work in"),
+            ("deepvista tasks run", "start its task daemon"),
+        ]
 
     click.echo("\n  What's next?", err=True)
-    click.echo(f"    {click.style(command, fg='cyan', bold=True)}", err=True)
-    click.echo(f"    {click.style(description, dim=True)}", err=True)
+    for command, description in steps:
+        click.echo(f"    {click.style(command, fg='cyan', bold=True)}", err=True)
+        click.echo(f"      {click.style(description, dim=True)}", err=True)
+
+    click.echo(
+        f"\n  New here? Open your AI agent and say: {click.style('Help me get started with DeepVista.', italic=True)}",
+        err=True,
+    )
 
 
 @auth_group.command("login")
@@ -77,7 +88,11 @@ def auth_login(ctx: click.Context, code: str | None, dry_run: bool) -> None:
         "user_id": tokens.user_id,
     }
     format_output(result, ctx.obj.output_format)
-    click.echo(f"  Logged in as {tokens.email or tokens.user_id}", err=True)
+    click.echo(
+        f"\n  {click.style('✓', fg='green', bold=True)} Logged in as "
+        f"{click.style(tokens.email or tokens.user_id, bold=True)}",
+        err=True,
+    )
     _print_next_steps(ctx.obj.project_id)
 
 

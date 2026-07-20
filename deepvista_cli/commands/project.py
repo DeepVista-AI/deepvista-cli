@@ -16,7 +16,6 @@ Resolution order for the working project (highest wins):
 Endpoints:
   GET /projects        -> list owned + shared projects
   GET /projects/me     -> the resolved/default project
-  GET /projects/{id}   -> a single project's metadata
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ from deepvista_cli.config import (
 )
 from deepvista_cli.output.formatter import format_output, output_error
 
-PROJECT_COLUMNS = ["id", "name", "role"]
+PROJECT_COLUMNS = ["id", "slug", "name", "role"]
 
 
 def _client(ctx: click.Context) -> DeepVistaClient:
@@ -51,6 +50,19 @@ def _projects(ctx: click.Context) -> list[dict]:
         projects = raw.get("projects", [])
         return projects if isinstance(projects, list) else []
     return []
+
+
+def _match_project(projects: list[dict], ref: str) -> dict | None:
+    """Find a project by id or slug (DV-1564)."""
+    return next((p for p in projects if p.get("id") == ref or (p.get("slug") and p.get("slug") == ref)), None)
+
+
+def _project_not_found(ref: str) -> None:
+    output_error(
+        EXIT_VALIDATION_ERROR,
+        f"Project '{ref}' not found or not accessible",
+        detail="Run `deepvista project list` to see available projects (id and slug).",
+    )
 
 
 def _project_role(project: dict) -> str | None:
@@ -83,7 +95,12 @@ def _slim_project(project: dict) -> dict:
 
     Keeps the ``id`` so the formatter still attaches a ``/project/{id}`` link.
     """
-    slim: dict = {"id": project.get("id"), "name": project.get("name"), "role": _project_role(project)}
+    slim: dict = {
+        "id": project.get("id"),
+        "slug": project.get("slug"),
+        "name": project.get("name"),
+        "role": _project_role(project),
+    }
     for key in _SLIM_OPTIONAL_FIELDS:
         if project.get(key) is not None:
             slim[key] = project[key]
@@ -94,11 +111,11 @@ def _slim_project(project: dict) -> dict:
 def project_group() -> None:
     """Inspect and switch the CLI's working project.
 
-    Pick a working project once with `project use <id>`; every subcommand then
-    scopes to it (sends `X-Project-Id` and emits `/project/{id}/...` links).
-    Override per-invocation with the global `--project <id>` flag or the
-    `DEEPVISTA_PROJECT_ID` env var. `project clear` falls back to the backend
-    default.
+    Pick a working project once with `project use <id|slug>`; every subcommand
+    then scopes to it (sends `X-Project-Id` and emits `/project/{id}/...`
+    links). Override per-invocation with the global `--project <id|slug>` flag
+    or the `DEEPVISTA_PROJECT_ID` env var. `project clear` falls back to the
+    backend default.
     """
 
 
@@ -136,13 +153,19 @@ def project_current(ctx: click.Context, full: bool) -> None:
 
 
 @project_group.command("show")
-@click.argument("project_id", required=False)
+@click.argument("project_ref", required=False)
 @click.option("--full", is_flag=True, default=False, help="Show the raw project object (tags, starters, …).")
 @click.pass_context
-def project_show(ctx: click.Context, project_id: str | None, full: bool) -> None:
-    """Show metadata for a project (defaults to the resolved current project)."""
-    if project_id:
-        data = _client(ctx).get(f"/projects/{project_id}")
+def project_show(ctx: click.Context, project_ref: str | None, full: bool) -> None:
+    """Show metadata for a project — by id or slug (defaults to the resolved current project)."""
+    if project_ref:
+        # There is no GET /projects/{id}; resolve the ref (id or slug, DV-1564)
+        # against the projects list, which returns the full project object.
+        match = _match_project(_projects(ctx), project_ref)
+        if match is None:
+            _project_not_found(project_ref)
+            return
+        data = match
     else:
         data = _client(ctx).get("/projects/me")
     if not full and isinstance(data, dict):
@@ -151,27 +174,26 @@ def project_show(ctx: click.Context, project_id: str | None, full: bool) -> None
 
 
 @project_group.command("use")
-@click.argument("project_id")
+@click.argument("project_ref")
 @click.pass_context
-def project_use(ctx: click.Context, project_id: str) -> None:
+def project_use(ctx: click.Context, project_ref: str) -> None:
     """Set the working project for this profile after validating membership.
 
-    Persists ``project_id`` in the active profile. This is client-side scoping
+    PROJECT_REF is the project's id or slug (DV-1564); the canonical UUID is
+    what gets persisted in the active profile. This is client-side scoping
     only — it does not change the backend's per-user default project.
     """
-    projects = _projects(ctx)
-    match = next((p for p in projects if p.get("id") == project_id), None)
+    match = _match_project(_projects(ctx), project_ref)
     if match is None:
-        output_error(
-            EXIT_VALIDATION_ERROR,
-            f"Project {project_id} not found or not accessible",
-            detail="Run `deepvista project list` to see available projects.",
-        )
+        _project_not_found(project_ref)
+        return
 
+    project_id = str(match.get("id"))
     set_working_project(ctx.obj.profile, project_id)
     ctx.obj.project_id = project_id
     result = {
         "working_project": project_id,
+        "slug": match.get("slug"),
         "name": match.get("name"),
         "profile": ctx.obj.profile,
     }
