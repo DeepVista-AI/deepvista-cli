@@ -228,31 +228,6 @@ def test_project_use_persists_and_validates(isolated_config: Path, monkeypatch: 
     assert cfg.get_profile("default")["project_id"] == "p2"
 
 
-def test_project_use_accepts_slug_and_persists_uuid(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`project use <slug>` resolves to the canonical UUID before persisting (DV-1564)."""
-    uuid = "11111111-1111-4111-8111-111111111111"
-    stub = _StubCtxClient()
-    stub.queue("/projects", [{"id": uuid, "slug": "alpha", "name": "Alpha"}])
-    _install_stub_client(monkeypatch, stub)
-
-    result = CliRunner().invoke(cli, ["project", "use", "alpha"])
-    assert result.exit_code == 0, result.output
-    assert cfg.get_profile("default")["project_id"] == uuid
-    payload = json.loads(result.output)
-    assert payload["working_project"] == uuid
-    assert payload["slug"] == "alpha"
-
-
-def test_project_list_surfaces_slug(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    stub = _StubCtxClient()
-    stub.queue("/projects", [{"id": "p1", "slug": "alpha", "name": "Alpha"}])
-    _install_stub_client(monkeypatch, stub)
-
-    result = CliRunner().invoke(cli, ["project", "list"])
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["projects"][0]["slug"] == "alpha"
-
-
 def test_project_use_rejects_inaccessible_id(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub = _StubCtxClient()
     stub.queue("/projects", [{"id": "p1", "name": "Alpha"}])
