@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Callable
 
@@ -9,9 +10,39 @@ import click
 
 from deepvista_cli.output.formatter import output_error
 
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def looks_like_uuid(value: str) -> bool:
+    return bool(_UUID_RE.fullmatch(value))
+
+
+def resolve_project_ref(ctx: click.Context, ref: str) -> str:
+    """Resolve a project reference — UUID or slug (DV-1564) — to the canonical UUID.
+
+    UUIDs pass through without a lookup. Anything else is treated as a slug
+    and matched against ``GET /projects``; exits with a validation error when
+    no accessible project carries it. Canonicalizing to the UUID keeps every
+    project-keyed artifact (persisted profile config, machine cache files,
+    run locks) stable regardless of how the user spelled the project.
+    """
+    if looks_like_uuid(ref):
+        return ref
+    raw = ctx.obj._client.get("/projects")
+    projects = raw if isinstance(raw, list) else raw.get("projects", []) if isinstance(raw, dict) else []
+    for project in projects:
+        if project.get("slug") == ref or project.get("id") == ref:
+            return str(project["id"])
+    output_error(
+        3,
+        f"Project '{ref}' not found or not accessible",
+        "Run `deepvista project list` to see available projects (id and slug).",
+    )
+    raise SystemExit(3)
+
 
 def project_option[F: Callable](func: F) -> F:
-    """Add a per-command ``--project <id>`` override.
+    """Add a per-command ``--project <id|slug>`` override.
 
     Use together with :func:`apply_project_override` at the top of the command
     body. The override takes precedence over the persisted working project /
@@ -21,7 +52,7 @@ def project_option[F: Callable](func: F) -> F:
         "--project",
         "project_override",
         default=None,
-        help="Scope this command to a project id (overrides the working project for this call only).",
+        help="Scope this command to a project id or slug (overrides the working project for this call only).",
     )(func)
 
 
@@ -31,7 +62,8 @@ def apply_project_override(ctx: click.Context, project_override: str | None) -> 
     Mutating ``ctx.obj.project_id`` is sufficient because the HTTP client holds
     the *same* ``CLIConfig`` object and reads ``project_id`` lazily when it
     builds request headers, so the override flows through to ``X-Project-Id``
-    and to emitted web links without touching every callsite.
+    and to emitted web links without touching every callsite. Slugs pass
+    through as-is — the backend resolves slug-or-UUID in the header (DV-1564).
     """
     if project_override:
         ctx.obj.project_id = project_override
@@ -50,6 +82,13 @@ def resolve_content(content: str | None, content_file: str | None) -> str | None
         try:
             with open(content_file, encoding="utf-8") as fh:
                 return fh.read()
+        except UnicodeDecodeError:
+            output_error(
+                3,
+                "Content file is not UTF-8 text",
+                f"{content_file} looks binary — use `deepvista card upload {content_file}` "
+                "to attach it as a file card instead (DV-1650).",
+            )
         except OSError as exc:
             output_error(4, "Cannot read content file", str(exc))
     return content
