@@ -16,7 +16,6 @@ Resolution order for the working project (highest wins):
 Endpoints:
   GET /projects        -> list owned + shared projects
   GET /projects/me     -> the resolved/default project
-  GET /projects/{id}   -> a single project's metadata
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from __future__ import annotations
 import click
 
 from deepvista_cli.client.http import DeepVistaClient
-from deepvista_cli.commands import looks_like_uuid
 from deepvista_cli.config import (
     EXIT_VALIDATION_ERROR,
     clear_working_project,
@@ -161,13 +159,13 @@ def project_current(ctx: click.Context, full: bool) -> None:
 def project_show(ctx: click.Context, project_ref: str | None, full: bool) -> None:
     """Show metadata for a project — by id or slug (defaults to the resolved current project)."""
     if project_ref:
-        # GET /projects/{id} is UUID-only server-side; resolve a slug locally first (DV-1564).
-        if not looks_like_uuid(project_ref):
-            match = _match_project(_projects(ctx), project_ref)
-            if match is None:
-                _project_not_found(project_ref)
-            project_ref = str(match.get("id"))
-        data = _client(ctx).get(f"/projects/{project_ref}")
+        # There is no GET /projects/{id}; resolve the ref (id or slug, DV-1564)
+        # against the projects list, which returns the full project object.
+        match = _match_project(_projects(ctx), project_ref)
+        if match is None:
+            _project_not_found(project_ref)
+            return
+        data = match
     else:
         data = _client(ctx).get("/projects/me")
     if not full and isinstance(data, dict):
