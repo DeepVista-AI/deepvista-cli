@@ -46,6 +46,13 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [4.2.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.1.0...v4.2.0) (2026-07-20)
+
+
+### Features
+
+* **DV-1563,DV-1564,DV-1646,DV-1650:** CLI — per-project daemon lock, slug support, welcome copy, card upload ([#212](https://github.com/DeepVista-AI/deepvista-cli/issues/212)) ([231d4ad](https://github.com/DeepVista-AI/deepvista-cli/commit/231d4ad724ffee18760bb59b7bf5203d63e5faef))
+
 ## [4.1.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.0.0...v4.1.0) (2026-07-16)
 
 
