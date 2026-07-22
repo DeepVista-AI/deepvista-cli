@@ -17,7 +17,7 @@ Use [notes.md](notes.md) for note-only ergonomics.
 
 ## Commands
 
-`list` · `get` · `create` · `update` · `edit` · `delete`
+`list` · `get` · `create` · `update` · `edit` · `delete` · `upload`
 `index` · `history` · `diff` · `restore`
 `comment list|add|edit|delete`
 `+search` · `+similar` · `+search-content` · `+pin` · `+archive`
@@ -46,6 +46,11 @@ full body via the search_vector + embedding hybrid. Omit the query on
 `+search-content` to browse cards of `--type`, most-recently-updated first (no
 regex/exact-match mode exists anymore — for a boolean OR use `websearch_to_tsquery`
 syntax, e.g. `"TODO OR FIXME"`).
+
+**`upload <path>`** — the ONLY way to put an image/video/binary into DeepVista: it
+uploads the file and mints a `type=file` card (`card create --content-file` reads UTF-8
+text only and errors on binaries). To show the image in a note, embed the returned
+`gs://…` URL with plain markdown: `![alt](gs://…)` (DV-1650).
 
 **`index`** — queues entity extraction + embedding refresh on unprocessed cards
 (`--type note` by default). Run after bulk imports or a long offline period.
