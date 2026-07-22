@@ -46,6 +46,13 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [4.2.1](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.2.0...v4.2.1) (2026-07-22)
+
+
+### Documentation
+
+* **DV-1650:** document card upload + note image embed ([#214](https://github.com/DeepVista-AI/deepvista-cli/issues/214)) ([b754b99](https://github.com/DeepVista-AI/deepvista-cli/commit/b754b99d3a5697ba7803aa162fd56d03196cee00))
+
 ## [4.2.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.1.0...v4.2.0) (2026-07-20)
 
 
