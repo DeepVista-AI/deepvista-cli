@@ -70,6 +70,19 @@ else
   log "DeepVista already authenticated."
 fi
 
+# --- 4. DeepVista Claude Code plugin (provides the /deepvista command) ------
+# `deepvista tasks run` executes each task via `claude -p "/deepvista <prompt>"`.
+# That slash command only exists once this plugin is installed, so a fresh
+# machine needs it before the task daemon can run anything.
+
+if claude plugin list --json 2>/dev/null | grep -q '"name"[[:space:]]*:[[:space:]]*"deepvista"'; then
+  log "DeepVista Claude Code plugin already installed."
+else
+  log "Installing DeepVista Claude Code plugin (provides /deepvista)..."
+  claude plugin marketplace add DeepVista-AI/deepvista-cli
+  claude plugin install deepvista@deepvista-ai
+fi
+
 PROJECT_ID="$(deepvista --format json project use "$SLUG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["working_project"])')"
 log "Resolved project slug '$SLUG' -> id $PROJECT_ID"
 
