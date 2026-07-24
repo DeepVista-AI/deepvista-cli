@@ -57,6 +57,22 @@ def _match_project(projects: list[dict], ref: str) -> dict | None:
     return next((p for p in projects if p.get("id") == ref or (p.get("slug") and p.get("slug") == ref)), None)
 
 
+def _resolve_via_backend(ctx: click.Context, ref: str) -> dict | None:
+    """Fall back to asking the backend to resolve `ref` directly.
+
+    `_match_project` only succeeds when `GET /projects` happens to echo a
+    `slug` field matching `ref`. Other endpoints (e.g. `/get_context_cards`)
+    already resolve a project slug server-side via the `X-Project-Id` header
+    without requiring it to appear in that list. Retry through that same
+    header-based path before declaring the project not found.
+    """
+    try:
+        data = _client(ctx).get("/projects/me", extra_headers={"X-Project-Id": ref})
+    except SystemExit:
+        return None
+    return data if isinstance(data, dict) and data.get("id") else None
+
+
 def _project_not_found(ref: str) -> None:
     output_error(
         EXIT_VALIDATION_ERROR,
@@ -161,7 +177,7 @@ def project_show(ctx: click.Context, project_ref: str | None, full: bool) -> Non
     if project_ref:
         # There is no GET /projects/{id}; resolve the ref (id or slug, DV-1564)
         # against the projects list, which returns the full project object.
-        match = _match_project(_projects(ctx), project_ref)
+        match = _match_project(_projects(ctx), project_ref) or _resolve_via_backend(ctx, project_ref)
         if match is None:
             _project_not_found(project_ref)
             return
@@ -183,7 +199,7 @@ def project_use(ctx: click.Context, project_ref: str) -> None:
     what gets persisted in the active profile. This is client-side scoping
     only — it does not change the backend's per-user default project.
     """
-    match = _match_project(_projects(ctx), project_ref)
+    match = _match_project(_projects(ctx), project_ref) or _resolve_via_backend(ctx, project_ref)
     if match is None:
         _project_not_found(project_ref)
         return

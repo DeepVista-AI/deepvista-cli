@@ -231,11 +231,29 @@ def test_project_use_persists_and_validates(isolated_config: Path, monkeypatch: 
 def test_project_use_rejects_inaccessible_id(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub = _StubCtxClient()
     stub.queue("/projects", [{"id": "p1", "name": "Alpha"}])
+    # Backend fallback (DV-1564 follow-up) is also consulted and also rejects.
+    stub.queue("/projects/me", {})
     _install_stub_client(monkeypatch, stub)
 
     result = CliRunner().invoke(cli, ["project", "use", "nope"])
     assert result.exit_code == cfg.EXIT_VALIDATION_ERROR
     assert "project_id" not in cfg.get_profile("default")
+
+
+def test_project_use_falls_back_to_backend_for_slug_not_in_list(
+    isolated_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`GET /projects` may not echo every slug's `slug` field, but the backend
+    can still resolve it directly via the `X-Project-Id` header (mirrors how
+    `/get_context_cards` already accepts slugs `/projects` doesn't list)."""
+    stub = _StubCtxClient()
+    stub.queue("/projects", [{"id": "p1", "name": "Alpha"}])
+    stub.queue("/projects/me", {"id": "p2", "slug": "uy07zxcp", "name": "Crew"})
+    _install_stub_client(monkeypatch, stub)
+
+    result = CliRunner().invoke(cli, ["project", "use", "uy07zxcp"])
+    assert result.exit_code == 0, result.output
+    assert cfg.get_profile("default")["project_id"] == "p2"
 
 
 def test_project_current_hits_projects_me(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:

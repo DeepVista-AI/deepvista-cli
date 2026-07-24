@@ -21,10 +21,15 @@ def resolve_project_ref(ctx: click.Context, ref: str) -> str:
     """Resolve a project reference — UUID or slug (DV-1564) — to the canonical UUID.
 
     UUIDs pass through without a lookup. Anything else is treated as a slug
-    and matched against ``GET /projects``; exits with a validation error when
-    no accessible project carries it. Canonicalizing to the UUID keeps every
-    project-keyed artifact (persisted profile config, machine cache files,
-    run locks) stable regardless of how the user spelled the project.
+    and matched against ``GET /projects`` first; if that list doesn't happen
+    to echo a matching ``slug`` field, fall back to asking the backend to
+    resolve it directly via the ``X-Project-Id`` header — the same path
+    other endpoints (e.g. ``/get_context_cards``) already use to accept a
+    slug that isn't present in the ``/projects`` listing. Exits with a
+    validation error only if both resolution paths fail. Canonicalizing to
+    the UUID keeps every project-keyed artifact (persisted profile config,
+    machine cache files, run locks) stable regardless of how the user
+    spelled the project.
     """
     if looks_like_uuid(ref):
         return ref
@@ -33,6 +38,12 @@ def resolve_project_ref(ctx: click.Context, ref: str) -> str:
     for project in projects:
         if project.get("slug") == ref or project.get("id") == ref:
             return str(project["id"])
+    try:
+        data = ctx.obj._client.get("/projects/me", extra_headers={"X-Project-Id": ref})
+    except SystemExit:
+        data = None
+    if isinstance(data, dict) and data.get("id"):
+        return str(data["id"])
     output_error(
         3,
         f"Project '{ref}' not found or not accessible",
