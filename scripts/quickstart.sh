@@ -83,7 +83,13 @@ else
   claude plugin install deepvista@deepvista-ai
 fi
 
-PROJECT_ID="$(deepvista --format json project use "$SLUG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["working_project"])')"
+PROJECT_USE_OUTPUT="$(deepvista --format json project use "$SLUG")" || {
+  echo "Failed to resolve project '$SLUG':" >&2
+  echo "$PROJECT_USE_OUTPUT" >&2
+  echo "Run 'deepvista project list' to see available projects." >&2
+  exit 1
+}
+PROJECT_ID="$(echo "$PROJECT_USE_OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["working_project"])')"
 log "Resolved project slug '$SLUG' -> id $PROJECT_ID"
 
 log "Starting DeepVista task daemon for project $PROJECT_ID..."
