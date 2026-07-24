@@ -46,6 +46,19 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [4.3.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.2.1...v4.3.0) (2026-07-24)
+
+
+### Features
+
+* **scripts:** add quickstart script for Claude Code + DeepVista setup ([#216](https://github.com/DeepVista-AI/deepvista-cli/issues/216)) ([a107233](https://github.com/DeepVista-AI/deepvista-cli/commit/a107233d5334750bf7b4f9d66fbfe022ca3836c7))
+
+
+### Bug Fixes
+
+* **scripts:** install DeepVista Claude Code plugin in quickstart ([#218](https://github.com/DeepVista-AI/deepvista-cli/issues/218)) ([7d84205](https://github.com/DeepVista-AI/deepvista-cli/commit/7d8420583adb684b377896e22d422aba591a929b))
+* **scripts:** surface deepvista CLI errors in quickstart ([#219](https://github.com/DeepVista-AI/deepvista-cli/issues/219)) ([4f2d4e3](https://github.com/DeepVista-AI/deepvista-cli/commit/4f2d4e38a72020b105e90a6bf3e5d9d3dc5904ba))
+
 ## [4.2.1](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.2.0...v4.2.1) (2026-07-22)
 
 
