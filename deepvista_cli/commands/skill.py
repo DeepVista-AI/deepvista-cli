@@ -697,12 +697,16 @@ def skill_load(ctx: click.Context, skill_id: str, no_cache: bool, ttl: int) -> N
         output_error(3, "Invalid skill ID", f"Expected UUID format, got: {skill_id!r}")
 
     try:
-        body = skill_catalog.load_skill_body(
-            _client(ctx),
-            skill_id,
-            use_cache=not no_cache,
-            ttl_sec=ttl,
-        )
+        client = _client(ctx)
+        card = skill_catalog.load_skill_card(client, skill_id, use_cache=not no_cache, ttl_sec=ttl)
+        body = skill_catalog.render_skill_body(card)
+        # DV-1816: install bundled scripts/references before printing the body,
+        # so a skill that says "run scripts/render.py" finds it there. Doing it
+        # here rather than at sync time keeps the catalog lazy — sync still
+        # writes only stubs, and an unbundled skill costs nothing.
+        bundle_root = skill_catalog.ensure_skill_bundle(client, skill_id, card)
+        if bundle_root is not None:
+            body += f"\n\n---\n\nBundled files for this skill are installed at `{bundle_root}`.\n"
     # Catch SystemExit too — the HTTP client calls sys.exit on API/auth
     # errors, but at skill-invocation time we'd rather return a readable
     # error body than bubble a raw exit code into the agent's context.

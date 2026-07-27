@@ -468,7 +468,7 @@ def test_load_skill_body_cache_expires(tmp_path: Path):
     fake = FakeClient()
     fake.enqueue("/get_context_card", {"id": "abc", "title": "A", "content": "one"})
     body = skill_catalog.load_skill_body(fake, "abc", cache_root=cache_root, ttl_sec=60)
-    cache_path = skill_catalog._body_cache_path("abc", root=cache_root)
+    cache_path = skill_catalog._card_cache_path("abc", root=cache_root)
     assert cache_path.exists()
 
     # Roll the mtime back past the TTL.

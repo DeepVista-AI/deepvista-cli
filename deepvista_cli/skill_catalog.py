@@ -23,6 +23,8 @@ with Click. Tests target the functions here directly.
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 import re
 import shutil
 import time
@@ -52,6 +54,8 @@ BODY_CACHE_DIR = CONFIG_DIR / "cache" / "skill-bodies"
 STUB_MARKER = "x-deepvista-catalog"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -558,13 +562,6 @@ def sync_catalog(
 # ---------------------------------------------------------------------------
 
 
-def _body_cache_path(skill_id: str, *, root: Path = BODY_CACHE_DIR) -> Path:
-    # One file per skill id. The id alone is enough — content is immutable per
-    # fetch and cache-bust comes from TTL or `--no-cache`.
-    digest = hashlib.sha256(skill_id.encode("utf-8")).hexdigest()[:16]
-    return root / f"{digest}.md"
-
-
 def _cache_fresh(path: Path, ttl_sec: int) -> bool:
     try:
         age = time.time() - path.stat().st_mtime
@@ -599,6 +596,51 @@ def _render_skill_body_markdown(card: dict[str, Any]) -> str:
     return "\n".join(parts).rstrip() + "\n"
 
 
+def _card_cache_path(skill_id: str, *, root: Path = BODY_CACHE_DIR) -> Path:
+    # One file per skill id. The id alone is enough — content is immutable per
+    # fetch and cache-bust comes from TTL or `--no-cache`.
+    digest = hashlib.sha256(skill_id.encode("utf-8")).hexdigest()[:16]
+    return root / f"{digest}.card.json"
+
+
+def load_skill_card(
+    client: _CatalogClient,
+    skill_id: str,
+    *,
+    use_cache: bool = True,
+    ttl_sec: int = DEFAULT_BODY_CACHE_TTL_SEC,
+    cache_root: Path = BODY_CACHE_DIR,
+) -> dict[str, Any]:
+    """Fetch a skill card, cached on disk for ``ttl_sec`` seconds.
+
+    The raw card is cached rather than the rendered body (DV-1816) because the
+    bundle manifest lives in the card's own frontmatter, which
+    :func:`_render_skill_body_markdown` doesn't reproduce.
+    """
+    cache_path = _card_cache_path(skill_id, root=cache_root)
+    if use_cache and _cache_fresh(cache_path, ttl_sec):
+        try:
+            return json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass  # fall through to refetch
+
+    data = client.post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
+    card = data.get("card") or data
+
+    try:
+        cache_root.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(card), encoding="utf-8")
+    except OSError:
+        pass  # cache is best-effort
+
+    return card
+
+
+def render_skill_body(card: dict[str, Any]) -> str:
+    """Public alias for rendering a fetched card into a SKILL.md body."""
+    return _render_skill_body_markdown(card)
+
+
 def load_skill_body(
     client: _CatalogClient,
     skill_id: str,
@@ -607,29 +649,69 @@ def load_skill_body(
     ttl_sec: int = DEFAULT_BODY_CACHE_TTL_SEC,
     cache_root: Path = BODY_CACHE_DIR,
 ) -> str:
-    """Return the full SKILL.md body for ``skill_id``.
+    """Return the full SKILL.md body for ``skill_id``."""
+    card = load_skill_card(client, skill_id, use_cache=use_cache, ttl_sec=ttl_sec, cache_root=cache_root)
+    return _render_skill_body_markdown(card)
 
-    Caches the rendered body on disk for ``ttl_sec`` seconds to keep repeated
-    invocations of the same skill within a session cheap.
+
+def bundle_root_for(
+    skill_id: str, card: dict[str, Any], *, target: Path | None = None, prefix: str = DEFAULT_STUB_PREFIX
+) -> Path:
+    """Where a skill's bundle lands: its stub directory.
+
+    Prefers the dir name a previous sync recorded — that one already resolved
+    duplicate-title collisions — and falls back to the deterministic slug.
+    Materializing into the stub dir (not a cache dir) is what lets
+    ``scripts/render.py`` resolve relative to the SKILL.md the agent is
+    reading, with no absolute-path rewriting.
     """
-    cache_path = _body_cache_path(skill_id, root=cache_root)
-    if use_cache and _cache_fresh(cache_path, ttl_sec):
-        try:
-            return cache_path.read_text(encoding="utf-8")
-        except OSError:
-            pass  # fall through to refetch
+    root = target or DEFAULT_TARGET_DIR
+    for entry in load_state().get("stubs", []):
+        if entry.get("id") == skill_id and entry.get("dir_name"):
+            return root / entry["dir_name"]
+    title = str(card.get("title") or "skill")
+    return root / f"{prefix}{slugify_for_dir(title, fallback=skill_id[:8])}"
 
-    data = client.post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
-    card = data.get("card") or data
-    rendered = _render_skill_body_markdown(card)
+
+def ensure_skill_bundle(
+    client: _CatalogClient,
+    skill_id: str,
+    card: dict[str, Any],
+    *,
+    target: Path | None = None,
+) -> Path | None:
+    """Materialize a skill's bundle if it has one. Returns the root, or ``None``.
+
+    Called at *invocation* time rather than sync time, which is what keeps the
+    catalog's lazy-loading property intact: sync still writes only stubs, and
+    a skill without a bundle costs nothing. Repeat invocations short-circuit on
+    the marker file's ``bundle_sha``.
+
+    Never raises. A failed bundle install degrades to "skill body without its
+    scripts", which the agent can report — better than turning every skill
+    invocation into a hard error.
+    """
+    from deepvista_cli import bundle as bundle_mod
+
+    body = str(card.get("content") or card.get("description") or "")
+    try:
+        files = bundle_mod.parse_bundle_files(body)
+    except bundle_mod.BundleError:
+        logger.warning("skill %s has an invalid bundle manifest; skipping install", skill_id)
+        return None
+    if not files:
+        return None
+
+    root = bundle_root_for(skill_id, card, target=target)
+    if bundle_mod.read_marker(root).get("bundle_sha") == bundle_mod.compute_bundle_sha(files):
+        return root
 
     try:
-        cache_root.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(rendered, encoding="utf-8")
-    except OSError:
-        pass  # cache is best-effort
-
-    return rendered
+        bundle_mod.materialize_bundle(files, root, bundle_mod.make_fetcher(client, skill_id))
+    except Exception:  # noqa: BLE001 — see docstring
+        logger.warning("could not materialize bundle for skill %s", skill_id, exc_info=True)
+        return None
+    return root
 
 
 # ---------------------------------------------------------------------------
@@ -650,7 +732,11 @@ __all__ = [
     "apply_plan",
     "build_stub_markdown",
     "compute_plan",
+    "bundle_root_for",
+    "ensure_skill_bundle",
     "load_skill_body",
+    "load_skill_card",
+    "render_skill_body",
     "load_state",
     "save_state",
     "slugify_for_dir",
