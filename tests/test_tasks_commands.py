@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -26,15 +27,29 @@ class _StubCtxClient:
 
     def __init__(self) -> None:
         self.responses: dict[str, list[Any]] = {}
+        self.sticky: dict[str, Any] = {}
         self.calls: list[tuple[str, str, dict | None]] = []
 
     def queue(self, path: str, response: Any) -> None:
+        """Queue a single-use response, popped in FIFO order."""
         self.responses.setdefault(path, []).append(response)
+
+    def queue_always(self, path: str, response: Any) -> None:
+        """Answer every call to ``path`` with ``response``.
+
+        For idempotent GETs the code may legitimately repeat — project
+        resolution happens once for the per-project run lock (DV-1563) and
+        again on the claim path. A one-shot queue would couple these tests to
+        that call count, which is an implementation detail.
+        """
+        self.sticky[path] = response
 
     def _pop(self, method: str, path: str, body: dict | None = None) -> Any:
         self.calls.append((method, path, body))
         q = self.responses.get(path)
         if not q:
+            if path in self.sticky:
+                return self.sticky[path]
             # Startup validation + online sync for locally cached agents.
             if method == "GET" and re.fullmatch(r"/agents/[^/]+", path):
                 agent_id = path.rsplit("/", 1)[-1]
@@ -109,8 +124,8 @@ DEFAULT_PROJECT_ID = "proj-default"
 
 def _stub_working_project(stub: _StubCtxClient, project_id: str = DEFAULT_PROJECT_ID) -> None:
     """Queue API responses so ``tasks run`` resolves a working project."""
-    stub.queue("/projects/me", {"id": project_id, "name": "Default project"})
-    stub.queue("/projects", [{"id": project_id, "name": "Default project"}])
+    stub.queue_always("/projects/me", {"id": project_id, "name": "Default project"})
+    stub.queue_always("/projects", [{"id": project_id, "name": "Default project"}])
 
 
 def _register_local_agent(
@@ -143,7 +158,7 @@ def _register_local_agent(
     )
     monkeypatch.setattr(agents_module, "MACHINES_DIR", machines_dir)
     monkeypatch.setattr(tq_module, "MACHINES_DIR", machines_dir)
-    monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", tmp_path / ".config" / "deepvista" / "task_queue.run.lock")
+    monkeypatch.setattr(tq_module, "RUN_LOCK_DIR", tmp_path / ".config" / "deepvista")
 
 
 class _FakeClock:
@@ -373,7 +388,7 @@ def test_run_errors_when_no_agent_registered(
     monkeypatch.setattr(tq_module, "MACHINES_DIR", empty)
     monkeypatch.setattr(agents_module, "AGENTS_DIR", empty / "legacy-agents")
     monkeypatch.setattr(tq_module, "AGENTS_DIR", empty / "legacy-agents")
-    monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", isolated_home / ".config" / "deepvista" / "task_queue.run.lock")
+    monkeypatch.setattr(tq_module, "RUN_LOCK_DIR", isolated_home / ".config" / "deepvista")
     monkeypatch.setattr(agents_module, "_machine_fingerprint", lambda: "empty-fp")
 
     result = CliRunner().invoke(cli, ["tasks", "run"])
@@ -550,21 +565,78 @@ def test_run_refuses_when_another_run_holds_the_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stub = _StubCtxClient()
+    # The run lock is per project (DV-1563), so the working project is resolved
+    # before the lock is even named.
+    _stub_working_project(stub)
     _install_stub_client(monkeypatch, stub)
     _register_local_agent(monkeypatch, isolated_home)
 
     import deepvista_cli.commands.tasks as tq_module
 
     # PID 1 (launchd/init) is always alive and never this process.
-    tq_module.RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tq_module.RUN_LOCK_PATH.write_text("1")
+    lock_path = tq_module._run_lock_path(DEFAULT_PROJECT_ID)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("1")
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 2
-    # No claim — the queue must not be touched by a second instance.
-    assert stub.calls == []
+    # No claim — a second instance must not touch the project's queue.
+    assert not [c for c in stub.calls if "/tasks/claim" in c[1]]
     # The foreign lock is left in place.
-    assert tq_module.RUN_LOCK_PATH.read_text() == "1"
+    assert lock_path.read_text() == "1"
+
+
+def test_run_locks_are_per_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The point of DV-1563: one machine, one daemon per project, no crosstalk.
+
+    A live daemon on proj-1 must not block proj-2 — under the old single global
+    lock it did, so a second project's queue silently never got polled.
+    """
+    import deepvista_cli.commands.tasks as tq_module
+
+    monkeypatch.setattr(tq_module, "RUN_LOCK_DIR", tmp_path)
+
+    one = tq_module._run_lock_path("proj-1")
+    two = tq_module._run_lock_path("proj-2")
+    assert one != two
+
+    # PID 1 (launchd/init) is always alive and never this process.
+    one.parent.mkdir(parents=True, exist_ok=True)
+    one.write_text("1")
+
+    assert tq_module._acquire_run_lock(one) is False
+    assert tq_module._acquire_run_lock(two) is True
+
+    tq_module._release_run_lock(two)
+    assert not two.exists()
+    # Releasing ours must never disturb another project's lock.
+    assert one.read_text() == "1"
+
+
+def test_release_run_lock_leaves_a_foreign_lock_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A crashed-then-restarted daemon must not delete the new owner's lock."""
+    import deepvista_cli.commands.tasks as tq_module
+
+    monkeypatch.setattr(tq_module, "RUN_LOCK_DIR", tmp_path)
+    lock = tq_module._run_lock_path("proj-1")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("1")
+
+    tq_module._release_run_lock(lock)
+    assert lock.read_text() == "1"
+
+
+def test_stale_lock_from_a_dead_pid_is_reclaimed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import deepvista_cli.commands.tasks as tq_module
+
+    monkeypatch.setattr(tq_module, "RUN_LOCK_DIR", tmp_path)
+    monkeypatch.setattr(tq_module, "_pid_alive", lambda pid: False)
+    lock = tq_module._run_lock_path("proj-1")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("99999999")
+
+    assert tq_module._acquire_run_lock(lock) is True
+    assert lock.read_text() == str(os.getpid())
 
 
 def test_run_reclaims_stale_lock_and_releases_on_exit(
@@ -579,15 +651,16 @@ def test_run_reclaims_stale_lock_and_releases_on_exit(
 
     import deepvista_cli.commands.tasks as tq_module
 
-    tq_module.RUN_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tq_module.RUN_LOCK_PATH.write_text("99999999")
+    lock_path = tq_module._run_lock_path(DEFAULT_PROJECT_ID)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("99999999")
     monkeypatch.setattr(tq_module, "_pid_alive", lambda pid: False)
 
     result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
     assert result.exit_code == 0, result.output
     assert [c[1] for c in stub.calls if c[1].endswith("/tasks/claim")] == ["/agents/agent-uuid-1/tasks/claim"]
     # Lock was reclaimed for the run and removed afterwards.
-    assert not tq_module.RUN_LOCK_PATH.exists()
+    assert not lock_path.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -838,7 +911,7 @@ def _register_machine(
     )
     monkeypatch.setattr(agents_module, "MACHINES_DIR", machines_dir)
     monkeypatch.setattr(tq_module, "MACHINES_DIR", machines_dir)
-    monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", tmp_path / ".config" / "deepvista" / "task_queue.run.lock")
+    monkeypatch.setattr(tq_module, "RUN_LOCK_DIR", tmp_path / ".config" / "deepvista")
 
 
 def test_run_once_polls_only_current_project_agent(
@@ -847,8 +920,8 @@ def test_run_once_polls_only_current_project_agent(
 ) -> None:
     """``tasks run`` scopes claims to the working project on this Machine."""
     stub = _StubCtxClient()
-    stub.queue("/projects/me", {"id": "proj-1", "name": "Project 1"})
-    stub.queue("/projects", [{"id": "proj-1", "name": "Project 1"}, {"id": "proj-2", "name": "Project 2"}])
+    stub.queue_always("/projects/me", {"id": "proj-1", "name": "Project 1"})
+    stub.queue_always("/projects", [{"id": "proj-1", "name": "Project 1"}, {"id": "proj-2", "name": "Project 2"}])
     stub.queue("/agents/agent-machine-1/tasks/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_machine(monkeypatch, isolated_home)
@@ -866,6 +939,7 @@ def test_run_type_filter_uses_same_machine(
 ) -> None:
     """--type is soft metadata; Machine identity is still fingerprint-keyed."""
     stub = _StubCtxClient()
+    _stub_working_project(stub, "proj-1")
     stub.queue("/agents/agent-machine-1/tasks/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
     _register_machine(monkeypatch, isolated_home)
@@ -883,8 +957,8 @@ def test_run_project_flag_registers_separate_project_binding(
 ) -> None:
     """``--project`` scopes identity — same device can bind to another project."""
     stub = _StubCtxClient()
-    stub.queue("/projects/me", {"id": "proj-2", "name": "Project 2"})
-    stub.queue("/projects", [{"id": "proj-1", "name": "Project 1"}, {"id": "proj-2", "name": "Project 2"}])
+    stub.queue_always("/projects/me", {"id": "proj-2", "name": "Project 2"})
+    stub.queue_always("/projects", [{"id": "proj-1", "name": "Project 1"}, {"id": "proj-2", "name": "Project 2"}])
     # No local cache for proj-2 → register path.
     stub.queue(
         "/agents",
@@ -936,11 +1010,11 @@ def test_run_keeps_machine_registration_for_project(
     monkeypatch.setattr(agents_module, "_machine_fingerprint", lambda: fp)
     monkeypatch.setattr(agents_module, "MACHINES_DIR", machines_dir)
     monkeypatch.setattr(tq_module, "MACHINES_DIR", machines_dir)
-    monkeypatch.setattr(tq_module, "RUN_LOCK_PATH", isolated_home / ".config" / "deepvista" / "task_queue.run.lock")
+    monkeypatch.setattr(tq_module, "RUN_LOCK_DIR", isolated_home / ".config" / "deepvista")
 
     stub = _StubCtxClient()
-    stub.queue("/projects/me", {"id": "proj-1", "name": "Project 1"})
-    stub.queue("/projects", [{"id": "proj-1", "name": "Project 1"}])
+    stub.queue_always("/projects/me", {"id": "proj-1", "name": "Project 1"})
+    stub.queue_always("/projects", [{"id": "proj-1", "name": "Project 1"}])
     stub.queue("/agents/agent-machine-1/tasks/claim", {"success": True, "tasks": []})
     _install_stub_client(monkeypatch, stub)
 
