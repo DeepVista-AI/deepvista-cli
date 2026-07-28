@@ -117,6 +117,10 @@ class SyncPlan:
 class _CatalogClient(Protocol):
     def post(self, path: str, body: dict | None = None) -> Any: ...
 
+    # `install_bundle_for_skill` hands this client to `bundle.make_fetcher`, which
+    # resolves `dv://` refs over GET — so the catalog protocol has to cover both verbs.
+    def get(self, path: str, params: dict | None = None) -> Any: ...
+
 
 # ---------------------------------------------------------------------------
 # Slugs, hashes, and stub rendering
