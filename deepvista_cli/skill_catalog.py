@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import shutil
 import time
@@ -42,6 +43,14 @@ from deepvista_cli.utils import load_json_state, save_json_state
 # ---------------------------------------------------------------------------
 
 DEFAULT_TARGET_DIR = Path.home() / ".claude" / "skills"
+
+# Where installed bundles live (DV-1869). Separate from the stub dir on purpose:
+# stubs are cheap, regenerable, and owned by whichever agent directory syncs
+# them; bundles are bytes we'd otherwise re-download, and they must survive a
+# plugin upgrade wiping ${CLAUDE_PLUGIN_ROOT}. XDG data dir, not the config dir,
+# because this is state rather than configuration.
+_XDG_DATA_HOME = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+DEFAULT_BUNDLE_STORE_DIR = _XDG_DATA_HOME / "deepvista" / "bundles"
 DEFAULT_STUB_PREFIX = "dv-"
 DEFAULT_LIMIT = 30
 DEFAULT_THROTTLE_MIN = 60
@@ -813,6 +822,29 @@ def load_skill_body(
     return _render_skill_body_markdown(card)
 
 
+def bundle_store_dir() -> Path:
+    """Root of the bundle store, overridable with ``DEEPVISTA_BUNDLE_DIR``.
+
+    Read at call time rather than bound at import so a test or a sandboxed run
+    can redirect it.
+    """
+    override = os.environ.get("DEEPVISTA_BUNDLE_DIR")
+    return Path(override) if override else DEFAULT_BUNDLE_STORE_DIR
+
+
+def default_target_dir() -> Path:
+    """Default stub directory: the plugin's own skills dir when we're inside it.
+
+    The plugin's SessionStart hook passes ``--target ${CLAUDE_PLUGIN_ROOT}/skills``
+    explicitly, so a bare ``deepvista skill sync`` used to disagree with it and
+    bounce stubs between two locations on every manual run (DV-1869). Honouring
+    the same env var makes the two agree. A machine with only the CLI — a cloud
+    VM, say — has no ``CLAUDE_PLUGIN_ROOT`` and keeps ``~/.claude/skills``.
+    """
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    return Path(plugin_root) / "skills" if plugin_root else DEFAULT_TARGET_DIR
+
+
 def synced_target_dir(state_path: Path | None = None) -> Path:
     """Where sync actually last wrote stubs, not where we'd write them by default.
 
@@ -829,26 +861,90 @@ def synced_target_dir(state_path: Path | None = None) -> Path:
     recorded = load_state(state_path or CATALOG_STATE_FILE).get("target")
     if isinstance(recorded, str) and recorded:
         return Path(recorded)
-    return DEFAULT_TARGET_DIR
+    return default_target_dir()
 
 
-def bundle_root_for(
-    skill_id: str, card: dict[str, Any], *, target: Path | None = None, prefix: str = DEFAULT_STUB_PREFIX
-) -> Path:
-    """Where a skill's bundle lands: its stub directory.
+def bundle_root_for(skill_id: str, card: dict[str, Any] | None = None, *, target: Path | None = None) -> Path:
+    """Where a skill's bundle lands: the bundle store, keyed by card id.
 
-    Prefers the dir name a previous sync recorded — that one already resolved
-    duplicate-title collisions — and falls back to the deterministic slug.
-    Materializing into the stub dir (not a cache dir) is what lets
-    ``scripts/render.py`` resolve relative to the SKILL.md the agent is
-    reading, with no absolute-path rewriting.
+    Deliberately **not** the stub dir any more (DV-1869). Stubs belong to
+    whichever agent directory is syncing them — under the Claude Code plugin
+    that's ``${CLAUDE_PLUGIN_ROOT}/skills``, a *version-pinned* path the
+    marketplace updater wipes on upgrade (which is why
+    :func:`_catalog_stubs_missing` exists at all). Bundles kept there were
+    collateral: an upgrade deletes the directory outright, so there is no old
+    location left for a migration to move files out of, and every upgrade
+    silently forced a re-download — a network round trip at best, a skill
+    invocation with no scripts when offline.
+
+    Keyed by **card id**, not a title slug, which also fixes a latent bug:
+    renaming a skill changed its slug and orphaned the installed bundle.
+
+    ``target`` overrides the root entirely (``pull --to``).
     """
-    root = target or synced_target_dir()
+    if target is not None:
+        return target
+    return bundle_store_dir() / (skill_id or "unknown")
+
+
+def legacy_bundle_root_for(
+    skill_id: str, card: dict[str, Any] | None = None, *, prefix: str = DEFAULT_STUB_PREFIX
+) -> Path:
+    """Where bundles used to land: the skill's stub directory.
+
+    Kept solely so :func:`migrate_legacy_bundle` can find an existing install
+    and move it, rather than leaving it stranded or re-downloading it.
+    """
+    root = synced_target_dir()
     for entry in load_state().get("stubs", []):
         if entry.get("id") == skill_id and entry.get("dir_name"):
             return root / entry["dir_name"]
-    title = str(card.get("title") or "skill")
+    title = str((card or {}).get("title") or "skill")
     return root / f"{prefix}{slugify_for_dir(title, fallback=skill_id[:8])}"
+
+
+def migrate_legacy_bundle(skill_id: str, card: dict[str, Any] | None, store_root: Path) -> list[str]:
+    """Move a bundle installed under the old stub-dir layout into the store.
+
+    Returns the paths moved. A no-op when there is nothing there, so it is safe
+    to call on every install. Files already present in the store win — a fresh
+    install is at least as current as what we're carrying over.
+    """
+    legacy_root = legacy_bundle_root_for(skill_id, card)
+    if legacy_root == store_root or not legacy_root.exists():
+        return []
+
+    installed: dict[str, str] = bundle.read_marker(legacy_root).get("files") or {}
+    if not installed:
+        return []
+
+    moved: list[str] = []
+    for path in installed:
+        try:
+            source = bundle.safe_destination(legacy_root, path)
+            destination = bundle.safe_destination(store_root, path)
+        except bundle.BundleError:
+            continue
+        if not source.exists() or destination.exists():
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.move(str(source), str(destination))
+            moved.append(path)
+        except OSError:
+            logger.info("could not migrate %s into the bundle store", source)
+
+    if moved:
+        marker = legacy_root / bundle.MARKER_FILENAME
+        store_marker = store_root / bundle.MARKER_FILENAME
+        if marker.exists() and not store_marker.exists():
+            store_marker.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.move(str(marker), str(store_marker))
+            except OSError:
+                logger.info("could not carry the bundle marker into the store")
+        logger.info("migrated %d bundled file(s) for %s into %s", len(moved), skill_id, store_root)
+    return moved
 
 
 def ensure_skill_bundle(
@@ -881,6 +977,11 @@ def ensure_skill_bundle(
         return None
 
     root = bundle_root_for(skill_id, card, target=target)
+    # Carry an install made under the old stub-dir layout into the store before
+    # checking the marker, so an existing bundle is moved rather than
+    # re-downloaded (and rather than being left to rot where sync will bin it).
+    if target is None:
+        migrate_legacy_bundle(skill_id, card, root)
     if bundle_mod.read_marker(root).get("bundle_sha") == bundle_mod.compute_bundle_sha(files):
         return root
 
@@ -900,6 +1001,7 @@ __all__ = [
     "BODY_CACHE_DIR",
     "CATALOG_STATE_FILE",
     "DEFAULT_BODY_CACHE_TTL_SEC",
+    "DEFAULT_BUNDLE_STORE_DIR",
     "DEFAULT_LIMIT",
     "DEFAULT_STUB_PREFIX",
     "DEFAULT_TARGET_DIR",
@@ -911,7 +1013,13 @@ __all__ = [
     "build_stub_markdown",
     "compute_plan",
     "bundle_root_for",
+    "bundle_store_dir",
+    "default_target_dir",
     "ensure_skill_bundle",
+    "legacy_bundle_root_for",
+    "migrate_legacy_bundle",
+    "remove_stub_dir",
+    "synced_target_dir",
     "load_skill_body",
     "load_skill_card",
     "render_skill_body",

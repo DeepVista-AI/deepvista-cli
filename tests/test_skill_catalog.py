@@ -682,4 +682,157 @@ def test_synced_target_dir_follows_the_recorded_target(tmp_path: Path, monkeypat
 
 def test_synced_target_dir_defaults_without_state(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(skill_catalog, "CATALOG_STATE_FILE", tmp_path / "missing.json")
+    monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
     assert skill_catalog.synced_target_dir() == skill_catalog.DEFAULT_TARGET_DIR
+
+
+# ---------------------------------------------------------------------------
+# Bundle store (DV-1869 follow-up)
+#
+# Stubs follow whichever agent dir syncs them — under the Claude Code plugin
+# that's `${CLAUDE_PLUGIN_ROOT}/skills`, a version-pinned path the marketplace
+# updater wipes on upgrade. Bundles kept beside them were deleted by an upgrade
+# with no old location left to migrate from, so they now live in their own store.
+# ---------------------------------------------------------------------------
+
+
+def test_bundle_root_is_the_store_keyed_by_card_id(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("DEEPVISTA_BUNDLE_DIR", str(tmp_path / "store"))
+
+    root = skill_catalog.bundle_root_for("card-abc", {"title": "Narrated Browser"})
+
+    assert root == tmp_path / "store" / "card-abc"
+    # Keyed by id, not the title — renaming a skill must not orphan its bundle.
+    renamed = skill_catalog.bundle_root_for("card-abc", {"title": "Something Else Entirely"})
+    assert renamed == root
+
+
+def test_bundle_root_honours_an_explicit_target(tmp_path: Path):
+    root = skill_catalog.bundle_root_for("card-abc", {"title": "x"}, target=tmp_path / "workdir")
+    assert root == tmp_path / "workdir"
+
+
+def test_default_target_follows_the_plugin_root(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(tmp_path / "plugin"))
+    assert skill_catalog.default_target_dir() == tmp_path / "plugin" / "skills"
+
+    monkeypatch.delenv("CLAUDE_PLUGIN_ROOT")
+    assert skill_catalog.default_target_dir() == skill_catalog.DEFAULT_TARGET_DIR
+
+
+def _legacy_install(stub_dir: Path) -> None:
+    """A bundle installed under the old layout: files inside the stub dir."""
+    from deepvista_cli import bundle
+
+    stub_dir.mkdir(parents=True, exist_ok=True)
+    (stub_dir / "SKILL.md").write_text(skill_catalog.build_stub_markdown(_meta("id-a", "Alpha")))
+    (stub_dir / "scripts").mkdir(exist_ok=True)
+    (stub_dir / "scripts" / "run.py").write_text("print('hi')\n")
+    (stub_dir / "scripts" / "run.py").chmod(0o755)
+    bundle.write_marker(stub_dir, [bundle.BundleFile(path="scripts/run.py", sha256=_sha("print('hi')\n"), mode="755")])
+
+
+def test_migrate_legacy_bundle_moves_files_and_marker(tmp_path: Path, monkeypatch):
+    from deepvista_cli import bundle
+
+    state_path = tmp_path / "state.json"
+    stubs = tmp_path / "skills"
+    _legacy_install(stubs / "dv-alpha")
+    skill_catalog.save_state({"target": str(stubs), "stubs": [{"id": "id-a", "dir_name": "dv-alpha"}]}, state_path)
+    monkeypatch.setattr(skill_catalog, "CATALOG_STATE_FILE", state_path)
+    store = tmp_path / "store" / "id-a"
+
+    moved = skill_catalog.migrate_legacy_bundle("id-a", {"title": "Alpha"}, store)
+
+    assert moved == ["scripts/run.py"]
+    assert (store / "scripts" / "run.py").read_text() == "print('hi')\n"
+    assert (store / "scripts" / "run.py").stat().st_mode & 0o777 == 0o755
+    assert (store / bundle.MARKER_FILENAME).exists()
+    # Moved, not copied — the stub dir keeps only the stub.
+    assert not (stubs / "dv-alpha" / "scripts" / "run.py").exists()
+    assert (stubs / "dv-alpha" / "SKILL.md").exists()
+
+
+def test_migrate_legacy_bundle_is_a_no_op_with_nothing_to_move(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(skill_catalog, "CATALOG_STATE_FILE", tmp_path / "missing.json")
+    assert skill_catalog.migrate_legacy_bundle("id-a", {"title": "Alpha"}, tmp_path / "store") == []
+
+
+def test_migrate_legacy_bundle_lets_the_store_win(tmp_path: Path, monkeypatch):
+    """A fresh install in the store is at least as current as the legacy copy."""
+    state_path = tmp_path / "state.json"
+    stubs = tmp_path / "skills"
+    _legacy_install(stubs / "dv-alpha")
+    skill_catalog.save_state({"target": str(stubs), "stubs": [{"id": "id-a", "dir_name": "dv-alpha"}]}, state_path)
+    monkeypatch.setattr(skill_catalog, "CATALOG_STATE_FILE", state_path)
+
+    store = tmp_path / "store" / "id-a"
+    (store / "scripts").mkdir(parents=True)
+    (store / "scripts" / "run.py").write_text("print('newer')\n")
+
+    assert skill_catalog.migrate_legacy_bundle("id-a", {"title": "Alpha"}, store) == []
+    assert (store / "scripts" / "run.py").read_text() == "print('newer')\n"
+
+
+def test_ensure_skill_bundle_migrates_instead_of_redownloading(tmp_path: Path, monkeypatch):
+    """A legacy install must be adopted, not fetched again."""
+    from deepvista_cli import bundle
+
+    state_path = tmp_path / "state.json"
+    stubs = tmp_path / "skills"
+    _legacy_install(stubs / "dv-alpha")
+    skill_catalog.save_state({"target": str(stubs), "stubs": [{"id": "id-a", "dir_name": "dv-alpha"}]}, state_path)
+    monkeypatch.setattr(skill_catalog, "CATALOG_STATE_FILE", state_path)
+    monkeypatch.setenv("DEEPVISTA_BUNDLE_DIR", str(tmp_path / "store"))
+
+    sha = _sha("print('hi')\n")
+    body = f'---\nname: alpha\nfiles:\n  - path: scripts/run.py\n    sha256: {sha}\n    mode: "755"\n---\n\n# Alpha\n'
+
+    class NoFetchClient:
+        def post(self, path, body=None):
+            raise AssertionError(f"unexpected POST {path}")
+
+        def get(self, path, params=None):
+            raise AssertionError(f"unexpected download: {path} {params}")
+
+    root = skill_catalog.ensure_skill_bundle(NoFetchClient(), "id-a", {"id": "id-a", "title": "Alpha", "content": body})
+
+    assert root == tmp_path / "store" / "id-a"
+    assert (root / "scripts" / "run.py").read_text() == "print('hi')\n"
+    assert bundle.read_marker(root).get("bundle_sha")
+
+
+def test_a_wiped_plugin_dir_does_not_touch_the_store(tmp_path: Path, monkeypatch):
+    """The upgrade scenario the store exists for.
+
+    The marketplace updater deletes the whole version-pinned plugin dir, so there
+    is no old location for a migration to read — the bundle only survives because
+    it was never in there.
+    """
+    import shutil as _shutil
+
+    from deepvista_cli import bundle
+
+    state_path = tmp_path / "state.json"
+    plugin_v1 = tmp_path / "plugin" / "4.3.0" / "skills"
+    store = tmp_path / "store" / "id-a"
+
+    fake1 = FakeClient()
+    _enqueue_list(fake1, [{"id": "id-a", "title": "Alpha", "description": ""}])
+    skill_catalog.sync_catalog(fake1, target=plugin_v1, prefix="dv-", state_path=state_path, throttle_min=0)
+
+    # Bundle installed into the store, not the stub dir.
+    (store / "scripts").mkdir(parents=True)
+    (store / "scripts" / "run.py").write_text("print('hi')\n")
+    bundle.write_marker(store, [bundle.BundleFile(path="scripts/run.py", sha256=_sha("print('hi')\n"))])
+
+    # Upgrade: the old plugin version dir is deleted outright, new one appears.
+    _shutil.rmtree(tmp_path / "plugin" / "4.3.0")
+    plugin_v2 = tmp_path / "plugin" / "4.4.0" / "skills"
+
+    fake2 = FakeClient()
+    _enqueue_list(fake2, [{"id": "id-a", "title": "Alpha", "description": ""}])
+    skill_catalog.sync_catalog(fake2, target=plugin_v2, prefix="dv-", state_path=state_path, throttle_min=0)
+
+    assert (plugin_v2 / "dv-alpha" / "SKILL.md").exists()
+    assert (store / "scripts" / "run.py").read_text() == "print('hi')\n"

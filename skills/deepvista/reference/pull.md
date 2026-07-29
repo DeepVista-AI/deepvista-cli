@@ -26,23 +26,35 @@ deepvista pull <skill-id> --dry-run              # list without writing
 
 ## Where files land
 
-By default, the skill's **stub directory** — the one `deepvista skill sync` last
-wrote `SKILL.md` into. That is usually `~/.claude/skills/dv-<slug>/`, but when
-the Claude Code plugin's SessionStart hook is doing the syncing it is
-`${CLAUDE_PLUGIN_ROOT}/skills/dv-<slug>/` instead. `pull` follows the recorded
-target rather than assuming the default, so the payload always lands beside the
-stub that references it:
+By default the **bundle store** — a stable, version-independent directory keyed by
+card id:
 
 ```
-~/.claude/skills/dv-pdf-report/
-├── SKILL.md              ← the skill body (written by sync)
-├── scripts/render.py     ← bundle
+~/.local/share/deepvista/bundles/<card-id>/
+├── scripts/render.py
 ├── references/layout.md
 └── .deepvista-bundle.json   ← install marker, do not edit
 ```
 
-Landing in the stub dir is deliberate: `scripts/render.py` then resolves
-relative to the `SKILL.md` the agent is reading, with no absolute paths.
+Deliberately *not* the skill's stub directory. Stubs belong to whichever agent
+directory syncs them, and under the Claude Code plugin that is
+`${CLAUDE_PLUGIN_ROOT}/skills` — a **version-pinned** path the marketplace
+updater deletes on upgrade. A bundle kept there was collateral damage: the
+directory vanishes wholesale, so there is nothing left to migrate from, and every
+upgrade silently forced a re-download.
+
+Keyed by card id rather than a title slug, so renaming a skill doesn't orphan its
+installed files.
+
+Override with `--to`, or point the whole store somewhere else with
+`DEEPVISTA_BUNDLE_DIR`.
+
+`deepvista skill load` prints the root and tells the agent to resolve the body's
+relative file paths against it — which it needed anyway, since an agent's working
+directory is the project, never the skill directory.
+
+A bundle installed under the older stub-dir layout is **moved** into the store the
+next time the skill is loaded or pulled, not re-downloaded.
 
 ## You usually don't need to run this
 
@@ -70,12 +82,12 @@ we installed — an edited leftover is left alone.
 
 ## Sync won't delete what you installed
 
-A stub dir doubles as a bundle root, so retiring a stub could take a working
-install with it. It doesn't: `sync` removes the stub and the files its own marker
-says it installed, skips any whose hash changed (you edited them), and leaves the
-directory standing if anything survives. When the target *moves* — a plugin
-upgrade changes `${CLAUDE_PLUGIN_ROOT}` — installed bundles are carried over to
-the new stub dir rather than deleted, so a machine never has to re-download.
+Bundles live outside the stub dirs `sync` manages, so retiring or relocating a
+stub cannot touch them. Two older safeguards still apply to installs made under
+the previous layout: `sync` removes only the stub plus the files its own marker
+says it installed, skipping any whose hash changed (you edited them) and leaving
+the directory standing if anything survives; and a target move carries such a
+bundle across rather than deleting it.
 
 ## Exit codes
 
