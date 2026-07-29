@@ -46,6 +46,25 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [4.4.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.3.0...v4.4.0) (2026-07-29)
+
+
+### Features
+
+* **DV-1816:** pull bundled skill files onto the local machine ([#220](https://github.com/DeepVista-AI/deepvista-cli/issues/220)) ([2390b05](https://github.com/DeepVista-AI/deepvista-cli/commit/2390b050dd22cb6c03449b1e1ed39416a67cfd98))
+* **DV-1869:** add `deepvista push`, and stop sync eating installed bundles ([#225](https://github.com/DeepVista-AI/deepvista-cli/issues/225)) ([7a48134](https://github.com/DeepVista-AI/deepvista-cli/commit/7a4813453a94b8a8f0bf0779f2ce78ba1bd18cca))
+
+
+### Bug Fixes
+
+* declare get() on _CatalogClient so bundle install type-checks ([#224](https://github.com/DeepVista-AI/deepvista-cli/issues/224)) ([21be79b](https://github.com/DeepVista-AI/deepvista-cli/commit/21be79bbd2011e4f7b64cbfd81352b0e67df8bdc))
+* **DV-1830:** repair the CLI test suite — 140 pass, 0 fail ([#221](https://github.com/DeepVista-AI/deepvista-cli/issues/221)) ([00e42f6](https://github.com/DeepVista-AI/deepvista-cli/commit/00e42f65ab6d4c877902330cb092783495fd9182))
+
+
+### Documentation
+
+* trim CLAUDE.md and move the release runbook to docs/ ([#223](https://github.com/DeepVista-AI/deepvista-cli/issues/223)) ([63f1e36](https://github.com/DeepVista-AI/deepvista-cli/commit/63f1e36d978909c7426ce9b7dd46acaa87d77ec0))
+
 ## [4.3.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.2.1...v4.3.0) (2026-07-24)
 
 
