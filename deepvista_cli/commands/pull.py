@@ -29,16 +29,17 @@ def _client(ctx: click.Context) -> DeepVistaClient:
 
 
 def _default_target(card: dict) -> str:
-    """Where a skill lands when the user doesn't say.
+    """Where a bundle lands when the user doesn't say: the bundle store.
 
-    The stub directory, not a cache dir — so `scripts/render.py` resolves
-    relative to the SKILL.md the agent is reading, which is the convention
-    Claude Code and friends already assume.
+    Not the stub dir (DV-1869). Stubs live wherever the syncing agent directory
+    wants them — under the Claude Code plugin that's a version-pinned path the
+    marketplace updater wipes on upgrade — so bundles kept beside them were
+    deleted by an upgrade with no old location left to migrate from. The store is
+    keyed by card id and survives both.
 
-    Resolved against the target sync *actually* last used rather than
-    ``DEFAULT_TARGET_DIR`` (DV-1869) — the plugin hook syncs into
-    ``${CLAUDE_PLUGIN_ROOT}/skills``, so the default landed the payload beside a
-    stub that lived elsewhere, and the next sync cleaned it up as stale.
+    `skill load` prints the root and tells the agent to resolve the body's
+    relative paths against it, which is what the agent needed anyway: its cwd is
+    the project, never the skill directory.
     """
     card_id = str(card.get("id") or "")
     return str(skill_catalog.bundle_root_for(card_id, card))

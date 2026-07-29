@@ -79,7 +79,10 @@ deepvista skill sync           # writes the stub
 # …invoking the skill runs `deepvista skill load <id>`, which installs the bundle
 ```
 
-Or explicitly: `deepvista pull <card-id>`. See [pull.md](pull.md).
+Or explicitly: `deepvista pull <card-id>`. Files land in the bundle store
+(`~/.local/share/deepvista/bundles/<card-id>/`), and `skill load` prints that root
+so the agent can resolve the body's relative paths against it. See
+[pull.md](pull.md).
 
 ## Exit codes
 

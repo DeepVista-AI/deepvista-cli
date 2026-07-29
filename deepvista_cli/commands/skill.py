@@ -647,7 +647,10 @@ def skill_sync(
     Safe to wire into a SessionStart hook (it exits 0 on any network failure
     and previous sync state remains usable).
     """
-    target_path = Path(target) if target else skill_catalog.DEFAULT_TARGET_DIR
+    # `default_target_dir()` follows CLAUDE_PLUGIN_ROOT when set, so a bare
+    # `deepvista skill sync` lands where the plugin's hook puts stubs instead of
+    # bouncing them between two locations on every manual run (DV-1869).
+    target_path = Path(target) if target else skill_catalog.default_target_dir()
 
     try:
         result = skill_catalog.sync_catalog(
@@ -706,7 +709,16 @@ def skill_load(ctx: click.Context, skill_id: str, no_cache: bool, ttl: int) -> N
         # writes only stubs, and an unbundled skill costs nothing.
         bundle_root = skill_catalog.ensure_skill_bundle(client, skill_id, card)
         if bundle_root is not None:
-            body += f"\n\n---\n\nBundled files for this skill are installed at `{bundle_root}`.\n"
+            # State the root explicitly and say how to resolve against it. The
+            # bundle no longer sits next to this SKILL.md (DV-1869: it lives in a
+            # store that survives plugin upgrades), and the agent's cwd is the
+            # project anyway — so every relative path in the body above needs
+            # this base to mean anything.
+            body += (
+                f"\n\n---\n\n**Bundled files for this skill are installed at `{bundle_root}`.**\n"
+                f"Resolve every file path mentioned above against that directory — "
+                f"e.g. `cd {bundle_root} && uv run --script <script>`.\n"
+            )
     # Catch SystemExit too — the HTTP client calls sys.exit on API/auth
     # errors, but at skill-invocation time we'd rather return a readable
     # error body than bubble a raw exit code into the agent's context.
