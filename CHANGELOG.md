@@ -46,6 +46,19 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [4.4.1](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.4.0...v4.4.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* **card:** sync CARD_TYPES with the backend enum ([#227](https://github.com/DeepVista-AI/deepvista-cli/issues/227)) ([aa7dfb3](https://github.com/DeepVista-AI/deepvista-cli/commit/aa7dfb3fba049bb55fadcff00ba940bfe51aa84c))
+* **DV-1869:** move installed bundles out of the stub dir into a stable store ([#226](https://github.com/DeepVista-AI/deepvista-cli/issues/226)) ([f58ce1d](https://github.com/DeepVista-AI/deepvista-cli/commit/f58ce1d3a466530652a53fcd6d6da039a307121d))
+
+
+### Documentation
+
+* `pull.md` rewritten for the new layout, `push.md` updated. ([f58ce1d](https://github.com/DeepVista-AI/deepvista-cli/commit/f58ce1d3a466530652a53fcd6d6da039a307121d))
+
 ## [4.4.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.3.0...v4.4.0) (2026-07-29)
 
 
