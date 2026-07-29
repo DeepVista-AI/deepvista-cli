@@ -34,11 +34,14 @@ def _default_target(card: dict) -> str:
     The stub directory, not a cache dir — so `scripts/render.py` resolves
     relative to the SKILL.md the agent is reading, which is the convention
     Claude Code and friends already assume.
+
+    Resolved against the target sync *actually* last used rather than
+    ``DEFAULT_TARGET_DIR`` (DV-1869) — the plugin hook syncs into
+    ``${CLAUDE_PLUGIN_ROOT}/skills``, so the default landed the payload beside a
+    stub that lived elsewhere, and the next sync cleaned it up as stale.
     """
-    title = str(card.get("title") or "skill")
     card_id = str(card.get("id") or "")
-    slug = skill_catalog.slugify_for_dir(title, fallback=card_id[:8] or "skill")
-    return str(skill_catalog.DEFAULT_TARGET_DIR / f"{skill_catalog.DEFAULT_STUB_PREFIX}{slug}")
+    return str(skill_catalog.bundle_root_for(card_id, card))
 
 
 @click.command("pull")

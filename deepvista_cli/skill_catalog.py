@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from deepvista_cli import bundle
 from deepvista_cli.config import CONFIG_DIR
 from deepvista_cli.utils import load_json_state, save_json_state
 
@@ -63,6 +64,39 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _trigger_description(card: dict[str, Any]) -> str:
+    """The one line an agent reads to decide whether to load this skill.
+
+    Order matters (DV-1869). For a skill card the ``description`` column *is*
+    the whole SKILL.md, so taking it verbatim produced a stub whose
+    ``description`` opened with flattened YAML — ``"--- name: narrated-browser
+    description: … type: tool execution: stateless…"`` — burning the 400-char
+    budget on frontmatter punctuation before reaching the real trigger text, and
+    trailing off into the ``files:`` manifest.
+
+    The skill's own frontmatter ``description`` is the right answer. The server
+    already parses it into ``attributes``, so prefer that; fall back to parsing
+    the body, then to the short ``summary``/``snippet``, and only then to the raw
+    body for cards with no frontmatter at all.
+    """
+    attributes = card.get("attributes")
+    if isinstance(attributes, dict):
+        from_attributes = str(attributes.get("description") or "").strip()
+        if from_attributes:
+            return from_attributes
+
+    body = str(card.get("description") or card.get("content") or "")
+    from_frontmatter = bundle.parse_frontmatter_scalars(body).get("description", "").strip()
+    if from_frontmatter:
+        return from_frontmatter
+
+    for key in ("summary", "snippet"):
+        value = str(card.get(key) or "").strip()
+        if value:
+            return value
+    return body
+
+
 @dataclass(frozen=True)
 class SkillMeta:
     """Subset of a server skill card needed to produce a stub."""
@@ -78,7 +112,7 @@ class SkillMeta:
         return cls(
             id=str(card.get("id", "")),
             title=str(card.get("title", "") or ""),
-            description=str(card.get("description", "") or card.get("summary", "") or ""),
+            description=_trigger_description(card),
             updated_at=str(card.get("updated_at", "") or ""),
             tags=tuple(card.get("tags") or ()),
         )
@@ -384,17 +418,57 @@ def apply_plan(
         )
 
     for dir_name in plan.to_remove:
-        stub_dir = target / dir_name
-        if not stub_dir.exists():
-            continue
-        if not _is_safe_catalog_dir(stub_dir, prefix):
-            # Refuse to delete dirs we don't recognise. Belt-and-braces against
-            # accidents where a user renames a stub prefix or points `--target`
-            # at the wrong place.
-            continue
-        shutil.rmtree(stub_dir, ignore_errors=True)
+        remove_stub_dir(target / dir_name, prefix)
 
     return {"stubs": new_stubs}
+
+
+def remove_stub_dir(stub_dir: Path, prefix: str) -> bool:
+    """Remove a catalog stub. Returns True when the whole dir went away.
+
+    Deliberately **not** ``rmtree`` (DV-1869). A stub dir doubles as a bundle
+    root, so a skill's installed ``scripts/`` live alongside its SKILL.md — and
+    blowing the dir away took a working install with it. The symptom was ugly: a
+    machine installed a skill's scripts successfully, then lost them at the start
+    of the next session when a sync relocated the target, leaving the agent to
+    invoke a skill whose files were gone.
+
+    So: delete the stub and the files our own marker says we installed — and only
+    while they still match what we wrote, since a differing hash means someone
+    edited them. Anything else in the dir is not ours to delete, and if anything
+    survives, the directory stays.
+    """
+    if not stub_dir.exists() or not _is_safe_catalog_dir(stub_dir, prefix):
+        # Refuse to touch dirs we don't recognise. Belt-and-braces against
+        # accidents where a user renames a stub prefix or points `--target`
+        # at the wrong place.
+        return False
+
+    installed: dict[str, str] = bundle.read_marker(stub_dir).get("files") or {}
+    for path, recorded_sha in installed.items():
+        try:
+            destination = bundle.safe_destination(stub_dir, path)
+        except bundle.BundleError:
+            continue
+        if destination.exists() and bundle.sha256_file(destination) == recorded_sha:
+            destination.unlink(missing_ok=True)
+
+    for name in ("SKILL.md", bundle.MARKER_FILENAME):
+        (stub_dir / name).unlink(missing_ok=True)
+
+    # Prune directories the bundle created, deepest first; non-empty ones (a
+    # preserved local edit, a file the user dropped in) survive untouched.
+    for directory in sorted((p for p in stub_dir.rglob("*") if p.is_dir()), key=lambda p: -len(p.parts)):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+    try:
+        stub_dir.rmdir()
+        return True
+    except OSError:
+        logger.info("kept %s — it still holds files we did not install", stub_dir)
+        return False
 
 
 def _is_safe_catalog_dir(path: Path, prefix: str) -> bool:
@@ -445,14 +519,19 @@ def _cleanup_old_target(
     old_target: Path,
     prefix: str,
     previous_stubs: list[dict[str, Any]],
-) -> list[str]:
-    """Remove catalog stubs from a previous target when the target changes.
+    *,
+    new_target: Path | None = None,
+) -> dict[str, list[str]]:
+    """Retire catalog stubs from a previous target when the target changes.
 
-    Only deletes dirs that carry our marker, using the same safety check as
-    ``apply_plan``. Returns the list of dir names that were actually removed
-    (for reporting).
+    Only touches dirs that carry our marker, using the same safety check as
+    ``apply_plan``. Installed bundle files are **moved** to the corresponding
+    stub dir under ``new_target`` first (DV-1869) — a relocation is not a
+    deletion, and the old behaviour deleted a working install's scripts on the
+    next SessionStart, leaving the agent to invoke a skill whose files were
+    gone. Returns the dir names removed and the ones whose bundles moved.
     """
-    removed: list[str] = []
+    result: dict[str, list[str]] = {"removed": [], "migrated": []}
     for entry in previous_stubs:
         dir_name = entry.get("dir_name")
         if not dir_name:
@@ -460,9 +539,49 @@ def _cleanup_old_target(
         stub_dir = old_target / dir_name
         if not stub_dir.exists() or not _is_safe_catalog_dir(stub_dir, prefix):
             continue
-        shutil.rmtree(stub_dir, ignore_errors=True)
-        removed.append(dir_name)
-    return removed
+        if new_target is not None and _move_bundle(stub_dir, new_target / dir_name):
+            result["migrated"].append(dir_name)
+        if remove_stub_dir(stub_dir, prefix):
+            result["removed"].append(dir_name)
+    return result
+
+
+def _move_bundle(source_dir: Path, destination_dir: Path) -> bool:
+    """Move an installed bundle (marker + its files) between stub dirs.
+
+    Returns True when anything moved. Files already present at the destination
+    are left alone — the new target wins, since a fresh install there is at
+    least as current as what we're carrying over.
+    """
+    installed: dict[str, str] = bundle.read_marker(source_dir).get("files") or {}
+    if not installed:
+        return False
+
+    moved = False
+    for path in installed:
+        try:
+            source = bundle.safe_destination(source_dir, path)
+            destination = bundle.safe_destination(destination_dir, path)
+        except bundle.BundleError:
+            continue
+        if not source.exists() or destination.exists():
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.move(str(source), str(destination))
+            moved = True
+        except OSError:
+            logger.info("could not migrate %s to %s", source, destination)
+
+    marker = source_dir / bundle.MARKER_FILENAME
+    destination_marker = destination_dir / bundle.MARKER_FILENAME
+    if moved and marker.exists() and not destination_marker.exists():
+        destination_marker.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copyfile(marker, destination_marker)
+        except OSError:
+            logger.info("could not carry the bundle marker to %s", destination_marker)
+    return moved
 
 
 def _fetch_server_skills(
@@ -536,9 +655,14 @@ def sync_catalog(
             "summary": plan.summary(),
         }
 
-    migrated: list[str] = []
+    retired: dict[str, list[str]] = {"removed": [], "migrated": []}
     if target_changed and old_target_str:
-        migrated = _cleanup_old_target(Path(old_target_str), prefix, state.get("stubs") or [])
+        retired = _cleanup_old_target(
+            Path(old_target_str),
+            prefix,
+            state.get("stubs") or [],
+            new_target=target,
+        )
 
     new_state_fragment = apply_plan(plan, target=target, prefix=prefix, all_server_skills=server_skills)
 
@@ -555,9 +679,11 @@ def sync_catalog(
         "prefix": prefix,
         "summary": plan.summary(),
     }
-    if migrated:
+    if retired["removed"] or retired["migrated"]:
         result["migrated_from"] = old_target_str
-        result["migrated_stubs_removed"] = migrated
+        result["migrated_stubs_removed"] = retired["removed"]
+        if retired["migrated"]:
+            result["migrated_bundles"] = retired["migrated"]
     return result
 
 
@@ -581,11 +707,26 @@ def _render_skill_body_markdown(card: dict[str, Any]) -> str:
     We prefer explicit fields but tolerate either. A frontmatter block is
     added so the output is a well-formed SKILL.md if an agent wants to save
     it to disk.
+
+    A card body that is *already* a SKILL.md keeps its own frontmatter rather
+    than getting a second block wrapped around it (DV-1869). Prepending
+    unconditionally produced two frontmatter blocks, a placeholder
+    ``description`` above the real one, and a duplicated title — the agent then
+    read storage bookkeeping and YAML punctuation as skill content.
     """
     title = str(card.get("title") or "").strip() or "Skill"
-    desc_short = str(card.get("summary") or "").strip()
     body = str(card.get("content") or card.get("description") or "").strip()
 
+    # The manifest has already been consumed by the installer; it is not prose.
+    body = bundle.strip_manifest(body).strip()
+
+    own = bundle.parse_frontmatter_scalars(body)
+    if own:
+        # Stamp the id onto the body's existing block instead of adding a second
+        # one, so the result stays a single well-formed document.
+        return _with_deepvista_id(body, str(card.get("id", "")))
+
+    desc_short = str(card.get("summary") or "").strip()
     frontmatter = [
         "---",
         f"name: {_yaml_inline_string(title)}",
@@ -598,6 +739,20 @@ def _render_skill_body_markdown(card: dict[str, Any]) -> str:
     if body:
         parts.extend(["", body])
     return "\n".join(parts).rstrip() + "\n"
+
+
+def _with_deepvista_id(body: str, skill_id: str) -> str:
+    """Add ``x-deepvista-id`` to a body's own frontmatter, idempotently."""
+    if not skill_id:
+        return body.rstrip() + "\n"
+    lines = body.splitlines()
+    close = next((i for i, line in enumerate(lines[1:], start=1) if line.strip() == "---"), None)
+    if close is None:
+        return body.rstrip() + "\n"
+    if any(line.startswith("x-deepvista-id:") for line in lines[1:close]):
+        return body.rstrip() + "\n"
+    stamped = lines[:close] + [f"x-deepvista-id: {skill_id}"] + lines[close:]
+    return "\n".join(stamped).rstrip() + "\n"
 
 
 def _card_cache_path(skill_id: str, *, root: Path = BODY_CACHE_DIR) -> Path:
@@ -658,6 +813,25 @@ def load_skill_body(
     return _render_skill_body_markdown(card)
 
 
+def synced_target_dir(state_path: Path | None = None) -> Path:
+    """Where sync actually last wrote stubs, not where we'd write them by default.
+
+    The two differ in the common install (DV-1869): the plugin's SessionStart
+    hook syncs into ``${CLAUDE_PLUGIN_ROOT}/skills``, while
+    ``DEFAULT_TARGET_DIR`` is ``~/.claude/skills``. Installing a bundle next to
+    a stub that lives somewhere else meant the payload sat in a directory
+    nothing pointed at, and the next sync — seeing a target change — cleaned it
+    up. Anything resolving a bundle root has to follow the recorded target.
+    """
+    # Resolved from the module global inside the body, not via a default
+    # argument — the default would bind at import and ignore a redirected
+    # CONFIG_DIR (or a test's patch).
+    recorded = load_state(state_path or CATALOG_STATE_FILE).get("target")
+    if isinstance(recorded, str) and recorded:
+        return Path(recorded)
+    return DEFAULT_TARGET_DIR
+
+
 def bundle_root_for(
     skill_id: str, card: dict[str, Any], *, target: Path | None = None, prefix: str = DEFAULT_STUB_PREFIX
 ) -> Path:
@@ -669,7 +843,7 @@ def bundle_root_for(
     ``scripts/render.py`` resolve relative to the SKILL.md the agent is
     reading, with no absolute-path rewriting.
     """
-    root = target or DEFAULT_TARGET_DIR
+    root = target or synced_target_dir()
     for entry in load_state().get("stubs", []):
         if entry.get("id") == skill_id and entry.get("dir_name"):
             return root / entry["dir_name"]

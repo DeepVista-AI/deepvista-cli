@@ -51,6 +51,7 @@ other reference file assumes you know it.
 | `deepvista chat` | sending a message to the AI agent, listing / deleting chat sessions, continuing a conversation | [chat.md](reference/chat.md) |
 | `deepvista skill` | listing, running, **creating new skills**, or **catalog-syncing** (`sync` / `load`) structured Skill workflows; `load` also installs a skill's bundled files | [skill.md](reference/skill.md) |
 | `deepvista pull` | installing a card's **bundled files** (a skill's `scripts/` / `references/` / assets) onto this machine — cloud VM or laptop | [pull.md](reference/pull.md) |
+| `deepvista push` | **uploading a local skill directory** — SKILL.md plus its `scripts/` / `references/` / assets — to Vistabase so it can be stored, shared, and installed elsewhere | [push.md](reference/push.md) |
 | `deepvista tasks` | running this **Machine**'s dispatched work: `tasks run` polls for tasks (web-chat prompts run headless via `claude -p`, plus queued CLI commands / workflow runs) and `tasks list` shows them | [tasks.md](reference/tasks.md) |
 | — analyze notes | searching → reading → synthesizing notes to surface themes / patterns | [skill-analyze-notes.md](reference/skill-analyze-notes.md) |
 | — research → run | finding context in the knowledge base, then running a Skill with synthesized input | [skill-research-to-skill.md](reference/skill-research-to-skill.md) |

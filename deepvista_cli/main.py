@@ -31,6 +31,7 @@ from deepvista_cli.commands.config import config_group
 from deepvista_cli.commands.notes import notes_group
 from deepvista_cli.commands.project import project_group
 from deepvista_cli.commands.pull import pull_command
+from deepvista_cli.commands.push import push_command
 from deepvista_cli.commands.schedule import schedule_group
 from deepvista_cli.commands.session import session_group
 from deepvista_cli.commands.skill import skill_group
@@ -119,6 +120,8 @@ cli.add_command(skill_group)
 cli.add_command(chat_group)
 # DV-1816: materialize a card's bundled files onto this machine.
 cli.add_command(pull_command)
+# DV-1869: the inverse — upload a skill directory and its files.
+cli.add_command(push_command)
 
 # Agent identity heartbeat (used by the Claude Code plugin hooks)
 cli.add_command(agents_group)
