@@ -35,6 +35,12 @@ from deepvista_cli.output.formatter import format_output, output_error
 # for human-authored notes; `artifact` (DV-1573) is the agent's fallback for
 # its own output when no structured type fits. The deprecated `skill_run`
 # type (superseded by `run_log`, DV-1130) is intentionally absent.
+#
+# This list gates `--type` on `list` / `search` / `grep` as well as `create`,
+# so a type missing here cannot be *filtered* for either — not just created.
+# `issue`, `table`, `environment_variable` and `notification` had drifted out
+# of sync with the backend enum; `table` in particular is user-facing (a table
+# card is the header row of a curated list, DV-1859).
 CARD_TYPES = [
     "person",
     "organization",
@@ -52,6 +58,10 @@ CARD_TYPES = [
     "task",
     "conversation_starter",
     "artifact",
+    "notification",
+    "issue",
+    "table",
+    "environment_variable",
 ]
 
 CARD_COLUMNS = ["id", "type", "title", "display_status", "updated_at"]
