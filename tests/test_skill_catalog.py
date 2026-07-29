@@ -482,3 +482,204 @@ def test_load_skill_body_cache_expires(tmp_path: Path):
     assert "two" in body2
     assert "one" not in body2
     assert body != body2
+
+
+# ---------------------------------------------------------------------------
+# Trigger description (DV-1869)
+#
+# For a skill card the `description` column *is* the whole SKILL.md, so taking
+# it verbatim gave the stub a flattened-YAML description — the one line an agent
+# reads to decide whether to load the skill.
+# ---------------------------------------------------------------------------
+
+SKILL_BODY = """---
+name: narrated-browser
+description: Drive a browser through a flow and produce a narrated MP4.
+type: tool
+files:
+  - path: narrate.py
+    sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    mode: "755"
+---
+
+# Narrated browser recordings
+
+Turn a flow into a narrated MP4.
+"""
+
+
+def test_trigger_description_prefers_the_parsed_attribute():
+    meta = skill_catalog.SkillMeta.from_card(
+        {
+            "id": "id-1",
+            "title": "narrated-browser",
+            "description": SKILL_BODY,
+            "attributes": {"description": "From attributes.", "bundle_sha": "abc", "file_count": 1},
+        }
+    )
+    assert meta.description == "From attributes."
+
+
+def test_trigger_description_falls_back_to_the_bodys_frontmatter():
+    meta = skill_catalog.SkillMeta.from_card({"id": "id-1", "title": "narrated-browser", "description": SKILL_BODY})
+
+    assert meta.description == "Drive a browser through a flow and produce a narrated MP4."
+    # The regression: no YAML punctuation, no manifest, no `type:`/`execution:`.
+    assert not meta.description.startswith("---")
+    assert "sha256" not in meta.description
+
+
+def test_trigger_description_keeps_working_for_plain_bodies():
+    meta = skill_catalog.SkillMeta.from_card({"id": "id-1", "title": "Plain", "description": "Just prose."})
+    assert meta.description == "Just prose."
+
+
+def test_stub_description_is_the_skills_own_description():
+    meta = skill_catalog.SkillMeta.from_card({"id": "id-1", "title": "narrated-browser", "description": SKILL_BODY})
+
+    stub = skill_catalog.build_stub_markdown(meta)
+
+    assert 'description: "Drive a browser through a flow and produce a narrated MP4."' in stub
+
+
+# ---------------------------------------------------------------------------
+# Rendered body (DV-1869): one frontmatter block, no manifest
+# ---------------------------------------------------------------------------
+
+
+def test_render_skill_body_does_not_double_wrap_frontmatter():
+    rendered = skill_catalog.render_skill_body({"id": "id-1", "title": "narrated-browser", "description": SKILL_BODY})
+
+    assert rendered.splitlines().count("---") == 2
+    assert rendered.startswith("---\nname: narrated-browser")
+    # The manifest is machine state the installer already consumed.
+    assert "files:" not in rendered
+    assert "sha256" not in rendered
+    # The real description survives; the title is not duplicated as an H1.
+    assert "description: Drive a browser through a flow" in rendered
+    assert rendered.count("# Narrated browser recordings") == 1
+    # The id is stamped onto the body's own block rather than a second one.
+    assert "x-deepvista-id: id-1" in rendered
+
+
+def test_render_skill_body_is_idempotent_on_the_id_stamp():
+    card = {"id": "id-1", "title": "narrated-browser", "description": SKILL_BODY}
+    once = skill_catalog.render_skill_body(card)
+    twice = skill_catalog.render_skill_body({**card, "description": once})
+    assert once == twice
+    assert twice.count("x-deepvista-id:") == 1
+
+
+def test_render_skill_body_still_wraps_a_frontmatterless_card():
+    rendered = skill_catalog.render_skill_body({"id": "id-1", "title": "Plain", "description": "Just prose."})
+
+    assert rendered.startswith('---\nname: "Plain"')
+    assert "# Plain" in rendered
+    assert "Just prose." in rendered
+
+
+# ---------------------------------------------------------------------------
+# Stub removal must not take an installed bundle with it (DV-1869)
+#
+# A stub dir doubles as a bundle root, so `rmtree` deleted a working install's
+# scripts — the machine lost them at the next SessionStart sync.
+# ---------------------------------------------------------------------------
+
+
+def _installed_stub(target: Path, dir_name: str = "dv-alpha") -> Path:
+    from deepvista_cli import bundle
+
+    stub_dir = target / dir_name
+    stub_dir.mkdir(parents=True)
+    (stub_dir / "SKILL.md").write_text(skill_catalog.build_stub_markdown(_meta("id-a", "Alpha")))
+    (stub_dir / "scripts").mkdir()
+    (stub_dir / "scripts" / "run.py").write_text("print('hi')\n")
+    bundle.write_marker(stub_dir, [bundle.BundleFile(path="scripts/run.py", sha256=_sha("print('hi')\n"))])
+    return stub_dir
+
+
+def _sha(text: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def test_remove_stub_dir_deletes_the_bundle_it_installed(tmp_path: Path):
+    stub_dir = _installed_stub(tmp_path)
+
+    assert skill_catalog.remove_stub_dir(stub_dir, "dv-") is True
+    assert not stub_dir.exists()
+
+
+def test_remove_stub_dir_keeps_a_locally_edited_file(tmp_path: Path):
+    stub_dir = _installed_stub(tmp_path)
+    (stub_dir / "scripts" / "run.py").write_text("print('i edited this')\n")
+
+    assert skill_catalog.remove_stub_dir(stub_dir, "dv-") is False
+    assert (stub_dir / "scripts" / "run.py").read_text() == "print('i edited this')\n"
+    # The stub itself is still retired.
+    assert not (stub_dir / "SKILL.md").exists()
+
+
+def test_remove_stub_dir_keeps_files_it_never_installed(tmp_path: Path):
+    stub_dir = _installed_stub(tmp_path)
+    (stub_dir / "my-notes.md").write_text("mine\n")
+
+    assert skill_catalog.remove_stub_dir(stub_dir, "dv-") is False
+    assert (stub_dir / "my-notes.md").exists()
+    assert not (stub_dir / "scripts" / "run.py").exists()
+
+
+def test_remove_stub_dir_refuses_an_unmarked_dir(tmp_path: Path):
+    stub_dir = tmp_path / "dv-user-owned"
+    stub_dir.mkdir()
+    (stub_dir / "SKILL.md").write_text("---\nname: user-owned\n---\nhand-written")
+
+    assert skill_catalog.remove_stub_dir(stub_dir, "dv-") is False
+    assert (stub_dir / "SKILL.md").read_text() == "---\nname: user-owned\n---\nhand-written"
+
+
+def test_sync_catalog_carries_an_installed_bundle_to_the_new_target(tmp_path: Path):
+    """The reported failure: a target switch must not lose installed scripts."""
+    state_path = tmp_path / "state.json"
+    target_a = tmp_path / "old" / "skills"
+    target_b = tmp_path / "new" / "skills"
+
+    fake1 = FakeClient()
+    _enqueue_list(fake1, [{"id": "id-a", "title": "Alpha", "description": ""}])
+    skill_catalog.sync_catalog(fake1, target=target_a, prefix="dv-", state_path=state_path, throttle_min=0)
+
+    # Simulate `pull` / `skill load` having installed the bundle into the stub dir.
+    from deepvista_cli import bundle
+
+    stub_a = target_a / "dv-alpha"
+    (stub_a / "scripts").mkdir()
+    (stub_a / "scripts" / "run.py").write_text("print('hi')\n")
+    (stub_a / "scripts" / "run.py").chmod(0o755)
+    bundle.write_marker(stub_a, [bundle.BundleFile(path="scripts/run.py", sha256=_sha("print('hi')\n"), mode="755")])
+
+    fake2 = FakeClient()
+    _enqueue_list(fake2, [{"id": "id-a", "title": "Alpha", "description": ""}])
+    result = skill_catalog.sync_catalog(fake2, target=target_b, prefix="dv-", state_path=state_path, throttle_min=0)
+
+    moved = target_b / "dv-alpha" / "scripts" / "run.py"
+    assert moved.read_text() == "print('hi')\n"
+    assert moved.stat().st_mode & 0o777 == 0o755
+    assert (target_b / "dv-alpha" / bundle.MARKER_FILENAME).exists()
+    assert not (target_a / "dv-alpha").exists()
+    assert result.get("migrated_bundles") == ["dv-alpha"]
+
+
+def test_synced_target_dir_follows_the_recorded_target(tmp_path: Path, monkeypatch):
+    """`pull` must install where sync actually wrote, not where we'd default to."""
+    state_path = tmp_path / "state.json"
+    plugin_dir = tmp_path / "plugin" / "skills"
+    skill_catalog.save_state({"target": str(plugin_dir), "stubs": []}, state_path)
+    monkeypatch.setattr(skill_catalog, "CATALOG_STATE_FILE", state_path)
+
+    assert skill_catalog.synced_target_dir() == plugin_dir
+
+
+def test_synced_target_dir_defaults_without_state(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(skill_catalog, "CATALOG_STATE_FILE", tmp_path / "missing.json")
+    assert skill_catalog.synced_target_dir() == skill_catalog.DEFAULT_TARGET_DIR

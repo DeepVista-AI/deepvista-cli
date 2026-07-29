@@ -26,8 +26,12 @@ deepvista pull <skill-id> --dry-run              # list without writing
 
 ## Where files land
 
-By default, the skill's **stub directory** — the same
-`~/.claude/skills/dv-<slug>/` that `deepvista skill sync` writes `SKILL.md` into:
+By default, the skill's **stub directory** — the one `deepvista skill sync` last
+wrote `SKILL.md` into. That is usually `~/.claude/skills/dv-<slug>/`, but when
+the Claude Code plugin's SessionStart hook is doing the syncing it is
+`${CLAUDE_PLUGIN_ROOT}/skills/dv-<slug>/` instead. `pull` follows the recorded
+target rather than assuming the default, so the payload always lands beside the
+stub that references it:
 
 ```
 ~/.claude/skills/dv-pdf-report/
@@ -63,6 +67,15 @@ Pass `--force` to take the server's version anyway.
 
 Files dropped from the manifest are deleted, but only when they still match what
 we installed — an edited leftover is left alone.
+
+## Sync won't delete what you installed
+
+A stub dir doubles as a bundle root, so retiring a stub could take a working
+install with it. It doesn't: `sync` removes the stub and the files its own marker
+says it installed, skips any whose hash changed (you edited them), and leaves the
+directory standing if anything survives. When the target *moves* — a plugin
+upgrade changes `${CLAUDE_PLUGIN_ROOT}` — installed bundles are carried over to
+the new stub dir rather than deleted, so a machine never has to re-download.
 
 ## Exit codes
 

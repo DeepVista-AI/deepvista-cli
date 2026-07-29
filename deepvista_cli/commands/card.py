@@ -176,6 +176,12 @@ def card_get(ctx: click.Context, card_id: str, project_override: str | None) -> 
 )
 @click.option("--tags", default=None, help='Tags as JSON array: \'["tag1","tag2"]\'.')
 @click.option("--no-enrich", is_flag=True, default=False, help="Skip entity enrichment.")
+@click.option(
+    "--status",
+    type=click.Choice(["confirmed", "unconfirmed"]),
+    default=None,
+    help="Review status. Agent-created cards default to `unconfirmed`, which search and `skill list` filter out.",
+)
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would happen without making any changes.")
 @project_option
 @click.pass_context
@@ -187,6 +193,7 @@ def card_create(
     content_file: str | None,
     tags: str | None,
     no_enrich: bool,
+    status: str | None,
     dry_run: bool,
     project_override: str | None,
 ) -> None:
@@ -205,6 +212,11 @@ def card_create(
     }
     if description:
         body["description"] = description
+    # DV-1869: without this the CLI has no way to reach `confirmed`, so a card it
+    # creates stays invisible to search and to `skill list` (the agent-origin
+    # default is `unconfirmed`, DV-793) with no flag to override it.
+    if status:
+        body["status"] = status
     if tags:
         try:
             body["tags"] = _json.loads(tags)

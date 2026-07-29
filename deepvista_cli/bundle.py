@@ -26,6 +26,11 @@ client must never trust that a manifest arrived unmodified.
 The frontmatter parser here is hand-rolled: the CLI deliberately carries no
 PyYAML dependency (see ``skill_catalog.build_stub_markdown``), and the manifest
 grammar is a deliberately small, fixed subset — a block list of flat mappings.
+
+Both directions live here (DV-1869). Upload is the exact inverse of install —
+hash the tree, skip the shas storage already holds, PUT the rest, have the
+server verify them — and splitting the two halves across modules would let the
+manifest they share drift.
 """
 
 from __future__ import annotations
@@ -33,6 +38,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import mimetypes
+import os
 import re
 import stat
 from collections.abc import Callable
@@ -47,7 +54,10 @@ MAX_BUNDLE_FILES = 100
 MAX_PATH_LENGTH = 256
 ALLOWED_MODES = ("644", "755")
 DEFAULT_MODE = "644"
-RESERVED_PATHS = frozenset({"SKILL.md"})
+# Lowercased and compared case-insensitively (DV-1869): the body of a skill dir
+# on APFS/NTFS may be spelled `skill.md`, and letting it also appear in `files:`
+# would put two copies of the description on disk racing each other.
+RESERVED_PATHS = frozenset({"skill.md"})
 
 # Written into the bundle root so a repeat `skill load` is a no-op and a
 # later sync can tell server-owned files apart from ones the user edited.
@@ -105,7 +115,7 @@ def validate_bundle_path(path: Any) -> str | None:
         return f"path must name a file, not a directory: {path}"
     if any(seg in ("", ".", "..") for seg in path.split("/")):
         return f"path must not contain empty, '.', or '..' segments: {path}"
-    if path in RESERVED_PATHS:
+    if path.lower() in RESERVED_PATHS:
         return f"'{path}' is the skill body itself and cannot be a bundle entry"
     return None
 
@@ -123,6 +133,61 @@ def _split_frontmatter(body: str | None) -> str | None:
         return None
     parts = body.split("---", 2)
     return parts[1] if len(parts) >= 3 else None
+
+
+def parse_frontmatter_scalars(body: str | None) -> dict[str, str]:
+    """Top-level ``key: value`` scalars from a SKILL.md's frontmatter.
+
+    Deliberately flat: block lists (``files:``, ``inputs:``) are skipped rather
+    than half-parsed, because every consumer wants a single value — the skill's
+    own ``description``, which is the text an agent reads to decide whether to
+    load it. Same no-PyYAML reasoning as :func:`parse_bundle_files`.
+    """
+    frontmatter = _split_frontmatter(body)
+    if frontmatter is None:
+        return {}
+
+    scalars: dict[str, str] = {}
+    for raw in frontmatter.splitlines():
+        line = raw.rstrip()
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        # Indented lines and list items belong to the block above, not here.
+        if line[:1].isspace() or line.lstrip().startswith("- "):
+            continue
+        key, sep, value = line.partition(":")
+        value = _unquote(value)
+        if sep and value:
+            scalars[key.strip()] = value
+    return scalars
+
+
+def strip_manifest(body: str) -> str:
+    """Remove the ``files:`` block from a body's frontmatter (DV-1869).
+
+    The manifest is machine state the installer has already consumed by the time
+    a body is shown to an agent. Leaving it in spends context on sha256 digests
+    and invites the model to read storage bookkeeping as skill content — a
+    7-file bundle is ~1.5 KB of noise on every invocation. The card keeps the
+    manifest; only the rendered view drops it.
+    """
+    lines = body.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return body
+    close = next((i for i, line in enumerate(lines[1:], start=1) if line.strip() == "---"), None)
+    if close is None:
+        return body
+
+    start = next((i for i in range(1, close) if lines[i].startswith("files:")), None)
+    if start is None:
+        return body
+
+    end = start + 1
+    while end < close and (not lines[end].strip() or lines[end][:1].isspace()):
+        end += 1
+
+    kept = lines[:start] + lines[end:]
+    return "\n".join(kept) + ("\n" if body.endswith("\n") else "")
 
 
 def parse_bundle_files(body: str | None) -> list[BundleFile]:
@@ -254,7 +319,7 @@ def safe_destination(root: Path, path: str) -> Path:
     return candidate
 
 
-def _sha256_file(path: Path) -> str | None:
+def sha256_file(path: Path) -> str | None:
     digest = hashlib.sha256()
     try:
         with path.open("rb") as handle:
@@ -308,7 +373,7 @@ def materialize_bundle(
 
     for entry in files:
         destination = safe_destination(root, entry.path)
-        on_disk = _sha256_file(destination) if destination.exists() else None
+        on_disk = sha256_file(destination) if destination.exists() else None
 
         if on_disk == entry.sha256:
             result["skipped"].append(entry.path)
@@ -366,6 +431,176 @@ def _mode_bits(mode: str) -> int:
     return stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH
 
 
+# ---------------------------------------------------------------------------
+# Upload — the inverse of materialize (DV-1869)
+# ---------------------------------------------------------------------------
+
+# Build artefacts and VCS metadata are never part of a skill. Excluded by name
+# rather than by pattern so the rule is legible in a `--dry-run` listing.
+EXCLUDED_DIRS = frozenset(
+    {"__pycache__", ".git", ".venv", "venv", "node_modules", ".ruff_cache", ".pytest_cache", ".mypy_cache"}
+)
+EXCLUDED_FILES = frozenset({".DS_Store", MARKER_FILENAME})
+
+_UPLOAD_TIMEOUT = 300.0
+
+
+class _UploadClient(Protocol):
+    def post(self, path: str, body: dict | None = None) -> Any: ...
+
+
+def find_skill_body(root: Path) -> Path | None:
+    """The file in ``root`` that becomes the card description.
+
+    Resolved by *listing* the directory, not by probing
+    ``(root / "SKILL.md").exists()``. On a case-insensitive filesystem that
+    probe hits a lowercase ``skill.md`` while handing back the uppercase
+    spelling, so a later ``path == "SKILL.md"`` exclusion misses and the body is
+    uploaded as a bundle entry as well — two copies of the description with no
+    rule for which wins (DV-1869).
+    """
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return None
+    return next((p for p in entries if p.is_file() and p.name.lower() == "skill.md"), None)
+
+
+def collect_bundle_files(root: Path, *, exclude: Path | None = None) -> list[BundleFile]:
+    """Hash a directory tree into manifest entries.
+
+    ``mode`` comes from the file's own executable bit, which is the whole reason
+    it is in the manifest: a pulled ``narrate_recording.py`` has to stay runnable
+    on the machine that installs it.
+    """
+    files: list[BundleFile] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        relative = path.relative_to(root)
+        if any(part in EXCLUDED_DIRS for part in relative.parts[:-1]):
+            continue
+        if path.name in EXCLUDED_FILES or (exclude is not None and path == exclude):
+            continue
+
+        posix = relative.as_posix()
+        problem = validate_bundle_path(posix)
+        if problem:
+            raise BundleError(f"{posix}: {problem}")
+
+        digest = sha256_file(path)
+        if digest is None:
+            raise BundleError(f"{posix}: could not be read")
+
+        files.append(
+            BundleFile(
+                path=posix,
+                sha256=digest,
+                size=path.stat().st_size,
+                mode="755" if os.access(path, os.X_OK) else DEFAULT_MODE,
+                content_type=mimetypes.guess_type(path.name)[0],
+            )
+        )
+
+    if len(files) > MAX_BUNDLE_FILES:
+        raise BundleError(f"bundle exceeds {MAX_BUNDLE_FILES} files ({len(files)}) — import from git instead")
+    return files
+
+
+def render_manifest(files: list[BundleFile]) -> str:
+    """Render manifest entries as the ``files:`` frontmatter block."""
+    lines = ["files:"]
+    for entry in files:
+        lines.append(f"  - path: {entry.path}")
+        lines.append(f"    sha256: {entry.sha256}")
+        if entry.size is not None:
+            lines.append(f"    size: {entry.size}")
+        lines.append(f'    mode: "{entry.mode}"')
+        if entry.content_type:
+            lines.append(f"    content_type: {entry.content_type}")
+    return "\n".join(lines)
+
+
+def splice_manifest(body: str, files: list[BundleFile]) -> str:
+    """Return ``body`` with its ``files:`` block replaced by ``files``.
+
+    Goes last in the frontmatter block, per the DV-1816 format note, so the keys
+    a human reads stay at the top. Re-push is idempotent because the old block is
+    stripped first rather than appended to.
+    """
+    stripped = strip_manifest(body)
+    if not files:
+        return stripped
+
+    lines = stripped.splitlines()
+    if not lines or lines[0].strip() != "---":
+        raise BundleError("skill body needs a `---` frontmatter block to carry a manifest")
+    close = next((i for i, line in enumerate(lines[1:], start=1) if line.strip() == "---"), None)
+    if close is None:
+        raise BundleError("skill body's frontmatter block is never closed")
+
+    spliced = lines[:close] + render_manifest(files).splitlines() + lines[close:]
+    return "\n".join(spliced) + "\n"
+
+
+def upload_bundle(client: _UploadClient, root: Path, files: list[BundleFile]) -> dict[str, list[str]]:
+    """Upload every blob a manifest references. Returns per-outcome path lists.
+
+    Outcomes: ``uploaded`` and ``deduped`` — the server answers ``alreadyExists``
+    when that sha is already stored, and identical bytes are already there by
+    definition, so the PUT is skipped. That is what makes a re-push of an
+    unchanged tree nearly free, and what stores a helper script shared by ten
+    skills exactly once.
+
+    Every upload is followed by a server-side verify. The write-once
+    precondition stops an existing blob being *overwritten*, but nothing stops a
+    first upload claiming a hash it didn't compute, and an unverified blob would
+    poison every manifest referencing that sha.
+    """
+    import httpx
+
+    result: dict[str, list[str]] = {"uploaded": [], "deduped": []}
+    for entry in files:
+        signed = (
+            client.post(
+                "/attachments/signed-upload-url",
+                {
+                    "file_name": Path(entry.path).name,
+                    "file_size": entry.size or 0,
+                    "content_type": entry.content_type or "application/octet-stream",
+                    "scope": "bundle",
+                    "sha256": entry.sha256,
+                },
+            )
+            or {}
+        )
+        if signed.get("alreadyExists"):
+            result["deduped"].append(entry.path)
+            continue
+
+        url = signed.get("signedUrl")
+        if not url:
+            raise BundleError(f"{entry.path}: server returned no upload URL")
+
+        # The signed headers are part of the signature — GCS rejects the PUT if
+        # they aren't sent verbatim.
+        response = httpx.put(
+            url,
+            content=safe_destination(root, entry.path).read_bytes(),
+            headers=signed.get("headers") or {},
+            timeout=_UPLOAD_TIMEOUT,
+        )
+        if response.status_code >= 400:
+            raise BundleError(f"{entry.path}: upload failed with HTTP {response.status_code}")
+
+        verified = client.post("/attachments/blobs/verify", {"sha256": entry.sha256}) or {}
+        if not verified.get("verified"):
+            raise BundleError(f"{entry.path}: server did not verify the uploaded bytes")
+        result["uploaded"].append(entry.path)
+
+    return result
+
+
 def _prune_removed(root: Path, files: list[BundleFile], previous_files: dict[str, str]) -> list[str]:
     """Delete files we installed that the manifest no longer lists.
 
@@ -382,7 +617,7 @@ def _prune_removed(root: Path, files: list[BundleFile], previous_files: dict[str
             destination = safe_destination(root, path)
         except BundleError:
             continue
-        if not destination.exists() or _sha256_file(destination) != recorded_sha:
+        if not destination.exists() or sha256_file(destination) != recorded_sha:
             continue
         try:
             destination.unlink()
