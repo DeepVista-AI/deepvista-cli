@@ -49,6 +49,12 @@ Show the plan and confirm with the user before proceeding.
 
 ### Step 4: Capture the goal as a note
 
+> [!NOTE] This one stays `type=note` on purpose (DV-1911). The user confirmed the
+> plan in step 3, so it *is* human-initiated, and `skill create-from-note` emits a
+> `cardType="note"` chip for its source card — see
+> `_build_create_from_note_instruction` in `deepvista_cli/commands/skill.py`.
+> Machine-generated workflow output uses `card create --type artifact` instead.
+
 ```bash
 deepvista notes create \
   --title "<goal>" \

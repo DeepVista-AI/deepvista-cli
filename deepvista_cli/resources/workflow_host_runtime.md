@@ -58,10 +58,14 @@ links, outputs), persist it as a context card so DeepVista keeps the
 artifact:
 
 ```
-deepvista notes create --title "..." --content "..." [--tags '["..."]']
-# OR for non-note types:
-deepvista card create --type note --title "..." --content "..." [--tags '["..."]']
+deepvista card create --type artifact --title "..." --content "..." [--tags '["..."]']
 ```
+
+> [!IMPORTANT] Use `--type artifact`, not `--type note` (DV-1911). A workflow
+> run is machine-dispatched, so anything it writes is agent-generated output.
+> `type=note` is reserved for content the user *explicitly asked* to record.
+> Other `--type` values (`todo`, `keypoint`, `person`, …) are fine when they
+> fit the content better.
 
 Capture the returned card id — you'll attach it to the phase in step 3.
 
@@ -89,8 +93,8 @@ Two distinct cases:
 **User input required** — the phase needs information, a decision, or
 approval from the user before it can proceed:
 
-1. Save whatever partial output you produced as a note card via
-   `deepvista notes create` so DeepVista keeps the artifact.
+1. Save whatever partial output you produced as an artifact card via
+   `deepvista card create --type artifact` so DeepVista keeps the artifact.
 2. Run:
    ```
    deepvista skill phase need-input <skill_id> "<Phase N: title>" \
@@ -104,8 +108,8 @@ approval from the user before it can proceed:
 
 **Technical blocker** — a tool, MCP, or credential is unavailable:
 
-1. Save whatever partial output you produced as a note card via
-   `deepvista notes create` so DeepVista keeps the artifact.
+1. Save whatever partial output you produced as an artifact card via
+   `deepvista card create --type artifact` so DeepVista keeps the artifact.
 2. Run:
    ```
    deepvista skill phase pause <skill_id> --reason "<one short sentence>"
@@ -143,7 +147,7 @@ be run again), and emits `<json>{"done": true}</json>`.
 | Pause — technical blocker (:::dvNeedIntervention, lock held) | `deepvista skill phase pause <skill_id> --reason "…"` |
 | Resume from pause / need-input | re-run `deepvista skill run <skill_id>` |
 | Finalize the run | `deepvista skill complete <skill_id> --review "…"` |
-| Save an artifact (note) | `deepvista notes create --title "…" --content "…"` |
+| Save an artifact | `deepvista card create --type artifact --title "…" --content "…"` |
 | Search the knowledge base | `deepvista card +search "…"` |
 | Inspect current state | `deepvista skill get <skill_id>` |
 

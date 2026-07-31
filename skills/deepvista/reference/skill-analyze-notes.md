@@ -1,7 +1,7 @@
 # Analyze notes — surface themes, patterns, open questions
 
 Not a separate Skill — a pattern for using `card +search`, `notes list`, and
-`notes create` together to synthesize findings from many notes.
+`card create --type artifact` together to synthesize findings from many notes.
 
 Use when the user says: "analyze my notes", "summarize my notes", "what have I been
 thinking about", "find patterns", "what are common topics", "review my notes".
@@ -27,14 +27,20 @@ thinking about", "find patterns", "what are common topics", "review my notes".
 
 4. **Present** the synthesis to the user first. Don't save by default.
 
-5. **Optionally save** as a new note — confirm with the user first.
+5. **Optionally save** the synthesis — confirm with the user first.
 
    > [!CAUTION] Write operation.
+
+   Default to `--type artifact` (DV-1911): the synthesis is *your* output, not
+   something the user wrote, and `type=note` is reserved for content they
+   explicitly asked to record.
    ```bash
-   deepvista notes create \
+   deepvista card create --type artifact \
      --title "Analysis — <topic> — 2026-04-20" \
      --content-file /tmp/analysis.md
    ```
+   If the user specifically asks for it as a note, `deepvista notes create`
+   with the same flags is fine.
 
 ## Tips
 
@@ -54,8 +60,8 @@ deepvista card +search "project alpha" --type note --limit 15
 # Read a candidate
 deepvista notes get note_abc123
 
-# Save the synthesis
-deepvista notes create \
+# Save the synthesis (agent-generated → artifact, not note)
+deepvista card create --type artifact \
   --title "Weekly Themes — 2026-04-20" \
   --content-file /tmp/themes.md \
   --tags '["analysis","weekly"]'
