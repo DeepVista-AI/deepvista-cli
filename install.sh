@@ -4,6 +4,74 @@ set -e
 REPO="DeepVista-AI/deepvista-cli"
 SKILL="deepvista"
 
+# Which Claude Code config dir(s) to install into.
+# Resolution: --claude-dir flag > CLAUDE_CONFIG_DIR env > $HOME/.claude
+# Accepts a comma-separated list so multi-profile users (e.g. a personal
+# ~/.claude plus a work ~/.claude-work) get the skill in every profile.
+CLAUDE_DIRS=()
+
+usage() {
+  cat <<'USAGE'
+Usage: install.sh [--claude-dir PATH[,PATH...]]
+
+  --claude-dir PATH   Claude Code config dir(s) to install into (comma-separated).
+                      Defaults to $CLAUDE_CONFIG_DIR, else $HOME/.claude.
+  --skip-auth         Don't launch `deepvista auth login` when unauthenticated.
+
+Over a pipe, pass flags after --:
+  curl -sSL .../install.sh | bash -s -- --claude-dir ~/.claude-work
+
+Or use the env var, which Claude Code itself reads:
+  CLAUDE_CONFIG_DIR=~/.claude-work curl -sSL .../install.sh | bash
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --claude-dir) shift; [ $# -gt 0 ] || { echo "Error: --claude-dir needs a value" >&2; exit 1; }; CLAUDE_DIR_ARG="$1" ;;
+    --claude-dir=*) CLAUDE_DIR_ARG="${1#*=}" ;;
+    --skip-auth) SKIP_AUTH=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Error: unknown option $1" >&2; usage >&2; exit 1 ;;
+  esac
+  shift
+done
+
+# Split the comma-separated list, expanding a leading ~ (shells don't expand
+# it inside a quoted flag value).
+IFS=',' read -r -a _raw_dirs <<< "${CLAUDE_DIR_ARG:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
+for _d in "${_raw_dirs[@]}"; do
+  [ -n "$_d" ] || continue
+  case "$_d" in "~"|"~/"*) _d="$HOME${_d#\~}" ;; esac
+  CLAUDE_DIRS+=("$_d")
+done
+
+# An all-empty list (e.g. --claude-dir ',') would otherwise install nothing
+# into any Claude dir while still reporting success.
+if [ ${#CLAUDE_DIRS[@]} -eq 0 ]; then
+  echo "Error: --claude-dir resolved to no directories" >&2
+  exit 1
+fi
+
+# Was a Claude dir actually asked for, or are we just on the default?
+# Only an explicit request may create a Claude dir that doesn't exist —
+# otherwise a Cursor-only user running the plain one-liner would get a
+# phantom ~/.claude with a skill, a CLAUDE.md and a settings.json hook for
+# a tool they don't use.
+if [ -n "${CLAUDE_DIR_ARG:-}" ] || [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+  CLAUDE_DIR_EXPLICIT=1
+else
+  CLAUDE_DIR_EXPLICIT=
+fi
+
+# The Claude dirs we may actually write to.
+CLAUDE_TARGETS=()
+for _d in "${CLAUDE_DIRS[@]}"; do
+  if [ -n "$CLAUDE_DIR_EXPLICIT" ] || [ -d "$_d" ]; then
+    CLAUDE_TARGETS+=("$_d")
+  fi
+done
+
 echo "==> Installing deepvista CLI..."
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -32,18 +100,23 @@ fi
 
 echo "==> Installing DeepVista skills..."
 
-# Detect which agent skill directories to install into
+# Detect which agent skill directories to install into. Claude dirs come from
+# CLAUDE_DIRS (flag / env / default) rather than a hardcoded ~/.claude, so a
+# non-default profile is targeted rather than silently written past.
 SKILL_DIRS=()
-[ -d "$HOME/.claude" ]  && SKILL_DIRS+=("$HOME/.claude/skills")
+for claude_dir in "${CLAUDE_TARGETS[@]}"; do
+  SKILL_DIRS+=("$claude_dir/skills")
+done
 [ -d "$HOME/.agents" ]  && SKILL_DIRS+=("$HOME/.agents/skills")
 [ -d "$HOME/.cursor" ]  && SKILL_DIRS+=("$HOME/.cursor/skills")
 [ -d "$HOME/.opencode" ] && SKILL_DIRS+=("$HOME/.opencode/skills")
 # OpenClaw: skills live in the workspace directory
 [ -d "$HOME/.openclaw/workspace" ] && SKILL_DIRS+=("$HOME/.openclaw/workspace/skills")
 
-# Default to Claude if no agent directory found
+# No agent directory anywhere — fall back to Claude, as before.
 if [ ${#SKILL_DIRS[@]} -eq 0 ]; then
-  SKILL_DIRS+=("$HOME/.claude/skills")
+  CLAUDE_TARGETS=("${CLAUDE_DIRS[0]}")
+  SKILL_DIRS+=("${CLAUDE_DIRS[0]}/skills")
 fi
 
 # Download skills via git clone (fastest) or curl as fallback
@@ -57,8 +130,25 @@ fi
 git clone --depth 1 --quiet "https://github.com/$REPO.git" "$TMP/repo"
 SRC="$TMP/repo/skills"
 
+# Pre-049e205 releases shipped a dir per command (deepvista-notes,
+# deepvista-vistabase, deepvista-openclaw, …), all since collapsed into the
+# single `deepvista` skill. Upgrading never removed them, so they linger
+# beside the new skill and keep serving stale instructions — including the
+# retired auto-capture prompts. Sweep by prefix rather than a hardcoded list:
+# the names churned across releases and any fixed list goes stale again.
+sweep_legacy_skills() {
+  local dir="$1" legacy
+  for legacy in "$dir"/deepvista-*; do
+    [ -d "$legacy" ] || continue          # unmatched glob stays literal
+    [ -f "$legacy/SKILL.md" ] || continue # only touch actual skill dirs
+    rm -rf "$legacy"
+    echo "    Removed legacy skill $(basename "$legacy") from $dir"
+  done
+}
+
 for dir in "${SKILL_DIRS[@]}"; do
   mkdir -p "$dir"
+  sweep_legacy_skills "$dir"
   rm -rf "${dir:?}/$SKILL"
   cp -r "$SRC/$SKILL" "$dir/$SKILL"
   echo "    Skill installed to $dir/$SKILL"
@@ -120,7 +210,9 @@ install_skill_rules() {
 
 echo "==> Injecting skill interpretation rules..."
 
-[ -d "$HOME/.claude" ]   && install_skill_rules "$HOME/.claude/CLAUDE.md"
+for claude_dir in "${CLAUDE_TARGETS[@]}"; do
+  install_skill_rules "$claude_dir/CLAUDE.md"
+done
 [ -d "$HOME/.cursor" ]   && install_skill_rules "$HOME/.cursor/rules"
 [ -d "$HOME/.opencode" ] && install_skill_rules "$HOME/.opencode/AGENTS.md"
 
@@ -184,13 +276,17 @@ PYEOF
   echo "    Skill-trigger hook registered in $settings_file"
 }
 
-install_skill_trigger_hook "$HOME/.claude/settings.json"
+for claude_dir in "${CLAUDE_TARGETS[@]}"; do
+  install_skill_trigger_hook "$claude_dir/settings.json"
+done
 echo "    Skill-trigger hook active — deepvista skill will be suggested when you mention workflow or skills"
 
 echo "==> Checking DeepVista authentication..."
 
 if deepvista auth status >/dev/null 2>&1; then
   echo "    Already authenticated."
+elif [ -n "${SKIP_AUTH:-}" ]; then
+  echo "    Not authenticated — skipped (--skip-auth). Run: deepvista auth login"
 else
   echo "    Not authenticated — launching login..."
   deepvista auth login

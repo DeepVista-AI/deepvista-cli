@@ -146,7 +146,13 @@ curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/inst
 powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.ps1 | iex"
 ```
 
-The script auto-detects your package manager (`uv`, `pipx`, or `pip`) and copies the consolidated `deepvista` skill into your agent's skill directory (Cursor, OpenCode, OpenClaw, and Claude Code as a fallback). If you upgraded from an earlier release, it also sweeps out the 12 legacy `deepvista-*` skills so you don't end up with both.
+The script auto-detects your package manager (`uv`, `pipx`, or `pip`) and copies the consolidated `deepvista` skill into your agent's skill directory (Cursor, OpenCode, OpenClaw, and Claude Code as a fallback). If you upgraded from an earlier release, it also deletes any leftover per-command `deepvista-*` skill directories (`deepvista-notes`, `deepvista-vistabase`, `deepvista-openclaw`, …) so you don't end up with both. `uninstall.sh` removes them too.
+
+Pass `--skip-auth` to stop the installer launching `deepvista auth login` at the end — useful for scripted installs, or when you want to pick the account yourself later.
+
+Running more than one Claude Code profile? See
+[Choosing a Claude Code profile](#choosing-a-claude-code-profile) — by default the
+installer writes to `~/.claude`, which may not be the profile you meant.
 
 Prefer GitHub's CLI? `gh skill install DeepVista-AI/deepvista-cli` works too (GitHub CLI ≥ 2.90, preview).
 
@@ -426,6 +432,47 @@ deepvista auth login
 Without the CLI on `PATH`, the plugin's SessionStart hook exits silently —
 you'll see no errors but no skills either.
 
+### Choosing a Claude Code profile
+
+`install.sh` writes three things into a Claude Code config directory: the
+`deepvista` skill, the skill-interpretation rules block in `CLAUDE.md`, and the
+skill-trigger hook in `settings.json`. By default that directory is `~/.claude`.
+
+If you run more than one profile — a personal `claude` and a work profile
+launched with `CLAUDE_CONFIG_DIR=~/.claude-work claude`, say — the default sends
+everything to `~/.claude`, which may not be the profile you were installing for.
+Two ways to target a different one:
+
+```bash
+# Preferred: the same env var Claude Code itself reads
+CLAUDE_CONFIG_DIR=~/.claude-work curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash
+
+# Explicit flag — over a pipe, flags go after `bash -s --`
+curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/install.sh | bash -s -- --claude-dir ~/.claude-work
+```
+
+Install into several profiles at once with a comma-separated list:
+
+```bash
+./install.sh --claude-dir ~/.claude,~/.claude-work
+```
+
+Resolution order is `--claude-dir` > `$CLAUDE_CONFIG_DIR` > `~/.claude`. The
+target directory is created if it doesn't exist, so check for typos — a wrong
+path is created rather than rejected. Paths containing a comma aren't supported
+(it's the list separator). Non-Claude agent directories (Cursor, OpenCode,
+OpenClaw) are unaffected by this flag — they're still auto-detected.
+
+Note that `CLAUDE_CONFIG_DIR` is exported inside a running Claude Code session,
+so an installer run from within a session targets *that* session's profile.
+
+`uninstall.sh` takes the same flag and env var, and **you must pass the same
+value you installed with** — otherwise it cleans `~/.claude` and leaves the
+other profile's skill, rules block, and hook in place.
+
+> **Windows:** `install.ps1` does not yet support this — it always targets
+> `~\.claude`.
+
 ### For development
 
 ```bash
@@ -441,6 +488,17 @@ curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/unin
 ```
 
 Removes the CLI, all skills from agent directories, and auto-capture blocks from config files.
+
+If you installed into a non-default Claude Code profile, pass the same target
+(see [Choosing a Claude Code profile](#choosing-a-claude-code-profile)):
+
+```bash
+CLAUDE_CONFIG_DIR=~/.claude-work curl -sSL https://raw.githubusercontent.com/DeepVista-AI/deepvista-cli/main/uninstall.sh | bash
+```
+
+Credentials are left alone — `~/.config/deepvista` survives an uninstall, so a
+reinstall picks up your existing login. Delete that directory by hand to sign
+out completely.
 
 ---
 
