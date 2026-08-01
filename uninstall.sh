@@ -3,6 +3,42 @@ set -e
 
 SKILL="deepvista"
 
+# Mirror install.sh: --claude-dir flag > CLAUDE_CONFIG_DIR env > $HOME/.claude.
+# Must match, or a custom-dir install can't be uninstalled.
+CLAUDE_DIRS=()
+
+usage() {
+  cat <<'USAGE'
+Usage: uninstall.sh [--claude-dir PATH[,PATH...]]
+
+  --claude-dir PATH   Claude Code config dir(s) to clean (comma-separated).
+                      Defaults to $CLAUDE_CONFIG_DIR, else $HOME/.claude.
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --claude-dir) shift; [ $# -gt 0 ] || { echo "Error: --claude-dir needs a value" >&2; exit 1; }; CLAUDE_DIR_ARG="$1" ;;
+    --claude-dir=*) CLAUDE_DIR_ARG="${1#*=}" ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Error: unknown option $1" >&2; usage >&2; exit 1 ;;
+  esac
+  shift
+done
+
+IFS=',' read -r -a _raw_dirs <<< "${CLAUDE_DIR_ARG:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
+for _d in "${_raw_dirs[@]}"; do
+  [ -n "$_d" ] || continue
+  case "$_d" in "~"|"~/"*) _d="$HOME${_d#\~}" ;; esac
+  CLAUDE_DIRS+=("$_d")
+done
+
+# An all-empty list would silently skip every Claude cleanup step.
+if [ ${#CLAUDE_DIRS[@]} -eq 0 ]; then
+  echo "Error: --claude-dir resolved to no directories" >&2
+  exit 1
+fi
+
 # Uninstall CLI
 echo "==> Uninstalling deepvista CLI..."
 
@@ -22,10 +58,25 @@ fi
 echo "==> Removing DeepVista skills..."
 
 SKILL_DIRS=()
-[ -d "$HOME/.claude/skills" ]   && SKILL_DIRS+=("$HOME/.claude/skills")
+for claude_dir in "${CLAUDE_DIRS[@]}"; do
+  [ -d "$claude_dir/skills" ] && SKILL_DIRS+=("$claude_dir/skills")
+done
 [ -d "$HOME/.agents/skills" ]   && SKILL_DIRS+=("$HOME/.agents/skills")
 [ -d "$HOME/.cursor/skills" ]   && SKILL_DIRS+=("$HOME/.cursor/skills")
 [ -d "$HOME/.opencode/skills" ] && SKILL_DIRS+=("$HOME/.opencode/skills")
+
+# Also sweep the pre-049e205 per-command skills (deepvista-notes,
+# deepvista-openclaw, …). Removing only `deepvista` left them behind, so an
+# "uninstall" could leave stale auto-capture instructions on disk.
+sweep_legacy_skills() {
+  local dir="$1" legacy
+  for legacy in "$dir"/deepvista-*; do
+    [ -d "$legacy" ] || continue          # unmatched glob stays literal
+    [ -f "$legacy/SKILL.md" ] || continue # only touch actual skill dirs
+    rm -rf "$legacy"
+    echo "    Removed legacy skill $legacy"
+  done
+}
 
 if [ ${#SKILL_DIRS[@]} -eq 0 ]; then
   echo "    No agent skill directories found — nothing to remove"
@@ -36,6 +87,7 @@ else
       rm -rf "$target"
       echo "    Removed $target"
     fi
+    sweep_legacy_skills "$dir"
   done
 fi
 
@@ -56,7 +108,9 @@ remove_autocapture() {
   echo "    Removed auto-capture block from $config_file"
 }
 
-remove_autocapture "$HOME/.claude/CLAUDE.md"
+for claude_dir in "${CLAUDE_DIRS[@]}"; do
+  remove_autocapture "$claude_dir/CLAUDE.md"
+done
 remove_autocapture "$HOME/.cursor/rules"
 remove_autocapture "$HOME/.opencode/AGENTS.md"
 
@@ -74,7 +128,9 @@ remove_skill_rules() {
   echo "    Removed skill rules block from $config_file"
 }
 
-remove_skill_rules "$HOME/.claude/CLAUDE.md"
+for claude_dir in "${CLAUDE_DIRS[@]}"; do
+  remove_skill_rules "$claude_dir/CLAUDE.md"
+done
 remove_skill_rules "$HOME/.cursor/rules"
 remove_skill_rules "$HOME/.opencode/AGENTS.md"
 
@@ -88,8 +144,11 @@ echo "==> Removing DeepVista auto-capture hook..."
 remove_stop_hook() {
   local settings_file="$1"
   local hook_script="$2"
-  [ ! -f "$settings_file" ] && return
-  grep -q "deepvista-autocapture" "$settings_file" 2>/dev/null || return
+  # `return 0`, not a bare `return`: under `set -e` a function returning
+  # non-zero as its last statement aborts the whole script, which silently
+  # skipped every later cleanup step (notably the skill-trigger hook).
+  [ -f "$settings_file" ] || return 0
+  grep -q "deepvista-autocapture" "$settings_file" 2>/dev/null || return 0
 
   python3 - "$settings_file" "$hook_script" <<'PYEOF'
 import sys, json
@@ -119,21 +178,23 @@ PYEOF
   echo "    Removed Stop hook from $settings_file"
 }
 
-HOOK_SCRIPT="$HOME/.claude/hooks/deepvista-autocapture.sh"
-remove_stop_hook "$HOME/.claude/settings.json" "$HOOK_SCRIPT"
+for claude_dir in "${CLAUDE_DIRS[@]}"; do
+  HOOK_SCRIPT="$claude_dir/hooks/deepvista-autocapture.sh"
+  remove_stop_hook "$claude_dir/settings.json" "$HOOK_SCRIPT"
 
-# Remove the hook script itself
-if [ -f "$HOOK_SCRIPT" ]; then
-  rm -f "$HOOK_SCRIPT"
-  echo "    Removed $HOOK_SCRIPT"
-fi
+  # Remove the hook script itself
+  if [ -f "$HOOK_SCRIPT" ]; then
+    rm -f "$HOOK_SCRIPT"
+    echo "    Removed $HOOK_SCRIPT"
+  fi
+done
 
 echo "==> Removing DeepVista skill-trigger hook..."
 
 remove_skill_trigger_hook() {
   local settings_file="$1"
-  [ ! -f "$settings_file" ] && return
-  grep -q "deepvista-skill-trigger" "$settings_file" 2>/dev/null || return
+  [ -f "$settings_file" ] || return 0
+  grep -q "deepvista-skill-trigger" "$settings_file" 2>/dev/null || return 0
 
   python3 - "$settings_file" <<'PYEOF'
 import sys, json
@@ -163,7 +224,9 @@ PYEOF
   echo "    Removed skill-trigger hook from $settings_file"
 }
 
-remove_skill_trigger_hook "$HOME/.claude/settings.json"
+for claude_dir in "${CLAUDE_DIRS[@]}"; do
+  remove_skill_trigger_hook "$claude_dir/settings.json"
+done
 
 echo ""
 echo "DeepVista has been uninstalled."
