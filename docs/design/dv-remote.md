@@ -189,6 +189,7 @@ Each milestone is independently shippable, one engineer, given the spike.
 | | Scope | Rough |
 | --- | --- | --- |
 | **M0** ✅ | Spike: relay + PTY agent + viewer, offset resume, fan-out, no inbound port, survives relay restart | done — `spikes/dv-remote/` |
+| **M0.5** ✅ | Local-first web terminal: multi-session tabs, one multiplexed socket, warm/cold attach, backpressure, ssh-config profiles, touch key row | done — [`../../webterm/`](../../webterm/) |
 | **M1** | `dv attach serve` over tmux control mode; `dv-relay` deployed; PWA with xterm.js + touch key row; one session; API: live-session objects + attach tokens | ~2–3 wks |
 | **M2** | The inbox: hook/`stream-json` events → push → approve-from-phone, wired to existing task/session cards | ~2 wks |
 | **M3** | Snapshot paint, disk-spilled buffer, multi-session/multi-machine switcher, E2E encryption, offline resume | ~3 wks |
