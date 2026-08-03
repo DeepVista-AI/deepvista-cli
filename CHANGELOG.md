@@ -46,6 +46,18 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [4.5.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.4.1...v4.5.0) (2026-08-03)
+
+
+### Features
+
+* target a specific Claude profile when installing ([#230](https://github.com/DeepVista-AI/deepvista-cli/issues/230)) ([bc797ce](https://github.com/DeepVista-AI/deepvista-cli/commit/bc797ce406dab7ca169984696110623055892755))
+
+
+### Documentation
+
+* **DV-1911:** route machine-driven CLI paths to artifact cards, not notes ([#229](https://github.com/DeepVista-AI/deepvista-cli/issues/229)) ([10b9885](https://github.com/DeepVista-AI/deepvista-cli/commit/10b988570238cd6c6204e85180808e9ba0b589ee))
+
 ## [4.4.1](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.4.0...v4.4.1) (2026-07-29)
 
 
