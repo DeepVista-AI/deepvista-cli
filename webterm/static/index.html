@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>web terminal</title>
+    <link rel="stylesheet" href="/static/vendor/xterm.css" />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header id="bar">
+      <div id="tabs" role="tablist" aria-label="Terminal sessions"></div>
+      <button id="new-tab" class="icon" title="New session (⌘/Ctrl+T)" aria-label="New session">+</button>
+      <div id="spacer"></div>
+      <div id="status" class="status" data-state="connecting"><span class="dot"></span><span id="status-text">connecting</span></div>
+    </header>
+
+    <main id="stage">
+      <div id="terminals"></div>
+      <div id="empty" hidden>
+        <p>No sessions.</p>
+        <button id="empty-new" class="primary">Start a shell</button>
+      </div>
+    </main>
+
+    <nav id="keys" aria-label="Terminal keys">
+      <button data-key="esc">esc</button>
+      <button data-mod="ctrl" id="mod-ctrl">ctrl</button>
+      <button data-key="tab">tab</button>
+      <button data-key="shift-tab">⇧tab</button>
+      <button data-key="up">↑</button>
+      <button data-key="down">↓</button>
+      <button data-key="left">←</button>
+      <button data-key="right">→</button>
+      <button data-key="ctrl-c">^C</button>
+    </nav>
+
+    <dialog id="picker">
+      <form method="dialog">
+        <h2>New session</h2>
+        <ul id="profiles"></ul>
+        <label>Or a command<input id="custom-command" placeholder="ssh user@host" autocapitalize="off" spellcheck="false" /></label>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button id="picker-go" value="go" class="primary">Open</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="/static/vendor/xterm.js"></script>
+    <script src="/static/vendor/addon-fit.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
