@@ -1173,3 +1173,69 @@ def test_clean_explicit_ids_skips_listing(
         "/agents/agent-uuid-1/tasks/tc-2",
     ]
     assert not [c for c in stub.calls if c[0] == "GET" and c[1].endswith("/tasks")]
+
+
+def test_a_workflow_task_notes_its_parent_run_and_opens_no_new_one(
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DV-2895: a task dispatched from a workflow run records its phase notes on
+    that run by id, and finishing it does not start a `skill run` — which would
+    now open a run card nobody drives."""
+    stub = _StubCtxClient()
+    _stub_working_project(stub)
+    stub.queue(
+        "/agents/agent-uuid-1/tasks/claim",
+        {
+            "success": True,
+            "tasks": [
+                {
+                    "id": "tc-1",
+                    "prompt": "research it",
+                    "skill_id": "wf-1",
+                    "phase_label": "Phase 2: Research",
+                    "parent_run_id": "run-parent",
+                }
+            ],
+        },
+    )
+    stub.queue("/agents/agent-uuid-1/tasks/claim", {"success": True, "tasks": []})
+    stub.queue("/agents/agent-uuid-1/tasks/tc-1/result", {"success": True})
+    stub.queue_always("/workflow_phase", {"id": "wf-1"})
+    _install_stub_client(monkeypatch, stub)
+    _register_local_agent(monkeypatch, isolated_home)
+
+    import deepvista_cli.commands.tasks as tq_module
+
+    event_lines = _stream_json_lines({"type": "result", "subtype": "success", "is_error": False, "result": "done"})
+    monkeypatch.setattr(tq_module.subprocess, "Popen", lambda argv, **kwargs: _FakeStreamJsonProc(event_lines))
+    spawned: list[list[str]] = []
+    monkeypatch.setattr(tq_module.subprocess, "run", lambda argv, **kwargs: spawned.append(argv))
+
+    result = CliRunner().invoke(cli, ["tasks", "run", "--run-once"])
+    assert result.exit_code == 0, result.output
+
+    phase_calls = [body for _, path, body in stub.calls if path == "/workflow_phase"]
+    assert phase_calls, "no phase note recorded"
+    assert all(body["run_id"] == "run-parent" for body in phase_calls)
+    assert not [argv for argv in spawned if "skill" in argv]
+
+
+def test_a_refused_phase_note_does_not_stop_the_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The parent run may have finished before its task reports; the 422 is a warning."""
+    import click
+
+    import deepvista_cli.commands.tasks as tq_module
+
+    sent: list[dict] = []
+
+    class _Client:
+        def post_nofatal(self, path: str, body: dict) -> dict:
+            sent.append(body)
+            return {"detail": "Run run-parent is done — a finished run cannot move.", "_status_code": 422}
+
+    monkeypatch.setattr(tq_module, "_client", lambda ctx: _Client())
+    with click.Context(click.Command("t")) as ctx:
+        tq_module._update_phase_note(ctx, "wf-1", "Phase 1: A", "hello", run_id="run-parent")
+
+    assert sent[0]["run_id"] == "run-parent"

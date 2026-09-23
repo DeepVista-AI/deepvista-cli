@@ -50,9 +50,6 @@ from deepvista_cli.output.formatter import format_output, output_error
 # Reported output is truncated to a tail (mirrors the backend cap on task cards).
 OUTPUT_TAIL_MAX_CHARS = 2000
 
-# Subprocess budget for workflow resume after a task card completes.
-TASK_TIMEOUT_SECONDS = 600
-
 # Marker comment identifying crontab entries owned by `tasks setup`.
 # The literal value is unchanged so `setup` still finds and replaces cron
 # entries installed by older versions (when this group was named `task_queue`).
@@ -336,6 +333,9 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
 
     skill_id = str(task.get("skill_id") or "").strip()
     phase_label = str(task.get("phase_label") or "").strip()
+    # DV-2895: the workflow run that dispatched this task, so phase notes land
+    # on that run's card rather than on the workflow card.
+    parent_run_id = str(task.get("parent_run_id") or "").strip() or None
 
     _done = threading.Event()
     _start = time.monotonic()
@@ -358,7 +358,7 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         except Exception as exc:
             click.echo(f"  [warn] progress note failed: {exc}", err=True)
         if skill_id and phase_label:
-            _update_phase_note(ctx, skill_id, phase_label, text)
+            _update_phase_note(ctx, skill_id, phase_label, text, run_id=parent_run_id)
 
     _last_logged_activity = [""]
     _last_logged_elapsed = [0]
@@ -468,46 +468,35 @@ def _run_task_card(ctx: click.Context, agent_id: str, project_id: str | None, ta
         note = f"{status_icon} Task {short_id} {status}."
         if short_output:
             note += f" {short_output}"
-        _update_phase_note(ctx, skill_id, phase_label, note)
+        _update_phase_note(ctx, skill_id, phase_label, note, run_id=parent_run_id)
 
-    # Resume the triggering workflow run so the server can continue from where
-    # it dispatched this task. ``skill_id`` is stamped on the task at enqueue
-    # time; without it the parent run stays paused and never completes.
-    if skill_id:
-        click.echo(f"  ↩ resuming workflow {skill_id[:8]}… via deepvista skill run", err=True)
-        _resume_workflow(ctx, skill_id)
+    # DV-2895: the parent run is no longer resumed with `deepvista skill run`.
+    # That command now opens a run card, and nothing here drives the packet it
+    # prints — each finished task would leave an orphaned run reading `running`
+    # on the diagram. The workflow run that dispatched the task continues it.
 
     return result
 
 
-def _update_phase_note(ctx: click.Context, skill_id: str, phase_label: str, note_text: str) -> None:
-    """Call ``POST /workflow_phase`` with action='note' to update the dvNote annotation."""
+def _update_phase_note(
+    ctx: click.Context, skill_id: str, phase_label: str, note_text: str, *, run_id: str | None = None
+) -> None:
+    """Record a task's progress on its workflow run via ``POST /workflow_phase`` (action='note').
+
+    Without ``run_id`` (a task whose claim named no parent run) the server
+    falls back to the phase's dvNote bubble on the workflow card.
+    """
+    body = {"card_id": skill_id, "phase_label": phase_label, "action": "note", "note_text": note_text}
+    if run_id:
+        body["run_id"] = run_id
+    # Non-fatal: a note refused because the run has since finished must not stop the runner.
     try:
-        _client(ctx).post(
-            "/workflow_phase",
-            {"card_id": skill_id, "phase_label": phase_label, "action": "note", "note_text": note_text},
-        )
-    except Exception as exc:
+        response = _client(ctx).post_nofatal("/workflow_phase", body)
+    except (Exception, SystemExit) as exc:
         click.echo(f"  [warn] phase note update failed: {exc}", err=True)
-
-
-def _resume_workflow(ctx: click.Context, skill_id: str) -> None:
-    """Run ``deepvista skill run --mode host <skill_id>`` to resume the parent workflow."""
-    profile_flag = []
-    profile = getattr(ctx.obj, "profile", None)
-    if profile and profile != "default":
-        profile_flag = ["--profile", profile]
-    argv = [_deepvista_binary(), *profile_flag, "skill", "run", "--mode", "host", skill_id]
-    try:
-        subprocess.run(  # noqa: S603 — argv built from validated binary + literal args
-            argv,
-            timeout=TASK_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        click.echo(f"  [warn] skill resume timed out for {skill_id[:8]}…", err=True)
-    except OSError as exc:
-        click.echo(f"  [warn] skill resume failed: {exc}", err=True)
+        return
+    if isinstance(response, dict) and int(response.get("_status_code") or 200) >= 400:
+        click.echo(f"  [warn] phase note update refused: {response.get('detail') or response}", err=True)
 
 
 def _refresh_agents_for_poll(

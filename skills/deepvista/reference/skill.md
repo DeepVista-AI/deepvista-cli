@@ -18,44 +18,46 @@ Show the app URL after writes: `https://app.deepvista.ai/skills/<id>`
 
 ## Executing a workflow skill — required sequence
 
-> [!IMPORTANT] To run a workflow skill you **must** call `deepvista skill run <skill_id>` first. Do NOT call `skill get` and drive the phases manually — that skips the run lock, phase tracking, and the host runtime contract entirely.
+> [!IMPORTANT] To run a workflow skill you **must** call `deepvista skill run <skill_id>` first. Do NOT call `skill get` and drive the phases manually — that skips the run record, phase tracking, and the host runtime contract entirely.
 
 `skill run` does three things `skill get` does not:
-1. Acquires the run lock (`status = "in_progress"`) on the skill card.
+1. Opens a run — a `run_log` card — and prints its `run_id` in the packet header.
 2. Emits the host runtime contract that tells you to call the `skill phase` shims.
 3. Indicates the `active_phase` so resumed runs continue from the right place.
 
 **Required sequence for every workflow run:**
 
 ```bash
-# 1. Initiate the run (acquires lock, emits run packet + host runtime contract)
+# 1. Open the run (emits run packet + host runtime contract; note the run_id)
 deepvista skill run <skill_id>
 
-# 2. For each phase — open → execute → done
-deepvista skill phase open <skill_id> "Phase N: <title>"
+# 2. For each phase — open → execute → done, always with the run_id
+deepvista skill phase open <skill_id> "Phase N: <title>" --run-id <run_id>
 # … execute the phase using your own tools …
-deepvista skill phase done <skill_id> "Phase N: <title>" [--next-phase "Phase N+1: <title>"]
+deepvista skill phase done <skill_id> "Phase N: <title>" --run-id <run_id> [--next-phase "Phase N+1: <title>"]
 
 # 3. Finalize
-deepvista skill complete <skill_id> --review "<3–6 retrospective bullets>"
+deepvista skill complete <skill_id> --run-id <run_id> --review "<3–6 retrospective bullets>"
 ```
 
-If you called `skill get` and are already mid-workflow without a lock, call `skill run` now — it is idempotent on an already-in-progress card and will re-emit the correct active phase.
+> [!CAUTION] Never edit the workflow card (`<skill_id>`) during a run — it is the definition every run shares. All run state goes on the run card via `--run-id` (or `$DEEPVISTA_RUN_ID`). Without a run id the shims fall back to the pre-run-card behaviour of writing the workflow card.
+
+If you called `skill get` and are already mid-workflow without a run, call `skill run` now. To continue a paused run, use the `resume_with` command it printed: `deepvista skill run <skill_id> --run-id <run_id>` — a bare `skill run` starts a separate run.
 
 ## Non-obvious: host-mode shims
 
-After `skill run`, drive the run with:
+After `skill run`, drive the run with (each takes `--run-id <run_id>`):
 
 ```bash
 deepvista skill phase open       <skill_id> "Phase N: <title>"
 deepvista skill phase done       <skill_id> "Phase N: <title>" [--artifact-card-id ID] [--next-phase "…"]
-deepvista skill phase reset      <skill_id> "Phase N: <title>"   # revert a done/active phase to pending
-deepvista skill phase need-input <skill_id> "Phase N: <title>" --reason "<what's needed>"  # :::dvNeedIntervention
-deepvista skill phase pause      <skill_id> --reason "<sentence>"  # technical blocker → :::dvNeedIntervention
-deepvista skill complete         <skill_id> --review "<3–6 retrospective bullets>"
+deepvista skill phase note       <skill_id> "Phase N: <title>" "<progress note>"
+deepvista skill phase need-input <skill_id> "Phase N: <title>" --reason "<what's needed>"  # run waits on a person
+deepvista skill phase pause      <skill_id> --reason "<sentence>"  # technical blocker → run waits where it stands
+deepvista skill complete         <skill_id> --review "<3–6 retrospective bullets>" [--outcome error]
 ```
 
-`complete` appends `## Review`, releases the run lock, and emits `{"done": true}`.
+`complete` closes the run (done, or `--outcome error` for a run that cannot finish), records the review in the run's log, and emits `{"done": true}`. `phase reset` exists only for legacy run-less workflows; on a run, `phase open` the phase again instead.
 
 ## Non-obvious: `sync` and `load`
 
@@ -72,9 +74,9 @@ cache). Called by stubs — rarely needed directly.
 ```bash
 deepvista skill list
 deepvista skill run <skill_id> --input "Focus on Q4"
-deepvista skill phase open <skill_id> "Phase 1: …"
-deepvista skill phase done <skill_id> "Phase 1: …" --artifact-card-id <id>
-deepvista skill complete <skill_id> --review "clean run, shipped Friday"
+deepvista skill phase open <skill_id> "Phase 1: …" --run-id <run_id>
+deepvista skill phase done <skill_id> "Phase 1: …" --run-id <run_id> --artifact-card-id <id>
+deepvista skill complete <skill_id> --run-id <run_id> --review "clean run, shipped Friday"
 deepvista skill sync --dry-run
 ```
 
