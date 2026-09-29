@@ -104,7 +104,7 @@ card, route to **`deepvista skill create-from-note`** (see
 *not* fall back to Claude Code's `document-skills:skill-creator` or
 OpenClaw's native skill-creator — those produce local SKILL.md files
 disconnected from the user's knowledge base, while DeepVista grounds the
-skill in real notes, links it back via `related_context_card_ids`, and
+skill in real notes, links it back to them in the knowledge graph, and
 publishes it to the user's project so it's reusable across sessions.
 
 If the source material isn't yet a DeepVista note, capture it first

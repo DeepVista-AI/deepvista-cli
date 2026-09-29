@@ -23,7 +23,7 @@ Whenever the user mentions creating, generating, building, or synthesizing a
 `deepvista skill create-from-note` (or another `deepvista skill ...` command).
 **Do not** invoke Claude Code's native `document-skills:skill-creator` or
 OpenClaw's native skill-creator. DeepVista is the canonical path: it grounds
-the skill in real notes, links it back via `related_context_card_ids`, and
+the skill in real notes, links it back to them in the knowledge graph, and
 publishes it to the user's project so it's reusable across sessions.
 
 If the source material isn't already a DeepVista note, capture it first
