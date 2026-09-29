@@ -1,10 +1,12 @@
 """deepvista skill — list, get, run, phase, complete, sync, load, create-from-note.
 
 Skills are structured checklist workflows stored as context cards (type=skill).
-A run executes in **host mode**: `skill run` prints a run packet (JSON header +
-SKILL.md body + host runtime contract) and the host agent (Claude Code /
-OpenClaw / Cursor) drives the workflow itself via the `skill phase ...` shims,
-finishing with `skill complete`.
+A run executes in **host mode**: `skill run` opens a run (a ``run_log`` card)
+and prints a run packet (JSON header + SKILL.md body + host runtime contract);
+the host agent (Claude Code / OpenClaw / Cursor) drives the workflow itself via
+the `skill phase ...` shims, finishing with `skill complete`. Every shim passes
+the packet's ``run_id`` so progress lands on the run card — the workflow card is
+the definition every run shares and is never written during a run (DV-2895).
 
 Resources: card · skill · chat
 """
@@ -23,6 +25,7 @@ import click
 from deepvista_cli import skill_catalog
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.commands import apply_project_override, project_option
+from deepvista_cli.commands.agents import _load_machine_id
 from deepvista_cli.output.formatter import format_output, output_error
 from deepvista_cli.workflow_doc import WorkflowDocument
 
@@ -37,6 +40,17 @@ _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 
 def _client(ctx: click.Context) -> DeepVistaClient:
     return ctx.obj._client
+
+
+RUN_ID_ENV = "DEEPVISTA_RUN_ID"
+
+run_id_option = click.option(
+    "--run-id",
+    "run_id",
+    envvar=RUN_ID_ENV,
+    default=None,
+    help=f"The run_id from the `skill run` packet (or ${RUN_ID_ENV}). Records progress on that run.",
+)
 
 
 @click.group("skill")
@@ -112,6 +126,12 @@ def skill_get(ctx: click.Context, skill_id: str, project_override: str | None) -
 @click.argument("skill_id")
 @click.option("--input", "user_input", default=None, help="Context or instructions for the run.")
 @click.option(
+    "--run-id",
+    "run_id",
+    default=None,
+    help="Resume this paused run (the `resume_with` a paused run printed) instead of opening a new one.",
+)
+@click.option(
     "--mode",
     type=click.Choice(("host",), case_sensitive=False),
     default="host",
@@ -144,20 +164,23 @@ def skill_run(
     ctx: click.Context,
     skill_id: str,
     user_input: str | None,
+    run_id: str | None,
     mode: str,
     webhook: bool,
     best_effort: bool,
     dry_run: bool,
 ) -> None:
-    """Run a Skill — prints the run packet for the host agent to drive.
+    """Run a Skill — opens a run and prints the run packet for the host agent to drive.
 
-    > [!CAUTION] This is a write command — it acquires the parent Skill
-    > card's run lock (``status="in_progress"``) and prints the run packet
-    > for the agent driving execution. Confirm with the user before executing.
+    > [!CAUTION] This is a write command — it opens a run (a ``run_log``
+    > card) for the workflow, or resumes the one ``--run-id`` names, and
+    > prints the run packet for the agent driving execution. Confirm with
+    > the user before executing.
 
-    Output is a JSON header + the workflow's SKILL.md body + the host
-    runtime contract — all on stdout, no SSE. The host agent reads it and
-    drives the workflow using ``deepvista skill phase ...`` shims.
+    Output is a JSON header (including the ``run_id`` every later
+    ``skill phase`` / ``skill complete`` call must pass) + the workflow's
+    SKILL.md body + the host runtime contract — all on stdout, no SSE.
+    The workflow card itself is never written.
     """
     if not _UUID_RE.match(skill_id):
         output_error(3, "Invalid skill ID", f"Expected UUID format, got: {skill_id!r}")
@@ -169,6 +192,7 @@ def skill_run(
         dry_run=dry_run,
         webhook=webhook,
         best_effort=best_effort,
+        run_id=run_id,
     )
 
 
@@ -182,13 +206,15 @@ def emit_host_run_packet(
     webhook: bool = False,
     best_effort: bool = False,
     task_id: str | None = None,
+    run_id: str | None = None,
 ) -> None:
-    """Fetch the skill, acquire the run lock, and print the host run packet.
+    """Fetch the skill, open (or resume) its run, and print the host run packet.
 
     Shared by ``skill run`` when driving a workflow from a host agent session.
     ``task_id`` threads a related task card into the progress contract when the
-    run was dispatched as a task card (DV-1247). ``mode`` is retained for
-    compatibility; host is the only mode.
+    run was dispatched as a task card (DV-1247). ``run_id`` resumes that run
+    rather than opening a new one. ``mode`` is retained for compatibility; host
+    is the only mode.
     """
     card = _client(ctx).post("/get_context_card", {"card_id": skill_id, "card_type": "skill"})
     if not card or not card.get("description"):
@@ -199,26 +225,18 @@ def emit_host_run_packet(
     if not phases:
         output_error(3, "Skill has no <accordion> phases", f"skill_id={skill_id}")
 
-    active = doc.active_phase() or doc.first_pending_phase() or phases[0]
-
-    run_header = {
-        "type": "skill_run_packet",
-        "mode": mode,
-        "skill_id": skill_id,
-        "skill_title": card.get("title", ""),
-        "active_phase": active.title,
-        "phases": [{"index": p.index, "title": p.title, "state": p.state} for p in phases],
-        "user_input": user_input or "",
-        "skill_status": card.get("status", ""),
-        "webhook": webhook,
-        "best_effort": best_effort,
-    }
-    if task_id:
-        run_header["task_id"] = task_id
-
     if dry_run:
         format_output(
-            {"dry_run": True, "would": "emit host-mode run packet", **run_header},
+            {
+                "dry_run": True,
+                "would": f"resume run {run_id} and emit host-mode run packet"
+                if run_id
+                else "open a run and emit host-mode run packet",
+                "skill_id": skill_id,
+                "skill_title": card.get("title", ""),
+                "active_phase": phases[0].title,
+                "run_id": run_id,
+            },
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
@@ -226,13 +244,30 @@ def emit_host_run_packet(
         )
         return
 
-    # Acquire / refresh the run lock. Idempotent: re-runs while already
-    # ``in_progress`` are accepted as resume (the host agent is the lock
-    # owner in host mode, not a chat session).
-    _client(ctx).post(
-        "/update_context_card",
-        {"card_id": skill_id, "status": "in_progress", "reason": "skill-run-host-mode"},
-    )
+    opened = _open_run(ctx, skill_id, user_input=user_input, run_id=run_id)
+    run = opened.get("run") or {}
+    opened_run_id = str(run.get("id") or "")
+    if not opened_run_id:
+        output_error(1, "The server did not return a run", f"skill_id={skill_id}")
+    resumed = bool(opened.get("resumed"))
+    active = next((p for p in phases if p.title == run.get("active_node")), phases[0])
+
+    run_header = {
+        "type": "skill_run_packet",
+        "mode": mode,
+        "skill_id": skill_id,
+        "skill_title": card.get("title", ""),
+        "run_id": opened_run_id,
+        "resumed": resumed,
+        "active_phase": active.title,
+        "phases": [{"index": p.index, "title": p.title, "state": _run_phase_state(p, active, resumed)} for p in phases],
+        "user_input": user_input or "",
+        "resume_with": f"deepvista skill run {skill_id} --run-id {opened_run_id}",
+        "webhook": webhook,
+        "best_effort": best_effort,
+    }
+    if task_id:
+        run_header["task_id"] = task_id
 
     click.echo(json.dumps(run_header, default=str))
     click.echo()  # blank line so agents can split header from body cheaply
@@ -247,6 +282,43 @@ def emit_host_run_packet(
     if webhook:
         click.echo()
         click.echo(_webhook_task_stanza(task_id))
+
+
+def _open_run(ctx: click.Context, skill_id: str, *, user_input: str | None, run_id: str | None) -> dict:
+    """Open (or resume) the run's ``run_log`` card via ``POST /open_workflow_run``."""
+    body: dict[str, Any] = {"card_id": skill_id}
+    if run_id:
+        body["run_id"] = run_id
+    if user_input:
+        body["user_input"] = user_input
+    agent_id = _machine_agent_id(ctx)
+    if agent_id:
+        body["agent_id"] = agent_id
+    return _client(ctx).post("/open_workflow_run", body) or {}
+
+
+def _machine_agent_id(ctx: click.Context) -> str | None:
+    """This Machine's id in the active project, when it is registered as one."""
+    project_id = getattr(ctx.obj, "project_id", None)
+    if not project_id:
+        return None
+    try:
+        return _load_machine_id(project_id)
+    except OSError:
+        return None
+
+
+def _run_phase_state(phase: Any, active: Any, resumed: bool) -> str:
+    """A phase's state as the packet reports it — read off the run, never the body.
+
+    A resumed run only records where it stands, so the phases ahead of it in
+    document order are reported done; a fresh run has done nothing yet.
+    """
+    if phase.index == active.index:
+        return "active"
+    if resumed and phase.index < active.index:
+        return "done"
+    return "pending"
 
 
 def _load_host_runtime_contract() -> str:
@@ -301,9 +373,9 @@ def skill_phase_group() -> None:
 
     Used by host agents (Claude Code / OpenClaw / Cursor) that drove
     ``deepvista skill run`` and are now advancing the workflow
-    themselves. Each command delegates the phase mutation to the server
-    via ``POST /workflow_phase`` — accordion and mermaid markers are
-    updated server-side in a single atomic write.
+    themselves. Each command delegates the transition to the server via
+    ``POST /workflow_phase``. With ``--run-id`` (from the run packet) it
+    is recorded on that run's card and the workflow card is untouched.
     """
 
 
@@ -317,24 +389,42 @@ def _load_skill_doc(ctx: click.Context, skill_id: str) -> tuple[dict, WorkflowDo
     return card, WorkflowDocument(card["description"])
 
 
-def _phase(ctx: click.Context, card_id: str, **kwargs: Any) -> dict:
+def _warn_no_run_id(command: str) -> None:
+    click.echo(
+        f"[warn] `skill {command}` without --run-id writes the workflow card itself (pre-run-card behaviour). "
+        "Pass the run_id from the `skill run` packet.",
+        err=True,
+    )
+
+
+def _phase(ctx: click.Context, card_id: str, run_id: str | None = None, **kwargs: Any) -> dict:
     """Call /workflow_phase and return the API response."""
-    return _client(ctx).post("/workflow_phase", {"card_id": card_id, **kwargs})
+    body: dict[str, Any] = {"card_id": card_id, **kwargs}
+    if run_id:
+        body["run_id"] = run_id
+    else:
+        _warn_no_run_id(f"phase {kwargs.get('action', '')}".strip())
+    return _client(ctx).post("/workflow_phase", body)
+
+
+def _resume_command(skill_id: str, run_id: str | None) -> str:
+    return f"deepvista skill run {skill_id}" + (f" --run-id {run_id}" if run_id else "")
 
 
 @skill_phase_group.command("open")
 @click.argument("skill_id")
 @click.argument("phase_label")
+@run_id_option
 @click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
 @click.pass_context
-def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_run: bool) -> None:
-    """Mark a phase as active (accordion open, mermaid ``:::dvActive``).
+def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, run_id: str | None, dry_run: bool) -> None:
+    """Mark a phase as the one the run is working on.
 
-    Idempotent — re-opening the already-active phase is a no-op write.
+    Idempotent — re-opening the phase the run is already on is a no-op move.
     """
     if dry_run:
         format_output(
-            {"dry_run": True, "would": "open phase", "skill_id": skill_id, "phase": phase_label},
+            {"dry_run": True, "would": "open phase", "skill_id": skill_id, "phase": phase_label, "run_id": run_id},
             ctx.obj.output_format,
             entity_type="skill",
             base_url=ctx.obj.auth_url,
@@ -342,9 +432,15 @@ def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_ru
         )
         return
 
-    result = _phase(ctx, skill_id, phase_label=phase_label, action="open")
+    result = _phase(ctx, skill_id, run_id, phase_label=phase_label, action="open")
     format_output(
-        {"ok": True, "skill_id": skill_id, "active_phase": phase_label, "title": result.get("title", "")},
+        {
+            "ok": True,
+            "skill_id": skill_id,
+            "run_id": run_id,
+            "active_phase": phase_label,
+            "title": result.get("title", ""),
+        },
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
@@ -366,6 +462,7 @@ def skill_phase_open(ctx: click.Context, skill_id: str, phase_label: str, dry_ru
     default=None,
     help="If set, also open this phase immediately after marking the current one done.",
 )
+@run_id_option
 @click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
 @click.pass_context
 def skill_phase_done(
@@ -374,13 +471,14 @@ def skill_phase_done(
     phase_label: str,
     artifact_card_ids: tuple[str, ...],
     next_phase: str | None,
+    run_id: str | None,
     dry_run: bool,
 ) -> None:
     """Mark a phase complete and optionally advance to the next phase.
 
-    Each ``--artifact-card-id`` is embedded as a ``<contextCardBlock>``
-    under the phase's accordion. Pass ``--next-phase`` to open the
-    following phase in the same write (cheaper than two round-trips).
+    Each ``--artifact-card-id`` is recorded in the run's log and linked to
+    the workflow. Pass ``--next-phase`` to move straight on in the same
+    call; without it, marking the last phase done lands the run on Output.
     """
     if dry_run:
         format_output(
@@ -388,6 +486,7 @@ def skill_phase_done(
                 "dry_run": True,
                 "would": "mark phase done",
                 "skill_id": skill_id,
+                "run_id": run_id,
                 "phase": phase_label,
                 "artifacts": list(artifact_card_ids),
                 "next_phase": next_phase,
@@ -402,6 +501,7 @@ def skill_phase_done(
     result = _phase(
         ctx,
         skill_id,
+        run_id,
         phase_label=phase_label,
         action="done",
         artifact_card_ids=list(artifact_card_ids),
@@ -411,6 +511,7 @@ def skill_phase_done(
         {
             "ok": True,
             "skill_id": skill_id,
+            "run_id": run_id,
             "completed_phase": phase_label,
             "next_phase": next_phase,
             "artifacts": list(artifact_card_ids),
@@ -426,14 +527,22 @@ def skill_phase_done(
 @skill_phase_group.command("reset")
 @click.argument("skill_id")
 @click.argument("phase_label")
+@run_id_option
 @click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
 @click.pass_context
-def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_run: bool) -> None:
-    """Reset a phase back to pending (unchecked, closed, mermaid dvTodo).
+def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, run_id: str | None, dry_run: bool) -> None:
+    """Reset a phase back to pending — legacy, run-less workflows only.
 
-    Use this to re-run a phase that was already marked done or active.
-    The run lock (status=in_progress) is not affected.
+    A run's position lives on its run card, so there is nothing to reset
+    on a run: to redo a phase, ``phase open`` it again.
     """
+    if run_id:
+        output_error(
+            3,
+            "A run has no phase to reset",
+            f'Open the phase the run should be on instead: deepvista skill phase open {skill_id} "<phase>" '
+            f"--run-id {run_id}",
+        )
     if dry_run:
         format_output(
             {"dry_run": True, "would": "reset phase to pending", "skill_id": skill_id, "phase": phase_label},
@@ -458,21 +567,25 @@ def skill_phase_reset(ctx: click.Context, skill_id: str, phase_label: str, dry_r
 @click.argument("skill_id")
 @click.argument("phase_label")
 @click.argument("note_text")
+@run_id_option
 @click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
 @click.pass_context
-def skill_phase_note(ctx: click.Context, skill_id: str, phase_label: str, note_text: str, dry_run: bool) -> None:
-    """Set or update the dvNote annotation bubble next to a phase node.
+def skill_phase_note(
+    ctx: click.Context, skill_id: str, phase_label: str, note_text: str, run_id: str | None, dry_run: bool
+) -> None:
+    """Append a progress note to the run's log.
 
-    The annotation appears as a side bubble in the workflow mermaid diagram —
-    useful for recording task dispatch status, short summaries, or interim results.
-    Calling this command again with different text replaces the previous note.
+    Useful for recording task dispatch status, short summaries, or interim
+    results. Without ``--run-id`` (legacy) it sets the phase's dvNote bubble
+    on the workflow card instead.
     """
     if dry_run:
         format_output(
             {
                 "dry_run": True,
-                "would": "set phase note",
+                "would": "add phase note",
                 "skill_id": skill_id,
+                "run_id": run_id,
                 "phase": phase_label,
                 "note_text": note_text,
             },
@@ -483,9 +596,16 @@ def skill_phase_note(ctx: click.Context, skill_id: str, phase_label: str, note_t
         )
         return
 
-    result = _phase(ctx, skill_id, phase_label=phase_label, action="note", note_text=note_text)
+    result = _phase(ctx, skill_id, run_id, phase_label=phase_label, action="note", note_text=note_text)
     format_output(
-        {"ok": True, "skill_id": skill_id, "phase": phase_label, "note": note_text, "title": result.get("title", "")},
+        {
+            "ok": True,
+            "skill_id": skill_id,
+            "run_id": run_id,
+            "phase": phase_label,
+            "note": note_text,
+            "title": result.get("title", ""),
+        },
         ctx.obj.output_format,
         entity_type="skill",
         base_url=ctx.obj.auth_url,
@@ -496,27 +616,32 @@ def skill_phase_note(ctx: click.Context, skill_id: str, phase_label: str, note_t
 @skill_phase_group.command("pause")
 @click.argument("skill_id")
 @click.option("--reason", required=True, help="Short sentence explaining what's blocking the run.")
+@run_id_option
 @click.pass_context
-def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str) -> None:
-    """Pause the run (lock held), marking the active phase ``:::dvNeedIntervention``.
+def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str, run_id: str | None) -> None:
+    """Pause the run where it stands, marking it as waiting on a person.
 
-    Sets the active phase's mermaid node to ``:::dvNeedIntervention`` so the
-    DeepVista UI shows the workflow is waiting for human action. Does NOT change
-    the card's ``status`` — the run lock stays held so a re-run resumes the same
+    The run stays open, so re-running with its ``--run-id`` resumes the same
     phase. Exits non-zero so wrapping scripts notice.
     """
-    card, doc = _load_skill_doc(ctx, skill_id)
-    active = doc.active_phase()
-    if active:
-        _phase(ctx, skill_id, phase_label=active.title, action="need_input", reason=reason)
+    if run_id:
+        _phase(ctx, skill_id, run_id, phase_label="", action="need_input", note_text=reason)
+        title, active_title = "", None
+    else:
+        card, doc = _load_skill_doc(ctx, skill_id)
+        active = doc.active_phase()
+        if active:
+            _phase(ctx, skill_id, phase_label=active.title, action="need_input", reason=reason)
+        title, active_title = card.get("title", ""), active.title if active else None
     out = {
         "ok": False,
         "paused": True,
         "skill_id": skill_id,
-        "title": card.get("title", ""),
-        "active_phase": active.title if active else None,
+        "run_id": run_id,
+        "title": title,
+        "active_phase": active_title,
         "reason": reason,
-        "resume_with": f"deepvista skill run {skill_id}",
+        "resume_with": _resume_command(skill_id, run_id),
     }
     format_output(
         out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url, project_id=ctx.obj.project_id
@@ -528,28 +653,34 @@ def skill_phase_pause(ctx: click.Context, skill_id: str, reason: str) -> None:
 @click.argument("skill_id")
 @click.argument("phase_label")
 @click.option("--reason", required=True, help="Short sentence describing what input is needed from the user.")
+@run_id_option
 @click.pass_context
-def skill_phase_need_input(ctx: click.Context, skill_id: str, phase_label: str, reason: str) -> None:
-    """Signal that a phase is blocked waiting for user input (mermaid ``:::dvNeedIntervention``).
+def skill_phase_need_input(
+    ctx: click.Context, skill_id: str, phase_label: str, reason: str, run_id: str | None
+) -> None:
+    """Signal that a phase is blocked waiting for user input.
 
-    Marks the accordion open and sets the mermaid node to
-    ``:::dvNeedIntervention`` so the DeepVista UI shows the phase as
-    waiting for the user — distinct from a technical blocker (``phase pause``)
-    or an error. Exits non-zero so wrapping scripts notice.
+    The run is marked as waiting on a person at ``phase_label`` — distinct
+    from a technical blocker (``phase pause``) or an error. Exits non-zero
+    so wrapping scripts notice.
 
     The user provides the required information and then resumes with:
 
-        deepvista skill run <skill_id>
+        deepvista skill run <skill_id> --run-id <run_id>
     """
-    result = _phase(ctx, skill_id, phase_label=phase_label, action="need_input", reason=reason)
+    if run_id:
+        result = _phase(ctx, skill_id, run_id, phase_label=phase_label, action="need_input", note_text=reason)
+    else:
+        result = _phase(ctx, skill_id, phase_label=phase_label, action="need_input", reason=reason)
     out = {
         "ok": False,
         "need_input": True,
         "skill_id": skill_id,
+        "run_id": run_id,
         "phase": phase_label,
         "title": result.get("title", ""),
         "reason": reason,
-        "resume_with": f"deepvista skill run {skill_id}",
+        "resume_with": _resume_command(skill_id, run_id),
     }
     format_output(out, ctx.obj.output_format, entity_type="skill", base_url=ctx.obj.auth_url)
     sys.exit(2)
@@ -560,17 +691,60 @@ def skill_phase_need_input(ctx: click.Context, skill_id: str, phase_label: str, 
 @click.option(
     "--review",
     required=True,
-    help="3–6 retrospective bullets to append as the final ``## Review`` section.",
+    help="3–6 retrospective bullets for the run's log (with --outcome error: what went wrong).",
 )
+@click.option(
+    "--outcome",
+    type=click.Choice(("done", "error")),
+    default="done",
+    help="How the run ended. `error` closes a run that cannot finish (needs --run-id).",
+)
+@run_id_option
 @click.option("--dry-run", is_flag=True, default=False, help="Preview without writing.")
 @click.pass_context
-def skill_complete(ctx: click.Context, skill_id: str, review: str, dry_run: bool) -> None:
+def skill_complete(
+    ctx: click.Context, skill_id: str, review: str, outcome: str, run_id: str | None, dry_run: bool
+) -> None:
     """Finalize a host-mode workflow run.
 
-    Appends the ``## Review`` section, sets ``status="completed"``
-    (releasing the run lock so the skill can be run again), and emits
-    ``<json>{"done": true}</json>`` for the host agent's output channel.
+    With ``--run-id`` the run is closed on its run card (``done`` lands it on
+    Output with the review in its log; ``error`` stops it where it stalled) and
+    the workflow card is untouched. Emits ``{"done": true}`` for the host
+    agent's output channel.
     """
+    if not _UUID_RE.match(skill_id):
+        output_error(3, "Invalid skill ID", f"Expected UUID format, got: {skill_id!r}")
+    if not run_id and outcome == "error":
+        output_error(3, "--outcome error needs --run-id", "Only a run can end in error.")
+
+    if run_id:
+        if dry_run:
+            format_output(
+                {"dry_run": True, "would": f"finish run as {outcome}", "skill_id": skill_id, "run_id": run_id},
+                ctx.obj.output_format,
+                entity_type="skill",
+                base_url=ctx.obj.auth_url,
+                project_id=ctx.obj.project_id,
+            )
+            return
+        result = _client(ctx).post(
+            "/finish_workflow_run",
+            {"card_id": skill_id, "run_id": run_id, "outcome": outcome, "summary": review},
+        )
+        run = (result or {}).get("run") or {}
+        click.echo(
+            json.dumps(
+                {
+                    "done": outcome == "done",
+                    "skill_id": skill_id,
+                    "run_id": run_id,
+                    "status": run.get("status", outcome),
+                },
+                default=str,
+            )
+        )
+        return
+
     card, doc = _load_skill_doc(ctx, skill_id)
     doc.append_review(review)
 
@@ -584,6 +758,7 @@ def skill_complete(ctx: click.Context, skill_id: str, review: str, dry_run: bool
         )
         return
 
+    _warn_no_run_id("complete")
     _client(ctx).post(
         "/update_context_card",
         {"card_id": skill_id, "description": doc.body, "reason": "host-skill-complete", "status": "completed"},

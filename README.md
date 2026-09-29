@@ -330,14 +330,14 @@ Card types: `person` · `organization` · `message` · `email` · `todo` · `top
 ```bash
 deepvista skill list [--limit N]
 deepvista skill get <skill_id>
-deepvista skill run <skill_id> [--input "context"]
-deepvista skill phase open <skill_id> "Phase N: <title>"
-deepvista skill phase done <skill_id> "Phase N: <title>" [--artifact-card-id ID]... [--next-phase "Phase N+1: …"]
-deepvista skill phase pause <skill_id> --reason "<short sentence>"
-deepvista skill complete <skill_id> --review "<retrospective bullets>"
+deepvista skill run <skill_id> [--input "context"] [--run-id <run_id>]   # --run-id resumes a paused run
+deepvista skill phase open <skill_id> "Phase N: <title>" --run-id <run_id>
+deepvista skill phase done <skill_id> "Phase N: <title>" --run-id <run_id> [--artifact-card-id ID]... [--next-phase "Phase N+1: …"]
+deepvista skill phase pause <skill_id> --run-id <run_id> --reason "<short sentence>"
+deepvista skill complete <skill_id> --run-id <run_id> --review "<retrospective bullets>" [--outcome error]
 ```
 
-`skill run` prints a JSON header + the workflow's SKILL.md body + a host runtime contract on stdout, and the host agent (Claude Code / OpenClaw / Cursor) drives the run via the `phase` shims and `complete`.
+`skill run` opens a run (a `run_log` card) and prints a JSON header — including the `run_id` — + the workflow's SKILL.md body + a host runtime contract on stdout. The host agent (Claude Code / OpenClaw / Cursor) drives the run via the `phase` shims and `complete`, passing `--run-id` (or `DEEPVISTA_RUN_ID`) on each so progress lands on the run card; the workflow card itself is never written during a run.
 
 ### chat — AI agent
 
