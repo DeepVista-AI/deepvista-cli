@@ -6,7 +6,7 @@ summaries) and synthesize a **workflow** skill grounded in their content.
 Run `deepvista skill create-from-note --help` for full flag reference.
 
 The generated skill is stored as a context card of `type=skill`, linked back to
-every source note via `related_context_card_ids`. Streams NDJSON identical to
+every source note via `relations`. Streams NDJSON identical to
 `chat +send`.
 
 ## Agent conventions
