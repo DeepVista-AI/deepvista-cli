@@ -110,6 +110,6 @@ deepvista notes update <note-id> --content-file -
 Tell the user, in two lines:
 
 - Which workflows ran (and any that were skipped or failed).
-- The planning note URL (`https://app.deepvista.ai/notes/<id>`).
+- The planning note URL (`https://app.deepvista.ai/project/<slug>/notes/<id>`).
 
 If any step fails, stop and surface the error — do not silently fall through.

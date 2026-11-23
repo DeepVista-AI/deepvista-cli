@@ -2,7 +2,7 @@
 
 Every DeepVista entity is scoped to a **project**. The CLI resolves each request
 to a *working project* and sends it as the `X-Project-Id` header; emitted web
-links are prefixed with `/project/{id}/…` so they resolve in the app. When no
+links are prefixed with `/project/<slug>/…` (the project slug) so they resolve in the app. When no
 working project is set the backend falls back to your default project (unchanged
 legacy behavior).
 

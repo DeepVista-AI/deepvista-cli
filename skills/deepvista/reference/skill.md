@@ -14,7 +14,7 @@ Run `deepvista skill --help` or `deepvista skill <cmd> --help` for full flag ref
 
 Read-only: `list`, `get`, `sync --dry-run`, `load`.
 
-Show the app URL after writes: `https://app.deepvista.ai/skills/<id>`
+Show the app URL after writes: `https://app.deepvista.ai/project/<slug>/skills/<id>`
 
 ## Executing a workflow skill — required sequence
 
@@ -103,7 +103,7 @@ After creation, verify with:
 
 ```bash
 deepvista card get <new_card_id>
-# https://app.deepvista.ai/vistabase/<new_card_id>
+# https://app.deepvista.ai/project/<slug>/vistabase/<new_card_id>
 ```
 
 Do **not** use `skill create-from-note` for this — that command runs the

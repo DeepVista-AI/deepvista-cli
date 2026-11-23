@@ -19,6 +19,8 @@ Global flags:
 
 from __future__ import annotations
 
+import re
+
 import click
 
 from deepvista_cli import __version__
@@ -38,6 +40,7 @@ from deepvista_cli.commands.skill import skill_group
 from deepvista_cli.commands.tasks import tasks_group
 from deepvista_cli.commands.upgrade import upgrade_command
 from deepvista_cli.config import DEFAULT_API_URL, CLIConfig
+from deepvista_cli.output.formatter import set_project_ref_resolver
 
 
 class _RootGroup(click.Group):
@@ -52,6 +55,35 @@ class _RootGroup(click.Group):
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         return [name for name in super().list_commands(ctx) if name not in self._HIDDEN_ALIASES]
+
+
+_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
+def _project_link_resolver(config: CLIConfig):  # type: ignore[no-untyped-def]
+    """Resolve the project slug web links should carry, once per invocation.
+
+    A slug passes through untouched. A UUID or no working project is looked up
+    via ``/projects/me`` (the working project when set, else the backend
+    default). Any failure falls back to the id (or no prefix) rather than
+    breaking the command that produced the entity.
+    """
+    cache: dict[str | None, str | None] = {}
+
+    def resolve(project_id: str | None) -> str | None:
+        if project_id in cache:
+            return cache[project_id]
+        ref = project_id
+        if not config.dry_run and (project_id is None or _UUID_RE.fullmatch(project_id)):
+            try:
+                project = config._client.get("/projects/me")
+                ref = (project or {}).get("slug") or project_id
+            except (Exception, SystemExit):
+                pass
+        cache[project_id] = ref
+        return ref
+
+    return resolve
 
 
 @click.group(cls=_RootGroup)
@@ -106,6 +138,7 @@ def cli(
     ctx.ensure_object(CLIConfig)
     ctx.obj = config
     ctx.obj._client = DeepVistaClient(config)
+    set_project_ref_resolver(_project_link_resolver(config))
 
 
 # Project scoping — pick a working project that scopes every other command.

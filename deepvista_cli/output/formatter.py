@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from typing import Any, NoReturn
 
 import click
@@ -42,6 +43,16 @@ ENTITY_KEYS = ("card", "note", "skill", "session", "project")
 _KEY_TYPE_OVERRIDES = {"session": "chat"}
 GENERIC_LIST_KEYS = ("results", "similar")
 
+# Maps the working project (id, slug, or None for the backend default) to the
+# project segment used in web links. Registered by the CLI entry point.
+ProjectRefResolver = Callable[[str | None], str | None]
+_project_ref_resolver: ProjectRefResolver | None = None
+
+
+def set_project_ref_resolver(resolver: ProjectRefResolver | None) -> None:
+    global _project_ref_resolver
+    _project_ref_resolver = resolver
+
 
 def generate_url(
     entity_id: str,
@@ -55,16 +66,17 @@ def generate_url(
         entity_id: The UUID of the entity
         entity_type: Type of entity (card, note, skill, chat, person, organization, topic, keypoint)
         base_url: Base URL of the web app (defaults to https://app.deepvista.ai)
-        project_id: Working project id. When set, the path is prefixed with
-            ``/project/{project_id}`` to match the project-scoped frontend
-            routes (mirrors the web app's ``withProjectPrefix()``).
+        project_id: Project segment for the link (slug or id). When set, the path
+            is prefixed with ``/project/{project_id}`` to match the project-scoped
+            frontend routes (mirrors the web app's ``withProjectPrefix()``).
+            Project entities are never prefixed — their pattern already is one.
 
     Returns:
         Full URL to the entity in the web app
     """
     pattern = URL_PATTERNS.get(entity_type, URL_PATTERNS["card"])
     path = pattern.format(id=entity_id)
-    if project_id:
+    if project_id and entity_type != "project":
         path = f"/project/{project_id}{path}"
     return f"{base_url.rstrip('/')}{path}"
 
@@ -92,6 +104,8 @@ def add_url_to_entity(
     # Map known entity types; fall back to the passed entity_type for unknown types
     if effective_type not in URL_PATTERNS:
         effective_type = entity_type
+    if effective_type != "project" and _project_ref_resolver is not None:
+        project_id = _project_ref_resolver(project_id) or project_id
     result["url"] = generate_url(entity["id"], effective_type, base_url, project_id=project_id)
     return result
 

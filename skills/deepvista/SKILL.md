@@ -43,7 +43,7 @@ other reference file assumes you know it.
 | Subcommand | Use when | Reference |
 |---|---|---|
 | `deepvista auth` / `agents` / `config` / `upgrade` | authenticating, the agent heartbeat, switching profiles, checking for updates | [shared.md](reference/shared.md) |
-| `deepvista project` | listing projects, picking / switching the **working project** that scopes every other command (`X-Project-Id` + `/project/{id}/…` links) | [project.md](reference/project.md) |
+| `deepvista project` | listing projects, picking / switching the **working project** that scopes every other command (`X-Project-Id` + `/project/<slug>/…` links) | [project.md](reference/project.md) |
 | `deepvista notes` | taking a note the user **explicitly asked to record**, listing / updating / deleting notes, quick-capture of a single-line fact | [notes.md](reference/notes.md) |
 | `deepvista session` | recording an agent conversation transcript as a rolling `type=session` card via the `init` / `tick` / `finalize` hook lifecycle | [session.md](reference/session.md) |
 | `deepvista schedule` | activating / deactivating / listing the opt-in recurring daily-planning job | `deepvista schedule --help` |
@@ -116,9 +116,9 @@ If the source material isn't yet a DeepVista note, capture it first
    create, update, or delete data. Describe what will happen, then ask before running.
    Use `--dry-run` (supported on every stateful command) to preview first.
 2. **Show the app URL after writes.** Surface a clickable link so the user can verify:
-   - notes → `https://app.deepvista.ai/notes/<id>`
-   - cards → `https://app.deepvista.ai/vistabase/<id>`
-   - skills → `https://app.deepvista.ai/skills/<id>`
+   - notes → `https://app.deepvista.ai/project/<slug>/notes/<id>`
+   - cards → `https://app.deepvista.ai/project/<slug>/vistabase/<id>`
+   - skills → `https://app.deepvista.ai/project/<slug>/skills/<id>`
 3. **Use `--content-file` for non-trivial content.** Never paste large content,
    files, or URLs inline — pass `--content-file <absolute-path>` (or `--content-file -`
    to read from stdin) so the exact bytes are stored.
