@@ -46,6 +46,13 @@ users what's new between the version they have installed and the latest release.
   adopts a pre-existing server-side row instead of failing when the local
   file is missing.
 
+## [4.5.1](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.5.0...v4.5.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **links:** put the project slug in CLI web links ([#237](https://github.com/DeepVista-AI/deepvista-cli/issues/237)) ([16c3467](https://github.com/DeepVista-AI/deepvista-cli/commit/16c34672626c97b83ccbf488019367c9b5ae2cb8))
+
 ## [4.5.0](https://github.com/DeepVista-AI/deepvista-cli/compare/v4.4.1...v4.5.0) (2026-09-29)
 
 
