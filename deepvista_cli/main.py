@@ -60,7 +60,7 @@ class _RootGroup(click.Group):
 _UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
-def _project_link_resolver(config: CLIConfig):  # type: ignore[no-untyped-def]
+def _project_link_resolver(config: CLIConfig, client: DeepVistaClient):  # type: ignore[no-untyped-def]
     """Resolve the project slug web links should carry, once per invocation.
 
     A slug passes through untouched. A UUID or no working project is looked up
@@ -76,7 +76,7 @@ def _project_link_resolver(config: CLIConfig):  # type: ignore[no-untyped-def]
         ref = project_id
         if not config.dry_run and (project_id is None or _UUID_RE.fullmatch(project_id)):
             try:
-                project = config._client.get("/projects/me")
+                project = client.get("/projects/me")
                 ref = (project or {}).get("slug") or project_id
             except (Exception, SystemExit):
                 pass
@@ -137,8 +137,9 @@ def cli(
     # Attach config + lazy client to context
     ctx.ensure_object(CLIConfig)
     ctx.obj = config
-    ctx.obj._client = DeepVistaClient(config)
-    set_project_ref_resolver(_project_link_resolver(config))
+    client = DeepVistaClient(config)
+    ctx.obj._client = client
+    set_project_ref_resolver(_project_link_resolver(config, client))
 
 
 # Project scoping — pick a working project that scopes every other command.
