@@ -30,7 +30,7 @@ flag reference.
   containing newlines. Never paste large content inline. Pass `-` to read from stdin.
 - **Images/binaries:** notes hold text only — upload with `deepvista card upload <path>`,
   then embed the returned `gs://…` URL in the note body via `![alt](gs://…)` (DV-1650).
-- Show the app URL after any write: `https://app.deepvista.ai/notes/<id>`
+- Show the app URL after any write: `https://app.deepvista.ai/project/<slug>/notes/<id>`
 - Use `--dry-run` to preview without writing.
 
 ## Non-obvious commands

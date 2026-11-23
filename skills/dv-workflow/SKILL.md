@@ -140,7 +140,7 @@ deepvista agents sync --type claude-code
 
 Or add manually — see the **Stop hook** section below.
 
-Show: `https://app.deepvista.ai/vistabase/<SKILL_ID>`
+Show: `https://app.deepvista.ai/project/<slug>/vistabase/<SKILL_ID>`
 
 ---
 
@@ -251,7 +251,7 @@ rm -f ~/.config/deepvista/current-workflow-session.json
 rm -f /tmp/dv-workflow-*.md
 ```
 
-Show: `https://app.deepvista.ai/vistabase/<SKILL_ID>`
+Show: `https://app.deepvista.ai/project/<slug>/vistabase/<SKILL_ID>`
 
 ---
 

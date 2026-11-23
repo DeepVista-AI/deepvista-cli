@@ -29,7 +29,7 @@ Use [notes.md](notes.md) for note-only ergonomics.
 > Use `--dry-run` to preview.
 
 - **Always use `--content-file <absolute-path>`** for large content — never inline.
-- Show the app URL after any write: `https://app.deepvista.ai/vistabase/<id>`
+- Show the app URL after any write: `https://app.deepvista.ai/project/<slug>/vistabase/<id>`
 - Read-only commands (`list`, `get`, `history`, `diff`, `+search`, `+similar`, `+search-content`) are safe
   to run without confirmation.
 

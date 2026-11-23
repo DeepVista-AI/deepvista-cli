@@ -20,7 +20,7 @@ import deepvista_cli.config as cfg
 from deepvista_cli.client.http import DeepVistaClient
 from deepvista_cli.config import CLIConfig
 from deepvista_cli.main import cli
-from deepvista_cli.output.formatter import add_urls_to_data, generate_url
+from deepvista_cli.output.formatter import add_urls_to_data, generate_url, set_project_ref_resolver
 
 # ---------------------------------------------------------------------------
 # Fixtures / stubs
@@ -165,6 +165,68 @@ def test_format_output_links_are_project_scoped() -> None:
     data = {"cards": [{"id": "c1", "type": "note"}]}
     out = add_urls_to_data(data, entity_type="card", base_url="https://app.deepvista.ai", project_id="p1")
     assert out["cards"][0]["url"] == "https://app.deepvista.ai/project/p1/notes/c1"
+
+
+def test_generate_url_never_prefixes_project_entities() -> None:
+    url = generate_url("p1", "project", "https://app.deepvista.ai", project_id="slug-1")
+    assert url == "https://app.deepvista.ai/project/p1"
+
+
+def test_link_uses_resolved_project_slug() -> None:
+    set_project_ref_resolver(lambda project_id: "myslug")
+    out = add_urls_to_data({"id": "n1", "type": "note"}, base_url="https://app.deepvista.ai", project_id=None)
+    assert out["url"] == "https://app.deepvista.ai/project/myslug/notes/n1"
+
+
+def test_link_falls_back_when_resolver_returns_nothing() -> None:
+    set_project_ref_resolver(lambda project_id: None)
+    out = add_urls_to_data({"id": "n1", "type": "note"}, base_url="https://app.deepvista.ai", project_id="p1")
+    assert out["url"] == "https://app.deepvista.ai/project/p1/notes/n1"
+
+
+def test_cli_links_carry_default_project_slug(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubCtxClient()
+    stub.queue("/create_context_card", {"card": {"id": "n1", "type": "note", "title": "t"}})
+    stub.queue("/projects/me", {"id": "00000000-0000-0000-0000-000000000001", "slug": "abc123"})
+    _install_stub_client(monkeypatch, stub)
+
+    result = CliRunner().invoke(cli, ["notes", "create", "--title", "t", "--content", "x"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["card"]["url"].endswith("/project/abc123/notes/n1")
+
+
+def test_cli_links_resolve_working_project_uuid_to_slug(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    uuid = "00000000-0000-0000-0000-000000000002"
+    stub = _StubCtxClient()
+    stub.queue("/create_context_card", {"card": {"id": "n1", "type": "note", "title": "t"}})
+    stub.queue("/projects/me", {"id": uuid, "slug": "work01"})
+    _install_stub_client(monkeypatch, stub)
+
+    result = CliRunner().invoke(cli, ["--project", uuid, "notes", "create", "--title", "t", "--content", "x"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["card"]["url"].endswith("/project/work01/notes/n1")
+
+
+def test_cli_links_keep_slug_without_lookup(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubCtxClient()
+    stub.queue("/create_context_card", {"card": {"id": "n1", "type": "note", "title": "t"}})
+    _install_stub_client(monkeypatch, stub)
+
+    result = CliRunner().invoke(cli, ["--project", "work01", "notes", "create", "--title", "t", "--content", "x"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["card"]["url"].endswith("/project/work01/notes/n1")
+    assert all(path != "/projects/me" for _, path, _ in stub.calls)
+
+
+def test_cli_links_survive_failed_slug_lookup(isolated_config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = _StubCtxClient()
+    stub.queue("/create_context_card", {"card": {"id": "n1", "type": "note", "title": "t"}})
+    _install_stub_client(monkeypatch, stub)
+
+    result = CliRunner().invoke(cli, ["notes", "create", "--title", "t", "--content", "x"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["card"]["url"].endswith("/notes/n1")
+    assert "/project/" not in json.loads(result.output)["card"]["url"]
 
 
 # ---------------------------------------------------------------------------

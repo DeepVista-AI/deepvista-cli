@@ -67,7 +67,7 @@ equivalent.)
 Show the user the link:
 
 ```
-https://app.deepvista.ai/skills/<card_id>
+https://app.deepvista.ai/project/<slug>/skills/<card_id>
 ```
 
 ## Installing it elsewhere

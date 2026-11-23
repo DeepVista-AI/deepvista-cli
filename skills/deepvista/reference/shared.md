@@ -31,7 +31,7 @@ Key global flags: `--profile NAME`, `--project ID`, `--format json|table`, `--ve
 
 Every entity (card, note, chat, skill, …) lives inside a **project**. The CLI
 scopes requests to a *working project* and sends it as the `X-Project-Id`
-header; web links it emits are prefixed `/project/{id}/…` to match the app.
+header; web links it emits are prefixed `/project/<slug>/…` to match the app (the project slug, looked up from the working or default project).
 
 ```bash
 deepvista project list            # projects you own or that are shared with you
